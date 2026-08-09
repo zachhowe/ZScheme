@@ -10,8 +10,9 @@
 (import-clr
   [println System.Console/WriteLine])
 
-;; Sum all elements by recursing through the list
-(define (sum [xs : (List Int)]) : Int
+;; Sum all elements by recursing through the list.
+;; #:recursive: the addition happens after the recursive call, so this cannot be a loop.
+(define #:recursive (sum [xs : (List Int)]) : Int
   (match xs
     [Nil 0]
     [(Cons h t) (+ h (sum t))]))
@@ -41,8 +42,9 @@
     [(Cons h t)
       (if (pred h) #t (any? t pred))]))
 
-;; Zip two lists into a list of pairs (truncates to shorter length)
-(define (zip [xs : (List Int)] [ys : (List String)]) : (List String)
+;; Zip two lists into a list of pairs (truncates to shorter length).
+;; #:recursive: each result cell is built around the recursive call, so this cannot be a loop.
+(define #:recursive (zip [xs : (List Int)] [ys : (List String)]) : (List String)
   (match xs
     [Nil Nil]
     [(Cons x xt)

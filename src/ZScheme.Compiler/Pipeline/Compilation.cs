@@ -271,6 +271,10 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         // the LSP gets them.
         new UnusedBindingAnalyzer(_diagnostics, _options.WarnUnusedParameters).Analyze(program!);
 
+        // Stage 4.8: Self-recursion that TailCallLowering will not compile as a loop (ZS0005).
+        // Also before the early-return so the LSP gets it.
+        new TailRecursionAnalyzer(_diagnostics, _options.WarnUnloopedRecursion).Analyze(program!);
+
         if (_options.StopAfterTypeInference)
         {
             Log.Debug("Compilation: stopping after type inference (LSP analysis mode)");

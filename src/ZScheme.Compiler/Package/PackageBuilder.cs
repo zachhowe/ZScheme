@@ -195,6 +195,8 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
                 options.Namespace = main.Namespace;
             if (main.WarnUnusedParameters is { } warnParams)
                 options.WarnUnusedParameters = warnParams;
+            if (main.WarnUnloopedRecursion is { } warnRecursion)
+                options.WarnUnloopedRecursion = warnRecursion;
         }
 
         // CLI overrides win
@@ -210,6 +212,9 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         // --no-warn-unused-params disables even when the manifest enables.
         if (!cliOverrides.WarnUnusedParameters)
             options.WarnUnusedParameters = false;
+        // Likewise --no-warn-unlooped-recursion.
+        if (!cliOverrides.WarnUnloopedRecursion)
+            options.WarnUnloopedRecursion = false;
 
         // Collection merging (assembly/module search paths, package paths, aliases,
         // precompiled paths) is handled in Build() so auto-resolved dependency inputs and

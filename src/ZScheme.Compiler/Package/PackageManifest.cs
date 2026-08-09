@@ -65,7 +65,11 @@ public sealed record MainBuildConfig(
     // (warn-unused-params "false") disables ZS0003 unused-parameter warnings for the
     // package; null means "not specified" (compiler default: on). The CLI's
     // --no-warn-unused-params wins over this.
-    bool? WarnUnusedParameters = null
+    bool? WarnUnusedParameters = null,
+    // (warn-unlooped-recursion "false") disables ZS0005 warnings about self-recursion that
+    // is not compiled as a loop; null means "not specified" (compiler default: on). The
+    // CLI's --no-warn-unlooped-recursion wins over this.
+    bool? WarnUnloopedRecursion = null
 );
 
 public sealed record TestBuildConfig(

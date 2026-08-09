@@ -478,6 +478,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         string? sdk = null;
         string? outputType = null;
         bool? warnUnusedParams = null;
+        bool? warnUnloopedRecursion = null;
 
         for (var i = 1; i < section.Items.Count; i++)
         {
@@ -543,6 +544,20 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                     }
 
                     break;
+                case "warn-unlooped-recursion":
+                    var warnRecStr = ExpectStringField(field, "warn-unlooped-recursion");
+                    if (warnRecStr is not null)
+                    {
+                        if (warnRecStr is "true" or "false")
+                            warnUnloopedRecursion = warnRecStr == "true";
+                        else
+                            diagnostics.Warning(
+                                "warn-unlooped-recursion must be \"true\" or \"false\"",
+                                field.Span
+                            );
+                    }
+
+                    break;
                 default:
                     diagnostics.Warning(
                         $"Unknown main build field: '{keyword.Text}'",
@@ -559,7 +574,8 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             refPaths,
             sdk,
             outputType,
-            warnUnusedParams
+            warnUnusedParams,
+            warnUnloopedRecursion
         );
     }
 

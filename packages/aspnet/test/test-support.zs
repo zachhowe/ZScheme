@@ -32,7 +32,8 @@
     (if (ok? result) #t #f)))
 
 ;; Internal: poll the server URL until it accepts connections.
-(define-async (test-support/_poll-server [url : String] [deadline : Int])
+;; #:recursive: an async poll must `await` itself, and `await` is never a tail position.
+(define-async #:recursive (test-support/_poll-server [url : String] [deadline : Int])
   : Task
   (if (> (millis (now)) deadline)
       (fail "test server did not start within 10 seconds")

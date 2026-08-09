@@ -47,8 +47,9 @@
     [(Green) "green"]
     [(Blue) "blue"]))
 
-;; Recursive evaluation of macro-generated expression tree
-(define (eval-expr [e : Expr]) : Int
+;; Recursive evaluation of macro-generated expression tree.
+;; #:recursive: a tree fold visits both branches, so it cannot be a loop.
+(define #:recursive (eval-expr [e : Expr]) : Int
   (match e
     [(Lit v) v]
     [(Add l r) (+ (eval-expr l) (eval-expr r))]))

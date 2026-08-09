@@ -26,6 +26,19 @@ type constraints via `: where`.
 (define add5 (partial add 5))
 ```
 
+An optional `#:recursive` marker before the signature asserts that the function's
+self-recursion is intended even though it will not be compiled as a loop, silencing the
+`ZS0005` warning for that definition. Use it where the recursion genuinely cannot be a
+loop — a tree fold, a result built around the recursive call — not to quiet a function
+that could be rewritten with an accumulator.
+
+```scheme
+(define #:recursive (sum [xs : (List Int)]) : Int
+  (match xs
+    [Nil 0]
+    [(Cons h t) (+ h (sum t))]))
+```
+
 ### `define-async` — Define an async function
 
 ```scheme
@@ -33,6 +46,7 @@ type constraints via `: where`.
 ```
 
 Creates an async function that can use `await`. Return type must be `Task` or `(Task T)`.
+Accepts the same `#:recursive` marker as `define`, before the signature.
 
 ```scheme
 (define-async (compute-async [x : Int]) : (Task Int)

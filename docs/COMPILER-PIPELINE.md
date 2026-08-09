@@ -305,6 +305,54 @@ via the backend's last-resort fallback arm). Non-union non-exhaustiveness (bool,
 bare literals) is a warning, not an error. Like Stage 4.5 this runs before the
 `StopAfterTypeInference` early-return so the LSP surfaces the diagnostics.
 
+## Stage 4.7 — Unused bindings
+
+- **Input:** the typed `AstNode.Program`
+- **Driver:** [`UnusedBindingAnalyzer.Analyze(program)`](../src/ZScheme.Compiler/Types/UnusedBindingAnalyzer.cs)
+
+Warns (`ZS0003`) on `let`/`use` locals, parameters, and private top-level defines
+whose name is never referenced. Scope-aware: an occurrence under a shadowing
+rebind doesn't count. Names prefixed with `_` opt out; the parameter half is
+disabled by `CompilerOptions.WarnUnusedParameters`.
+
+## Stage 4.8 — Un-looped self-recursion
+
+- **Input:** the typed `AstNode.Program`
+- **Driver:** [`TailRecursionAnalyzer.Analyze(program)`](../src/ZScheme.Compiler/Types/TailRecursionAnalyzer.cs)
+
+Warns (`ZS0005`) when a self-recursive function will *not* be turned into a loop by
+[`TailCallLowering`](../src/ZScheme.Compiler/Ir/TailCallLowering.cs) (Stage 6), so the
+recursion consumes stack. The message names the reason, carried in `Diagnostic.Data[1]`:
+`not-tail` (the recursive call isn't in tail position), `barrier` (a syntactically tail
+call inside a `with-handlers`/`use` body, whose frame outlives the body),
+`not-top-level` (only top-level `define` forms become loops), or `async` (the IL
+backend doesn't loop async self-recursion — currently unreachable from valid source,
+since an async body must `await` its self-call and `await` is never a tail position).
+
+The analyzer mirrors `TailCallLowering`'s rules one stage earlier, on the AST, so the
+warning reaches the language server. That mapping is near 1:1 — the AST tail spine
+(`if` branches, a `let` body, `match` arm bodies) is the IR spine the pass walks, and
+`cond`/`when`/`begin`/multi-body have all desugared into it by now.
+[`TailRecursionDriftTests`](../tests/ZScheme.Compiler.Tests/Pipeline/TailRecursionDriftTests.cs)
+pins the two together: silence here must mean `FuncDef.IsTcoLoop` there.
+
+It stays deliberately quiet where the AST can't decide — class/object methods (a bare
+`(foo x)` in a method body doesn't resolve to the method), and bodies containing an
+immediately-invoked lambda it couldn't prove reducible (`IiffeBetaReducer` may yet move
+the call into tail position). Mutual recursion is never reported, matching the pass's
+own self-call-only scope. **Silence means the function will be marked `IsTcoLoop`, not
+that every recursive path is bounded**: one tail arm is enough to make it a loop even
+when a sibling arm still recurses on the stack.
+
+A single definition opts out with the `#:recursive` marker
+(`(define #:recursive (f …) …)`), which asserts the deep recursion is intended and
+never leaves the AST. The whole compilation opts out via
+`CompilerOptions.WarnUnloopedRecursion`.
+
+Note that `CompileModule` (dependency modules) runs only the Stage 4.6 validator, and
+merges its diagnostic bag on failure paths only — so a dependency's `ZS0003`/`ZS0005`
+warnings never reach the importer's build.
+
 If `CompilerOptions.StopAfterTypeInference` is set (LSP analysis mode),
 compilation returns a `TypeAnalysisResult` after this step, without lowering or
 emitting.
@@ -362,7 +410,12 @@ Both backends then emit an `IsTcoLoop` function as a loop — C# as `while(true)
 constant stack on both, closing a divergence where deep recursion looped under C# but
 overflowed under IL. Uses the `.tail.` prefix are deliberately avoided (unverifiable inside
 `try`/`finally`, and only a JIT hint). A known shared limitation: a name-based self-jump would
-miscompile polymorphic recursion (`f<T>` calling `f<int>`).
+miscompile polymorphic recursion (`f<T>` calling `f<int>`), and — because the match ignores
+scope — a call to a local that shadows the function's own name.
+
+Self-recursion this pass leaves un-looped is reported to the author as `ZS0005` by
+[Stage 4.8](#stage-48--un-looped-self-recursion), which models these same rules on the AST
+early enough for the language server to see them.
 
 Lowering also injects out-parameter metadata for CLR imports (from
 `TypeInferer.OutParamsByAlias`), registers union/record constructors for pattern
@@ -646,6 +699,7 @@ writes the backend's output. Options:
 | `--package-path <dir>` | Register a package for qualified imports (repeatable) |
 | `--precompiled <path>` | Reference a precompiled `.dll` (repeatable) |
 | `--no-warn-unused-params` | Disable ZS0003 unused-parameter warnings |
+| `--no-warn-unlooped-recursion` | Disable ZS0005 un-looped self-recursion warnings |
 
 `--precompiled` is the consumer side of the [precompiled
 path](#precompiled-path-prebuilt-assemblies): it loads a `.dll` plus its
@@ -666,6 +720,7 @@ Builds a `.zspkg` package, resolving the manifest's declared dependencies. Optio
 | `--package-path <dir>` | Register a package for qualified imports (repeatable) |
 | `--precompiled <path>` | Reference a precompiled `.dll` (repeatable) |
 | `--no-warn-unused-params` | Disable ZS0003 unused-parameter warnings (overrides the manifest's `(warn-unused-params ...)`) |
+| `--no-warn-unlooped-recursion` | Disable ZS0005 un-looped self-recursion warnings (overrides the manifest's `(warn-unlooped-recursion ...)`) |
 
 Output type: `(build (main (output-type ...)))` selects between an executable
 (`"Exe"` / `"WinExe"`) and a library (`"Library"`); anything else is an error. With

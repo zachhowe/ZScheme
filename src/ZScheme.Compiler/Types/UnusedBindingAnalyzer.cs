@@ -1,5 +1,6 @@
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
+using static ZScheme.Compiler.Ast.AstScopes;
 
 namespace ZScheme.Compiler.Types;
 
@@ -164,17 +165,6 @@ public sealed class UnusedBindingAnalyzer(
         }
     }
 
-    private static List<AstNode> TopLevelForms(AstNode.Program program)
-    {
-        var forms = new List<AstNode>();
-        foreach (var form in program.TopLevelForms)
-            if (form is AstNode.ModuleDecl mod)
-                forms.AddRange(mod.Body);
-            else
-                forms.Add(form);
-        return forms;
-    }
-
     /// <summary>Whether <paramref name="name" /> occurs free in <paramref name="node" />
     ///     — occurrences under a rebinding of the same name don't count.</summary>
     private static bool IsUsed(AstNode node, string name)
@@ -186,11 +176,9 @@ public sealed class UnusedBindingAnalyzer(
 
             // let/use are non-recursive: the value is outside the new scope.
             case AstNode.Let let:
-                return IsUsed(let.Value, name)
-                    || (let.VarName != name && IsUsed(let.Body, name));
+                return IsUsed(let.Value, name) || (let.VarName != name && IsUsed(let.Body, name));
             case AstNode.Use use:
-                return IsUsed(use.Value, name)
-                    || (use.VarName != name && IsUsed(use.Body, name));
+                return IsUsed(use.Value, name) || (use.VarName != name && IsUsed(use.Body, name));
 
             case AstNode.Lambda lambda:
                 return lambda.Params.All(p => p.Name != name) && IsUsed(lambda.Body, name);
@@ -202,9 +190,7 @@ public sealed class UnusedBindingAnalyzer(
 
             case AstNode.Match match:
                 return IsUsed(match.Scrutinee, name)
-                    || match.Arms.Any(a =>
-                        !PatternBinds(a.Pattern, name) && IsUsed(a.Body, name)
-                    );
+                    || match.Arms.Any(a => !PatternBinds(a.Pattern, name) && IsUsed(a.Body, name));
 
             case AstNode.WithHandlers withHandlers:
                 return IsUsed(withHandlers.Body, name)
@@ -233,71 +219,5 @@ public sealed class UnusedBindingAnalyzer(
         if (constructor is null || constructor.Params.Any(p => p.Name == name))
             return false;
         return ConstructorScope(constructor).Any(node => IsUsed(node, name));
-    }
-
-    private static IEnumerable<AstNode> ConstructorScope(ConstructorDecl constructor)
-    {
-        foreach (var arg in constructor.SuperArgs ?? [])
-            yield return arg;
-        foreach (var (_, value) in constructor.FieldSets)
-            yield return value;
-        foreach (var expr in constructor.BodyExprs)
-            yield return expr;
-    }
-
-    private static bool PatternBinds(Pattern pattern, string name)
-    {
-        return pattern switch
-        {
-            Pattern.Variable v => v.Name == name,
-            Pattern.Constructor c => c.Fields.Any(f => PatternBinds(f, name)),
-            Pattern.Tuple t => t.Elements.Any(e => PatternBinds(e, name)),
-            _ => false,
-        };
-    }
-
-    /// <summary>Plain child enumeration (no scope logic) driving the outer walk that
-    ///     visits every binder in the program.</summary>
-    private static IEnumerable<AstNode> Children(AstNode node)
-    {
-        return node switch
-        {
-            AstNode.Program p => p.TopLevelForms,
-            AstNode.ModuleDecl m => m.Body,
-            AstNode.Define d => [d.Body],
-            AstNode.DefineAsync d => [d.Body],
-            AstNode.DefineValue d => [d.Value],
-            AstNode.Let l => [l.Value, l.Body],
-            AstNode.Use u => [u.Value, u.Body],
-            AstNode.If i => [i.Condition, i.Then, i.Else],
-            AstNode.Lambda l => [l.Body],
-            AstNode.Apply a => [a.Function, .. a.Args],
-            AstNode.Partial p => [p.Function, .. p.Args],
-            AstNode.Match m => [m.Scrutinee, .. m.Arms.Select(a => a.Body)],
-            AstNode.TupleNew t => t.Elements,
-            AstNode.Raise r => [r.Expr],
-            AstNode.Await a => [a.Expr],
-            AstNode.ClrNew c => c.Args,
-            AstNode.SuperMethodCall s => s.Args,
-            AstNode.With w => [w.Record, .. w.Updates.Select(u => u.Value)],
-            AstNode.WithHandlers wh => [wh.Body, .. wh.Handlers.Select(h => h.HandlerBody)],
-            AstNode.SetField sf => [sf.Value],
-            AstNode.ObjectExpr oe => ObjectChildren(oe.Methods, oe.Constructor),
-            AstNode.ClassDecl cd => ObjectChildren(cd.Methods, cd.Constructor),
-            _ => [],
-        };
-    }
-
-    private static IEnumerable<AstNode> ObjectChildren(
-        IReadOnlyList<ObjectMethod> methods,
-        ConstructorDecl? constructor
-    )
-    {
-        foreach (var method in methods)
-            yield return method.Body;
-        if (constructor is null)
-            yield break;
-        foreach (var node in ConstructorScope(constructor))
-            yield return node;
     }
 }

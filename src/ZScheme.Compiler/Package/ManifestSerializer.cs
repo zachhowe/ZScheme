@@ -153,6 +153,11 @@ public static class ManifestSerializer
         if (main.WarnUnusedParameters is { } warnParams)
             sb.AppendLine($"      (warn-unused-params \"{(warnParams ? "true" : "false")}\")");
 
+        if (main.WarnUnloopedRecursion is { } warnRecursion)
+            sb.AppendLine(
+                $"      (warn-unlooped-recursion \"{(warnRecursion ? "true" : "false")}\")"
+            );
+
         foreach (var refPath in main.RefPaths)
             sb.AppendLine($"      (ref \"{refPath}\")");
 
@@ -198,6 +203,7 @@ public static class ManifestSerializer
                 || main.Sdk is not null
                 || main.OutputType is not null
                 || main.WarnUnusedParameters is not null
+                || main.WarnUnloopedRecursion is not null
                 || main.RefPaths.Count > 0
             );
     }

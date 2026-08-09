@@ -44,6 +44,8 @@ The LSP went from a small feature set to broad coverage:
 - **Infrastructure**: file watching, workspace folders, static capability advertisement
   instead of dynamic registration, stderr logging and a `--debug` flag for `zs-lsp`, and a
   workspace scan that skips gitignored and generated trees while reporting what it walked.
+- **`#:recursive`** on `define`/`define-async` asserts that a definition's self-recursion is
+  intended, silencing `ZS0005` for it. Compiler-only — the marker never leaves the AST.
 - A document's analysis can no longer fail silently — that's pinned with tests.
 - The owning package's manifest is resolved by the language server.
 
@@ -53,6 +55,13 @@ The LSP went from a small feature set to broad coverage:
 - **`zs lint`** reports ZS0004 across a whole package instead of one editor buffer at a time,
   and `--fix` applies it in place. The analyzer moved from the language server into
   `ZScheme.Compiler/Analysis/` so both front ends share it; no compile path runs it.
+- **`ZS0005`** warns when a self-recursive function will not be compiled as a loop, and names
+  why: the call isn't in tail position, it sits behind a `with-handlers`/`use` frame, or the
+  function isn't a top-level `define`. A new stage-4.8 analyzer mirrors `TailCallLowering`'s
+  rules on the AST — a drift test pins silence to `FuncDef.IsTcoLoop` — so the language server
+  sees it too. Imported modules don't leak their warnings into an importer's build.
+  `--no-warn-unlooped-recursion` and `(build (main (warn-unlooped-recursion "false")))` opt out
+  wholesale.
 
 ## Changed
 

@@ -1899,4 +1899,40 @@ public class AstBuilderTests
         var dt = (ZType.ZDelegateType)define.Params[0].TypeAnnotation!;
         Assert.Equal("System.Action", dt.ClrTypeName);
     }
+
+    [Fact]
+    public void Define_WithoutRecursiveMarker_DoesNotAllowUnloopedRecursion()
+    {
+        var prog = Build("(define (f n) n)");
+        var define = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
+        Assert.False(define.AllowsUnloopedRecursion);
+    }
+
+    [Fact]
+    public void Define_WithRecursiveMarker_SetsTheFlag_AndKeepsTheSignature()
+    {
+        var prog = Build("(define #:recursive (f [n : Int]) : Int n)");
+        var define = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
+        Assert.True(define.AllowsUnloopedRecursion);
+        Assert.Equal("f", define.FnName);
+        Assert.Single(define.Params);
+        Assert.Equal("n", define.Params[0].Name);
+        Assert.Equal(ZType.Int, define.ReturnTypeAnnotation);
+    }
+
+    [Fact]
+    public void DefineAsync_WithRecursiveMarker_SetsTheFlag()
+    {
+        var prog = Build("(define-async #:recursive (f [n : Int]) : Task n)");
+        var define = Assert.IsType<AstNode.DefineAsync>(prog.TopLevelForms[0]);
+        Assert.True(define.AllowsUnloopedRecursion);
+        Assert.Equal("f", define.FnName);
+    }
+
+    [Fact]
+    public void Define_RecursiveMarker_OnAValueBinding_IsAnError()
+    {
+        var (_, diag) = BuildWithDiagnostics("(define #:recursive x 1)");
+        AssertHasError(diag, "not a value binding");
+    }
 }

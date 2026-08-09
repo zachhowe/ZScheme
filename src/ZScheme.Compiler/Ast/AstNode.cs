@@ -89,6 +89,8 @@ public abstract record AstNode(SourceSpan Span)
     // NameSpan, when non-empty, points at the bare function-name token so the LSP can
     // resolve hovers/go-to-definition precisely (the outer Span is single-line and
     // unreliable for multi-line forms).
+    // AllowsUnloopedRecursion is set by the `#:recursive` marker: an assertion that this
+    // definition's self-recursion is intended, silencing ZS0005. It never leaves the AST.
     public sealed record Define(
         string FnName,
         IReadOnlyList<Param> Params,
@@ -97,7 +99,8 @@ public abstract record AstNode(SourceSpan Span)
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
-        SourceSpan NameSpan = default
+        SourceSpan NameSpan = default,
+        bool AllowsUnloopedRecursion = false
     ) : AstNode(Span);
 
     // (define name expr) — value binding
@@ -179,6 +182,7 @@ public abstract record AstNode(SourceSpan Span)
     public sealed record Raise(AstNode Expr, SourceSpan Span) : AstNode(Span);
 
     // (define-async (name [params...]) : (Task ReturnType) :where (^k notnull) body)
+    // AllowsUnloopedRecursion: see Define.
     public sealed record DefineAsync(
         string FnName,
         IReadOnlyList<Param> Params,
@@ -187,7 +191,8 @@ public abstract record AstNode(SourceSpan Span)
         SourceSpan Span,
         IReadOnlyList<AttributeDecl>? Attributes = null,
         IReadOnlyDictionary<string, GenericConstraintKind>? TypeParamConstraints = null,
-        SourceSpan NameSpan = default
+        SourceSpan NameSpan = default,
+        bool AllowsUnloopedRecursion = false
     ) : AstNode(Span);
 
     // (await expr) — awaits a Task

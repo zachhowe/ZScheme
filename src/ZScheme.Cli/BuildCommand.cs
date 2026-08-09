@@ -55,6 +55,9 @@ internal static class BuildCommand
                 case "--no-warn-unused-params":
                     overrides.WarnUnusedParameters = false;
                     break;
+                case "--no-warn-unlooped-recursion":
+                    overrides.WarnUnloopedRecursion = false;
+                    break;
             }
 
         Log.Debug(

@@ -14,7 +14,7 @@ internal static class CompileCommand
         if (args.Length == 0)
         {
             Console.Error.WriteLine(
-                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--precompiled <path>] [--emit-project] [--output-type Exe|Library] [--lang-version <ver>] [--nuget <PackageId>:<Version>] [--no-warn-unused-params]"
+                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--precompiled <path>] [--emit-project] [--output-type Exe|Library] [--lang-version <ver>] [--nuget <PackageId>:<Version>] [--no-warn-unused-params] [--no-warn-unlooped-recursion]"
             );
             return 1;
         }
@@ -32,6 +32,7 @@ internal static class CompileCommand
         string? langVersion = null;
         var nugetPackages = new List<(string PackageId, string Version)>();
         var warnUnusedParams = true;
+        var warnUnloopedRecursion = true;
 
         for (var i = 1; i < args.Length; i++)
             switch (args[i])
@@ -71,6 +72,9 @@ internal static class CompileCommand
                     break;
                 case "--no-warn-unused-params":
                     warnUnusedParams = false;
+                    break;
+                case "--no-warn-unlooped-recursion":
+                    warnUnloopedRecursion = false;
                     break;
                 case "--output-type" when i + 1 < args.Length:
                     outputType = args[++i];
@@ -139,6 +143,7 @@ internal static class CompileCommand
             ModuleAliases = moduleAliases,
             PrecompiledPackagePaths = precompiledPaths,
             WarnUnusedParameters = warnUnusedParams,
+            WarnUnloopedRecursion = warnUnloopedRecursion,
         };
         var sw = Stopwatch.StartNew();
         var compilation = new Compilation(options);

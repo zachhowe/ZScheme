@@ -358,10 +358,40 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         return new AstNode.UnitLit(bracket.Span);
     }
 
+    /// <summary>
+    ///     Strips a leading <c>#:recursive</c> marker from a <c>define</c>/<c>define-async</c>
+    ///     form, returning whether it was present and the form with the marker removed (so the
+    ///     rest of the builder sees the ordinary shape). The marker asserts that the
+    ///     definition's self-recursion is intended, silencing
+    ///     <see cref="DiagnosticCodes.NonLoopedSelfRecursion" />; it carries no other meaning
+    ///     and never reaches the IR. Lexed as one Symbol token, like <c>#:open</c>.
+    /// </summary>
+    private (bool Present, SExpr.SList Form) StripRecursiveMarker(SExpr.SList list, string formName)
+    {
+        if (list.Items.Count < 2 || list.Items[1] is not SExpr.Atom { Text: "#:recursive" } marker)
+            return (false, list);
+
+        // A value binding has no recursion to speak of — `(define #:recursive name expr)`.
+        if (list.Items.Count > 2 && list.Items[2] is SExpr.Atom)
+        {
+            diagnostics.Error(
+                $"'#:recursive' applies to a function definition, not a value binding: "
+                    + $"({formName} #:recursive (name ...) body)",
+                marker.Span
+            );
+            return (false, list with { Items = [list.Items[0], .. list.Items.Skip(2)] });
+        }
+
+        return (true, list with { Items = [list.Items[0], .. list.Items.Skip(2)] });
+    }
+
     private AstNode BuildDefine(SExpr.SList list)
     {
         // (define (name [params...]) : ReturnType body)
         // (define name expr)
+        bool allowsUnloopedRecursion;
+        (allowsUnloopedRecursion, list) = StripRecursiveMarker(list, "define");
+
         if (list.Items.Count < 3)
         {
             diagnostics.Error("'define' requires at least a name and body", list.Span);
@@ -448,7 +478,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 body,
                 list.Span,
                 TypeParamConstraints: typeParamConstraints,
-                NameSpan: fnNameAtom.Span
+                NameSpan: fnNameAtom.Span,
+                AllowsUnloopedRecursion: allowsUnloopedRecursion
             );
         }
 
@@ -2551,6 +2582,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     private AstNode BuildDefineAsync(SExpr.SList list)
     {
         // (define-async (name [params...]) : ReturnType body)
+        bool allowsUnloopedRecursion;
+        (allowsUnloopedRecursion, list) = StripRecursiveMarker(list, "define-async");
+
         if (list.Items.Count < 3)
         {
             diagnostics.Error("'define-async' requires a signature and body", list.Span);
@@ -2620,7 +2654,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             body,
             list.Span,
             TypeParamConstraints: typeParamConstraints,
-            NameSpan: fnNameAtom.Span
+            NameSpan: fnNameAtom.Span,
+            AllowsUnloopedRecursion: allowsUnloopedRecursion
         );
     }
 
