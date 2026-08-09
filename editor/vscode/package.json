@@ -12,7 +12,8 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:zscheme"
+    "onLanguage:zscheme",
+    "onLanguage:zscheme-package"
   ],
   "scripts": {
     "compile": "tsc -p .",
@@ -35,8 +36,29 @@
           "zscheme"
         ],
         "extensions": [
-          ".zs",
+          ".zs"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "zscheme-package",
+        "aliases": [
+          "ZScheme Package Manifest",
+          "zscheme-package"
+        ],
+        "extensions": [
           ".zspkg"
+        ],
+        "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "zscheme-fmt",
+        "aliases": [
+          "ZScheme Formatter Config",
+          "zscheme-fmt"
+        ],
+        "filenames": [
+          ".zsfmt"
         ],
         "configuration": "./language-configuration.json"
       }
@@ -46,6 +68,16 @@
         "language": "zscheme",
         "scopeName": "source.zscheme",
         "path": "./syntaxes/zscheme.tmLanguage.json"
+      },
+      {
+        "language": "zscheme-package",
+        "scopeName": "source.zspkg",
+        "path": "./syntaxes/zspkg.tmLanguage.json"
+      },
+      {
+        "language": "zscheme-fmt",
+        "scopeName": "source.zsfmt",
+        "path": "./syntaxes/zsfmt.tmLanguage.json"
       }
     ],
     "configuration": {

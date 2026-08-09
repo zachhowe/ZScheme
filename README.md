@@ -30,7 +30,7 @@ ZScheme is a Scheme-like functional programming language that compiles to .NET. 
 ## Features still in progress
 
 - [ ] Continuations support (e.g. `call/cc`)
-- [ ] Editor support: Sublime Text, Visual Studio Code, Zed, JetBrains
+- [ ] Editor support: Sublime Text, Visual Studio Code, Zed
 
 ## Features planned
 

@@ -67,12 +67,24 @@ module.exports = grammar({
     flag_keyword: ($) =>
       token(seq("#:", choice("open", "mutable", "init"))),
 
-    // CLR qualifiers: :instance, :instance-property, :instance-indexer, :where
+    // CLR qualifiers, as accepted by AstBuilder.BuildImportClr. Longest
+    // alternatives first: with only "instance-property" listed, the token
+    // matched the prefix of ":instance-property-set" and left "-set" behind as
+    // a separate symbol.
     clr_qualifier: ($) =>
       token(
         seq(
           ":",
-          choice("instance-property", "instance-indexer", "instance", "where"),
+          choice(
+            "instance-property-init",
+            "instance-property-set",
+            "instance-indexer-set",
+            "instance-property",
+            "instance-indexer",
+            "instance",
+            "where",
+            "from",
+          ),
         ),
       ),
 

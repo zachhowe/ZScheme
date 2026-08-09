@@ -1,0 +1,90 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "ZScheme Formatter Config",
+  "scopeName": "source.zsfmt",
+  "fileTypes": ["zsfmt"],
+  "patterns": [
+    { "include": "#expressions" }
+  ],
+  "repository": {
+    "expressions": {
+      "patterns": [
+        { "include": "#line-comment" },
+        { "include": "#s-expression" },
+        { "include": "#boolean" },
+        { "include": "#indent-style" },
+        { "include": "#integer" },
+        { "include": "#form-name-removed" },
+        { "include": "#form-name" }
+      ]
+    },
+
+    "line-comment": {
+      "match": ";.*$",
+      "name": "comment.line.semicolon.zsfmt"
+    },
+
+    "integer": {
+      "match": "-?[0-9]+(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "constant.numeric.integer.zsfmt"
+    },
+
+    "boolean": {
+      "comment": "All four spellings are accepted; 'true'/'false' are plain symbols in .zs but booleans here.",
+      "match": "(?:#t|#f|(?i:true|false))(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "constant.language.boolean.zsfmt"
+    },
+
+    "indent-style": {
+      "match": "(?i:space|tab)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "constant.language.indent-style.zsfmt"
+    },
+
+    "s-expression": {
+      "begin": "\\(",
+      "end": "\\)",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.parens.begin.zsfmt" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.parens.end.zsfmt" }
+      },
+      "patterns": [
+        { "include": "#head-format" },
+        { "include": "#head-setting" },
+        { "include": "#head-unknown" },
+        { "include": "#expressions" }
+      ]
+    },
+
+    "head-format": {
+      "match": "(?<=\\()format(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.control.format.zsfmt"
+    },
+
+    "head-setting": {
+      "match": "(?<=\\()(?:trim-trailing-whitespace|trailing-comment-spaces|insert-final-newline|keep-first-operand|always-break-body|max-line-length|merge-imports|indent-style|indent-size|root)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.other.setting.zsfmt"
+    },
+
+    "head-unknown": {
+      "comment": "An unrecognised clause is silently ignored by ZsFmtConfig, so leave it unhighlighted rather than dressing it up as a setting.",
+      "match": "(?<=\\()[a-zA-Z_+\\-*/=<>!?&|%^~#@][a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->]*",
+      "name": "variable.other.zsfmt"
+    },
+
+    "form-name-removed": {
+      "comment": "In keep-first-operand / always-break-body a '-' prefix drops a name from the built-in default set.",
+      "match": "(-)([a-zA-Z_+*/=<>!?&|%^~#@][a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->]*)",
+      "captures": {
+        "1": { "name": "keyword.operator.remove.zsfmt" },
+        "2": { "name": "entity.name.function.zsfmt" }
+      }
+    },
+
+    "form-name": {
+      "match": "[a-zA-Z_+\\-*/=<>!?&|%^~#@][a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->]*",
+      "name": "entity.name.function.zsfmt"
+    }
+  }
+}

@@ -1,0 +1,158 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "ZScheme Package Manifest",
+  "scopeName": "source.zspkg",
+  "fileTypes": ["zspkg"],
+  "patterns": [
+    { "include": "#expressions" }
+  ],
+  "repository": {
+    "expressions": {
+      "patterns": [
+        { "include": "#line-comment" },
+        { "include": "#string" },
+        { "include": "#s-expression" },
+        { "include": "#dependency-entry" },
+        { "include": "#dependency-kind" },
+        { "include": "#integer" },
+        { "include": "#boolean" },
+        { "include": "#identifiers" }
+      ]
+    },
+
+    "line-comment": {
+      "match": ";.*$",
+      "name": "comment.line.semicolon.zspkg"
+    },
+
+    "string": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.zspkg",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.zspkg" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.zspkg" }
+      },
+      "patterns": [
+        {
+          "match": "\\\\[ntr\\\\\"]",
+          "name": "constant.character.escape.zspkg"
+        }
+      ]
+    },
+
+    "integer": {
+      "match": "-?[0-9]+(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "constant.numeric.integer.zspkg"
+    },
+
+    "boolean": {
+      "match": "(?:#t|#f)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "constant.language.boolean.zspkg"
+    },
+
+    "s-expression": {
+      "begin": "\\(",
+      "end": "\\)",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.parens.begin.zspkg" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.parens.end.zspkg" }
+      },
+      "patterns": [
+        { "include": "#framework-form" },
+        { "include": "#head-package" },
+        { "include": "#head-section" },
+        { "include": "#head-dependency-source" },
+        { "include": "#head-subsection" },
+        { "include": "#head-field" },
+        { "include": "#head-deprecated" },
+        { "include": "#expressions" }
+      ]
+    },
+
+    "head-package": {
+      "match": "(?<=\\()package(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.control.package.zspkg"
+    },
+
+    "head-section": {
+      "match": "(?<=\\()(?:test-dependencies|dependencies|sources|build)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.control.section.zspkg"
+    },
+
+    "head-dependency-source": {
+      "match": "(?<=\\()(?:nuget|zscheme|framework)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.other.dependency-source.zspkg"
+    },
+
+    "head-subsection": {
+      "match": "(?<=\\()(?:main|test)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.other.section.zspkg"
+    },
+
+    "head-field": {
+      "comment": "Longest alternatives first so 'output' cannot shadow 'output-type'.",
+      "match": "(?<=\\()(?:warn-unused-params|default-module|import-prefix|description|output-type|namespace|version|license|backend|output|entry|name|ref|sdk)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.other.field.zspkg"
+    },
+
+    "head-deprecated": {
+      "comment": "(build (main (stdlib ...))) is accepted but warns; use --package-path instead.",
+      "match": "(?<=\\()stdlib(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "invalid.deprecated.zspkg"
+    },
+
+    "framework-form": {
+      "comment": "(framework Microsoft.AspNetCore.App ...) — entries are bare symbols, not strings.",
+      "begin": "(?<=\\()(framework)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "end": "(?=\\))",
+      "beginCaptures": {
+        "1": { "name": "keyword.other.dependency-source.zspkg" }
+      },
+      "patterns": [
+        { "include": "#line-comment" },
+        {
+          "match": "[a-zA-Z_+\\-*/=<>!?&|%^~#@][a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->]*",
+          "name": "entity.name.package.zspkg"
+        }
+      ]
+    },
+
+    "dependency-entry": {
+      "comment": "[System.Collections.Immutable \"9.0.0\"] / [zunit :local \"../zunit\"] — the leading bare symbol names the dependency.",
+      "begin": "\\[",
+      "end": "\\]",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.brackets.begin.zspkg" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.section.brackets.end.zspkg" }
+      },
+      "patterns": [
+        { "include": "#line-comment" },
+        { "include": "#string" },
+        { "include": "#dependency-kind" },
+        {
+          "match": "[a-zA-Z_+\\-*/=<>!?&|%^~#@][a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->]*",
+          "name": "entity.name.package.zspkg"
+        }
+      ]
+    },
+
+    "dependency-kind": {
+      "comment": "':local' lexes as Colon + Symbol, so match the pair as one unit.",
+      "match": ":(?:git|local)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "keyword.other.dependency-kind.zspkg"
+    },
+
+    "identifiers": {
+      "comment": "Unknown keys stay unhighlighted; this rule exists so a symbol is consumed whole and cannot be re-scanned for a number mid-token.",
+      "match": "[a-zA-Z_+\\-*/=<>!?&|%^~#@][a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->]*",
+      "name": "variable.other.zspkg"
+    }
+  }
+}

@@ -3,7 +3,9 @@
     "zscheme": {
       "enabled": true,
       "command": ["zs-lsp"],
-      "selector": "source.zscheme",
+      // Manifests are served too — AnalysisService dispatches on the .zspkg suffix.
+      // source.zsfmt is deliberately absent: the server has no handler for .zsfmt.
+      "selector": "source.zscheme, source.zspkg",
       "schemes": ["file"]
     }
   }

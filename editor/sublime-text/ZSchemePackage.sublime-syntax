@@ -1,0 +1,171 @@
+%YAML 1.2
+---
+# Package manifests (*.zspkg). Standalone by design: a manifest shares the ZScheme
+# lexer but none of its vocabulary, so `define`/`lambda` must NOT highlight here.
+# Keyword sets mirror src/ZScheme.Compiler/Package/ManifestParser.cs.
+name: ZScheme Package Manifest
+file_extensions:
+  - zspkg
+scope: source.zspkg
+
+variables:
+  sym_start: '[a-zA-Z_+\-*/=<>!?&|%^~#@]'
+  sym_continue: '[a-zA-Z_+\-*/=<>!?&|%^~#@0-9.\->]'
+  symbol: '{{sym_start}}{{sym_continue}}*'
+
+contexts:
+  main:
+    - include: expressions
+
+  expressions:
+    - include: line-comment
+    - include: string
+    - include: open-paren
+    - include: close-paren
+    - include: open-bracket
+    - include: close-bracket
+    - include: dependency-kind
+    - include: integer
+    - include: boolean
+    - include: identifiers
+
+  # ── Comments ──────────────────────────────────────────────────────
+
+  line-comment:
+    - match: ;.*$
+      scope: comment.line.semicolon.zspkg
+
+  # ── Strings ───────────────────────────────────────────────────────
+
+  string:
+    - match: '"'
+      scope: punctuation.definition.string.begin.zspkg
+      push: string-body
+
+  string-body:
+    - meta_include_prototype: false
+    - meta_scope: string.quoted.double.zspkg
+    - match: '\\[ntr\\"]'
+      scope: constant.character.escape.zspkg
+    - match: '"'
+      scope: punctuation.definition.string.end.zspkg
+      pop: true
+
+  # ── Numbers and booleans ──────────────────────────────────────────
+  # Every manifest value is a string — even (backend "il") and
+  # (warn-unused-params "false") — so these exist only for robustness.
+
+  integer:
+    - match: '-?[0-9]+(?!{{sym_continue}})'
+      scope: constant.numeric.integer.zspkg
+
+  boolean:
+    - match: (?:#t|#f)(?!{{sym_continue}})
+      scope: constant.language.boolean.zspkg
+
+  # ── Parentheses (S-expression structure) ──────────────────────────
+
+  open-paren:
+    - match: \(
+      scope: punctuation.section.parens.begin.zspkg
+      push: after-open-paren
+
+  close-paren:
+    - match: \)
+      scope: punctuation.section.parens.end.zspkg
+
+  after-open-paren:
+    - include: line-comment
+    - match: \)
+      scope: punctuation.section.parens.end.zspkg
+      pop: true
+    # The single top-level form.
+    - match: 'package(?!{{sym_continue}})'
+      scope: keyword.control.package.zspkg
+      set: paren-body
+    # (framework Id ...) — entries are bare symbols, not strings.
+    - match: 'framework(?!{{sym_continue}})'
+      scope: keyword.other.dependency-source.zspkg
+      set: framework-body
+    # Sections. 'test-dependencies' precedes nothing that could shadow it, but keep
+    # the longest alternative first to match the other keyword lists' convention.
+    - match: '(?:test-dependencies|dependencies|sources|build)(?!{{sym_continue}})'
+      scope: keyword.control.section.zspkg
+      set: paren-body
+    - match: '(?:nuget|zscheme)(?!{{sym_continue}})'
+      scope: keyword.other.dependency-source.zspkg
+      set: paren-body
+    # Sub-sections of (sources ...) and (build ...).
+    - match: '(?:main|test)(?!{{sym_continue}})'
+      scope: keyword.other.section.zspkg
+      set: paren-body
+    # Scalar fields. Longest alternatives first so 'output' cannot shadow 'output-type'.
+    - match: '(?:warn-unused-params|default-module|import-prefix|description|output-type|namespace|version|license|backend|output|entry|name|ref|sdk)(?!{{sym_continue}})'
+      scope: keyword.other.field.zspkg
+      set: paren-body
+    # Accepted but warned on: "use --package-path instead".
+    - match: 'stdlib(?!{{sym_continue}})'
+      scope: invalid.deprecated.zspkg
+      set: paren-body
+    # Unknown keys stay unhighlighted — the parser only warns about them.
+    - match: '{{symbol}}'
+      scope: variable.other.zspkg
+      set: paren-body
+    - match: ''
+      set: paren-body
+
+  paren-body:
+    - match: \)
+      scope: punctuation.section.parens.end.zspkg
+      pop: true
+    - include: expressions
+
+  framework-body:
+    - match: \)
+      scope: punctuation.section.parens.end.zspkg
+      pop: true
+    - include: line-comment
+    - match: '{{symbol}}'
+      scope: entity.name.package.zspkg
+
+  # ── Dependency entries ────────────────────────────────────────────
+  # [System.Collections.Immutable "9.0.0"] / [zunit :local "../zunit"]
+
+  open-bracket:
+    - match: \[
+      scope: punctuation.section.brackets.begin.zspkg
+      push: after-open-bracket
+
+  close-bracket:
+    - match: \]
+      scope: punctuation.section.brackets.end.zspkg
+
+  after-open-bracket:
+    - include: line-comment
+    - match: \]
+      scope: punctuation.section.brackets.end.zspkg
+      pop: true
+    - match: '{{symbol}}'
+      scope: entity.name.package.zspkg
+      set: bracket-body
+    - match: ''
+      set: bracket-body
+
+  bracket-body:
+    - match: \]
+      scope: punctuation.section.brackets.end.zspkg
+      pop: true
+    - include: expressions
+
+  # ── Dependency source markers ─────────────────────────────────────
+  # ':local' lexes as Colon + Symbol; highlight the pair as one unit.
+
+  dependency-kind:
+    - match: ':(?:git|local)(?!{{sym_continue}})'
+      scope: keyword.other.dependency-kind.zspkg
+
+  # ── Identifiers ───────────────────────────────────────────────────
+
+  identifiers:
+    - match: '{{symbol}}'
+      scope: variable.other.zspkg

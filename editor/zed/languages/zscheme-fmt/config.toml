@@ -1,6 +1,8 @@
-name = "ZScheme"
+name = "ZScheme Format"
 grammar = "zscheme"
-path_suffixes = ["zs"]
+# Zed matches path suffixes against the file name too, so this catches the
+# dotfile ".zsfmt" as well as any hypothetical "foo.zsfmt".
+path_suffixes = ["zsfmt"]
 line_comments = ["; "]
 autoclose_before = "])"
 brackets = [
