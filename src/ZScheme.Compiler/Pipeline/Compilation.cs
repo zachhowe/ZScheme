@@ -1218,6 +1218,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             )
             {
                 IsExecutable = emitter.HasEntryPoint,
+                ClrTypeAssemblies = emitter.ClrTypeAssemblies,
             };
         }
 

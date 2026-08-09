@@ -244,44 +244,58 @@ internal static class GenerateProjectCommand
     }
 
     /// <summary>
-    ///     Shared-framework assemblies that duplicate a full type name already exported by
-    ///     another assembly in the same framework, keyed by the framework that ships both.
-    ///     The IL backend is immune — it binds each member reference to one assembly, guided
-    ///     by the import's <c>:from</c> hint — but C# sees two candidates for the type name
-    ///     and reports CS0433. Hiding the listed assembly behind an <c>extern alias</c> leaves
-    ///     one candidate in the global namespace.
-    ///     <para>
-    ///         This is a list of known offenders, not a general solution: the principled fix
-    ///         is to emit <c>extern alias</c> declarations driven by each resolved member's
-    ///         declaring assembly. Tracked in
-    ///         <c>issues/csharp-backend-cs0433-on-duplicated-framework-type-names.md</c>.
-    ///     </para>
+    ///     Assemblies to move out of the global namespace with an <c>extern alias</c>, derived
+    ///     from the resolution the compiler already performed. Two assemblies in one reference
+    ///     set can export the same full type name (<c>LoggingBuilderExtensions</c> ships in both
+    ///     <c>Microsoft.Extensions.Logging</c> and <c>Microsoft.Extensions.Logging.Configuration</c>).
+    ///     The IL backend is immune — it binds each member reference to one assembly, guided by
+    ///     the import's <c>:from</c> hint — but the C# backend emits a bare name and Roslyn sees
+    ///     two candidates, reporting CS0433. <paramref name="clrTypeAssemblies" /> says which
+    ///     assembly each spelled-out type name was resolved through, so every *other* candidate
+    ///     for that name can be hidden, leaving the one the compiler chose.
     /// </summary>
-    private static readonly Dictionary<string, string[]> FrameworkAmbiguousAssemblies = new()
-    {
-        // Microsoft.Extensions.Logging.LoggingBuilderExtensions is defined in both
-        // Microsoft.Extensions.Logging and Microsoft.Extensions.Logging.Configuration.
-        // The packages bind ClearProviders/SetMinimumLevel, which live in the former.
-        ["Microsoft.AspNetCore.App"] = ["Microsoft.Extensions.Logging.Configuration"],
-    };
-
     private static IReadOnlyList<string> CollectAliasedAssemblies(
-        IReadOnlyList<string> frameworkRefs,
-        string sdk
+        IReadOnlyDictionary<string, string> clrTypeAssemblies,
+        IReadOnlyList<string> assemblySearchPaths,
+        DiagnosticBag diagnostics
     )
     {
-        // Microsoft.NET.Sdk.Web pulls Microsoft.AspNetCore.App in implicitly, so the
-        // ambiguity is present whether or not the reference is spelled out.
-        var effective = frameworkRefs.ToList();
-        if (sdk == "Microsoft.NET.Sdk.Web" && !effective.Contains("Microsoft.AspNetCore.App"))
-            effective.Add("Microsoft.AspNetCore.App");
+        if (clrTypeAssemblies.Count == 0)
+            return [];
 
-        return effective
-            .SelectMany(id =>
-                FrameworkAmbiguousAssemblies.TryGetValue(id, out var names) ? names : []
-            )
-            .Distinct()
-            .ToList();
+        var losers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var interop = new ClrInterop(diagnostics, assemblySearchPaths))
+        {
+            foreach (var (typeName, declaringAssembly) in clrTypeAssemblies)
+            {
+                var candidates = interop.FindDeclaringAssemblyNames(typeName);
+                if (candidates.Count < 2)
+                    continue;
+
+                Log.Debug(
+                    "generate-project: '{TypeName}' is declared by {Candidates}; keeping {Chosen}",
+                    typeName,
+                    string.Join(", ", candidates),
+                    declaringAssembly
+                );
+                foreach (var candidate in candidates)
+                    if (
+                        !string.Equals(
+                            candidate,
+                            declaringAssembly,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                        losers.Add(candidate);
+            }
+        }
+
+        // Never hide an assembly the emitted source resolves some *other* type through: doing
+        // so would trade one CS0433 for a CS0246. Such a pair cannot be separated by hiding at
+        // all — it needs per-type `extern alias` qualification in the emitted source — so leave
+        // it to Roslyn to report rather than emitting a csproj that breaks a working name.
+        losers.ExceptWith(clrTypeAssemblies.Values);
+        return losers.Order(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     /// <summary>
@@ -340,7 +354,11 @@ internal static class GenerateProjectCommand
                 .ToList(),
             FrameworkReferences = frameworkRefs,
             Sdk = sdk,
-            AliasedAssemblies = CollectAliasedAssemblies(frameworkRefs, sdk),
+            AliasedAssemblies = CollectAliasedAssemblies(
+                mainResult.ClrTypeAssemblies,
+                context.AssemblySearchPaths,
+                diagnostics
+            ),
         };
 
         CSharpProjectGenerator.WriteProjectDirectory(
@@ -455,6 +473,11 @@ internal static class GenerateProjectCommand
         // Precompiled ZScheme dependency assemblies (and ZScheme.Runtime) the emitted test
         // sources bind against. Every test compilation contributes; the csproj needs the union.
         var testAssemblyReferences = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Union of every test compilation's CLR type resolutions — the csproj covers all the
+        // .cs files at once, so it needs the ambiguities of all of them. See
+        // CollectAliasedAssemblies.
+        var testClrTypeAssemblies = new Dictionary<string, string>(StringComparer.Ordinal);
         var failed = false;
 
         foreach (var testFile in orderedTestFiles)
@@ -512,6 +535,8 @@ internal static class GenerateProjectCommand
                     .Replace(Path.DirectorySeparatorChar, '/');
                 csFiles.Add((csFileName, csResult.CsOutput));
                 testAssemblyReferences.UnionWith(csResult.PrecompiledAssemblyPaths);
+                foreach (var (typeName, assembly) in csResult.ClrTypeAssemblies)
+                    testClrTypeAssemblies[typeName] = assembly;
             }
 
             // Whatever this file compiled from source that nothing had emitted yet is now part
@@ -581,7 +606,11 @@ internal static class GenerateProjectCommand
             ProjectReferences = [mainCsprojRelative],
             FrameworkReferences = testFrameworkRefs,
             Sdk = testSdk,
-            AliasedAssemblies = CollectAliasedAssemblies(testFrameworkRefs, testSdk),
+            AliasedAssemblies = CollectAliasedAssemblies(
+                testClrTypeAssemblies,
+                context.TestAssemblySearchPaths,
+                diagnostics
+            ),
         };
 
         CSharpProjectGenerator.WriteProjectDirectory(

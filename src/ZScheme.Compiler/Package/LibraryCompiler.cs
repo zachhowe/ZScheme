@@ -18,7 +18,9 @@ public sealed record LibraryCompilationResult(
 public sealed record LibraryCSharpResult(
     string CsOutput,
     IReadOnlyDictionary<string, CompiledModule> Modules,
-    IReadOnlyList<string> PrecompiledDependencyPaths
+    IReadOnlyList<string> PrecompiledDependencyPaths,
+    /// <summary>See <see cref="CSharpEmitter.ClrTypeAssemblies" />.</summary>
+    IReadOnlyDictionary<string, string> ClrTypeAssemblies
 );
 
 public sealed class LibraryCompiler(DiagnosticBag diagnostics)
@@ -91,7 +93,12 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             compiledModules.Count
         );
 
-        return new LibraryCSharpResult(csOutput, compiledModules, precompiledAssemblyPaths);
+        return new LibraryCSharpResult(
+            csOutput,
+            compiledModules,
+            precompiledAssemblyPaths,
+            emitter.ClrTypeAssemblies
+        );
     }
 
     /// <summary>

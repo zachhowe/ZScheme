@@ -229,6 +229,22 @@ public sealed partial class CSharpEmitter(
     /// </summary>
     public bool HasEntryPoint { get; private set; }
 
+    // Fully-qualified CLR type name -> simple name of the assembly overload resolution bound
+    // it to. See ClrTypeAssemblies.
+    private readonly Dictionary<string, string> _clrTypeAssemblies = new(StringComparer.Ordinal);
+
+    /// <summary>
+    ///     For every CLR type name the emitted source spells out, the simple name of the
+    ///     assembly the compiler resolved that member through — the one an
+    ///     <c>import-clr … :from</c> hint picked. Unlike the IL backend, which binds a member
+    ///     reference to one specific assembly, C# emits a bare name and reports CS0433 when two
+    ///     referenced assemblies export it. Callers hand this to
+    ///     <see cref="CSharpProjectOptions.AliasedAssemblies" /> so the losing candidates are
+    ///     moved out of the global namespace and the name resolves the way the compiler already
+    ///     decided it should.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> ClrTypeAssemblies => _clrTypeAssemblies;
+
     private static Dictionary<string, string> BuildFuncToModuleMap(
         IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules,
         IReadOnlyDictionary<string, string>? precompiledMap = null

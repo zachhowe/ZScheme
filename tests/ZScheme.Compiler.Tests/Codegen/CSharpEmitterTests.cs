@@ -569,6 +569,35 @@ public class CSharpEmitterTests
         );
     }
 
+    /// The emitted C# spells a bare CLR type name, which Roslyn reports as CS0433 when two
+    /// referenced assemblies export it. Recording the assembly each spelled name was resolved
+    /// through is what lets `zs generate-project` hide the losing candidates.
+    [Fact]
+    public void ClrTypeAssemblies_RecordsTheAssemblyEachSpelledTypeNameResolvedThrough()
+    {
+        var source =
+            @"(import-clr
+  [writeln System.Console/WriteLine])
+
+(writeln ""hi"")";
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                AllowsImplicitModuleName = true,
+                DisablePrelude = true,
+            }
+        );
+        var raw = compilation.Compile(source);
+
+        Assert.True(raw.Success, string.Join("\n", raw.Diagnostics.Diagnostics));
+        var result = Assert.IsType<CompilationResult.CSharpOutputResult>(raw);
+        Assert.Equal(
+            typeof(Console).Assembly.GetName().Name,
+            result.ClrTypeAssemblies["System.Console"]
+        );
+    }
+
     [Fact]
     public void EmitLetWithClrCallBody()
     {

@@ -1631,17 +1631,85 @@ public sealed class ClrInterop : IDisposable
         return (null, firstMatch);
     }
 
-    private Type? ProbeDirectory(string directory, string typeName, string nsPrefix)
+    /// <summary>
+    ///     Simple names of every assembly reachable from this compilation that <em>declares</em>
+    ///     <paramref name="typeName" />. More than one means the C# backend, which emits a bare
+    ///     type name rather than a member reference bound to one assembly, would hit CS0433 —
+    ///     see <see cref="CSharpEmitter.ClrTypeAssemblies" />. The declaring assembly is the one
+    ///     counted, not the one scanned, so a facade that merely forwards the type (which
+    ///     <see cref="Assembly.GetType(string)" /> follows) is not a second candidate, matching
+    ///     how C# resolves it.
+    /// </summary>
+    public IReadOnlyList<string> FindDeclaringAssemblyNames(string typeName)
+    {
+        var names = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Consider(Assembly assembly)
+        {
+            Type? candidate;
+            try
+            {
+                candidate = assembly.GetType(typeName);
+            }
+            catch
+            {
+                return;
+            }
+
+            if (candidate?.Assembly.GetName().Name is { } name && seen.Add(name))
+                names.Add(name);
+        }
+
+        // Snapshot before probing: LoadFromPath below adds to the private context.
+        foreach (var assembly in _loadContext.Assemblies.ToList())
+            Consider(assembly);
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            Consider(assembly);
+
+        var nsPrefix = typeName.Contains('.') ? typeName[..typeName.LastIndexOf('.')] : typeName;
+        foreach (var searchPath in _searchPaths)
+        {
+            if (!Directory.Exists(searchPath))
+                continue;
+
+            foreach (var dll in CandidateDlls(searchPath, nsPrefix))
+                try
+                {
+                    Consider(_loadContext.LoadFromPath(dll));
+                }
+                catch
+                {
+                    // Skip assemblies that fail to load
+                }
+        }
+
+        return names;
+    }
+
+    /// <summary>
+    ///     The .dll files in <paramref name="directory" /> whose name relates to
+    ///     <paramref name="nsPrefix" /> closely enough to plausibly hold a type in that
+    ///     namespace — either can be the longer of the two, since an assembly may be named for
+    ///     a namespace above (System.Runtime holds System.String) or below (Foo.Bar.dll holds
+    ///     Foo.Bar.Baz.Qux) the one asked for.
+    /// </summary>
+    private static IEnumerable<string> CandidateDlls(string directory, string nsPrefix)
     {
         foreach (var dll in Directory.EnumerateFiles(directory, "*.dll"))
         {
             var fileName = Path.GetFileNameWithoutExtension(dll);
             if (
-                !nsPrefix.StartsWith(fileName, StringComparison.OrdinalIgnoreCase)
-                && !fileName.StartsWith(nsPrefix, StringComparison.OrdinalIgnoreCase)
+                nsPrefix.StartsWith(fileName, StringComparison.OrdinalIgnoreCase)
+                || fileName.StartsWith(nsPrefix, StringComparison.OrdinalIgnoreCase)
             )
-                continue;
+                yield return dll;
+        }
+    }
 
+    private Type? ProbeDirectory(string directory, string typeName, string nsPrefix)
+    {
+        foreach (var dll in CandidateDlls(directory, nsPrefix))
             try
             {
                 var asm = _loadContext.LoadFromPath(dll);
@@ -1653,7 +1721,6 @@ public sealed class ClrInterop : IDisposable
             {
                 // Skip assemblies that fail to load
             }
-        }
 
         return null;
     }

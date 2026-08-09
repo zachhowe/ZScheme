@@ -1232,6 +1232,7 @@ public sealed partial class CSharpEmitter
             n.OutParams is { Count: > 0 },
             n.GenericTypeArgs is { Count: > 0 }
         );
+        RecordClrTypeAssembly(n);
         if (n.OutParams is { Count: > 0 })
             return EmitOutParamStaticCall(
                 $"{n.QualifiedTypeName}.{n.MethodName}",
@@ -1253,6 +1254,22 @@ public sealed partial class CSharpEmitter
         }
 
         return $"{n.QualifiedTypeName}.{n.MethodName}({args})";
+    }
+
+    /// <summary>
+    ///     Notes which assembly the type name about to be spelled out resolved through, for
+    ///     <see cref="ClrTypeAssemblies" />. Only records a member declared by the named type
+    ///     itself: for an inherited member the resolved <c>DeclaringType</c> is a base type,
+    ///     whose assembly says nothing about where the spelled name is found.
+    /// </summary>
+    private void RecordClrTypeAssembly(IrNode.ClrCall n)
+    {
+        if (n.ResolvedMethodInfo?.DeclaringType is not { } declaring)
+            return;
+        if (declaring.FullName != n.QualifiedTypeName)
+            return;
+        if (declaring.Assembly.GetName().Name is { } assemblyName)
+            _clrTypeAssemblies[n.QualifiedTypeName] = assemblyName;
     }
 
     private string EmitClrNew(IrNode.ClrNew n)

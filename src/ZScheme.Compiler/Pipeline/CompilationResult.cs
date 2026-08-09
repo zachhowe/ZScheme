@@ -74,6 +74,10 @@ public abstract record CompilationResult(DiagnosticBag Diagnostics)
         public bool IsExecutable { get; set; }
         public IReadOnlyList<string> PrecompiledAssemblyPaths { get; set; } =
             PrecompiledAssemblyPaths;
+
+        /// <summary>See <see cref="Codegen.CSharpEmitter.ClrTypeAssemblies" />.</summary>
+        public IReadOnlyDictionary<string, string> ClrTypeAssemblies { get; set; } =
+            new Dictionary<string, string>();
     }
 
     public sealed record IlOutputFailure(DiagnosticBag Diagnostics)

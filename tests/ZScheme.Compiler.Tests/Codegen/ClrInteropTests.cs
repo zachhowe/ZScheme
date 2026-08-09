@@ -664,14 +664,50 @@ public class ClrInteropTests
         Assert.NotEqual(alphaType.Assembly, betaType.Assembly);
     }
 
-    private static void EmitCollisionType(string assemblyName, string methodName)
+    [Fact]
+    public void FindDeclaringAssemblyNames_ReportsEveryAssemblyThatDeclaresTheName()
+    {
+        // Two assemblies declaring one full type name is what the C# backend turns into
+        // CS0433: it emits a bare name where the IL backend emits a member reference bound
+        // to a specific assembly. `zs generate-project` hides every candidate but the one
+        // the compiler resolved through, so it needs the full candidate list.
+        EmitCollisionType("ClrInteropAmbiguityA", "Alpha", "ClrInteropAmbiguity.Gadget");
+        EmitCollisionType("ClrInteropAmbiguityB", "Beta", "ClrInteropAmbiguity.Gadget");
+
+        var interop = new ClrInterop(new DiagnosticBag());
+
+        var names = interop.FindDeclaringAssemblyNames("ClrInteropAmbiguity.Gadget");
+
+        Assert.Contains("ClrInteropAmbiguityA", names);
+        Assert.Contains("ClrInteropAmbiguityB", names);
+    }
+
+    [Fact]
+    public void FindDeclaringAssemblyNames_CountsTheDeclaringAssemblyNotTheForwardingFacade()
+    {
+        // System.Math is declared once and reachable through the facades that forward it
+        // (System.Runtime), which Assembly.GetType follows. Counting the scanned assembly
+        // instead of the declaring one would report every loaded facade as a rival candidate
+        // and alias the real corelib away.
+        var interop = new ClrInterop(new DiagnosticBag());
+
+        var names = interop.FindDeclaringAssemblyNames("System.Math");
+
+        Assert.Equal([typeof(Math).Assembly.GetName().Name!], names);
+    }
+
+    private static void EmitCollisionType(
+        string assemblyName,
+        string methodName,
+        string typeName = "ClrInteropCollision.Widget"
+    )
     {
         var asm = AssemblyBuilder.DefineDynamicAssembly(
             new AssemblyName(assemblyName),
             AssemblyBuilderAccess.Run
         );
         var module = asm.DefineDynamicModule(assemblyName);
-        var typeBuilder = module.DefineType("ClrInteropCollision.Widget", TypeAttributes.Public);
+        var typeBuilder = module.DefineType(typeName, TypeAttributes.Public);
         var methodBuilder = typeBuilder.DefineMethod(
             methodName,
             MethodAttributes.Public | MethodAttributes.Static,
