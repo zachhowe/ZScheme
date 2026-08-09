@@ -134,7 +134,15 @@ precompiled** decision is made (see the dedicated section below). The steps are:
 3. **Load precompiled packages** — `CompileLoadModules` scans the package cache
    and stdlib, loading any precompiled DLL + metadata pairs into the module cache.
 4. **Compile prelude modules** — `CompilePreludeModules` compiles the standard
-   library prelude from source (unless disabled).
+   library prelude from source (unless disabled). A prelude module never gets the
+   prelude injected into itself. It is identified by `CompilerOptions.PrimaryModuleName`
+   first and its own `(module ...)` declaration second, because the prelude is named
+   by package-qualified names (`stdlib/list`) while the file declares the bare one
+   (`(module list)`) — so only the former can match for stdlib. `zs lint` and the
+   language server both set `PrimaryModuleName`; without consulting it they read
+   stdlib sources with a wider set of ZScheme-declared type names in scope than the
+   package build ever gives those modules, which made short CLR type spellings look
+   shadowed when they are not.
 5. **Resolve and compile user imports** — `CompileResolveAndCompileImports`
    builds a
    [`ModuleGraph`](../src/ZScheme.Compiler/Modules/ModuleGraph.cs), adds an edge

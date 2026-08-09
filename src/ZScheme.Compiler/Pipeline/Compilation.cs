@@ -149,7 +149,11 @@ public sealed partial class Compilation(CompilerOptions? options = null)
 
         // Pre-parse: discover imports before macro expansion
         var (preProgram, preImports, isPreludeModule, userImportNames) =
-            CompilePreParseAndDiscoverImports(sexprs, new HashSet<string>(_options.PreludeModules));
+            CompilePreParseAndDiscoverImports(
+                sexprs,
+                new HashSet<string>(_options.PreludeModules),
+                _options.PrimaryModuleName
+            );
 
         var resolver = CreateModuleResolver(fileName);
         Log.Debug(
@@ -388,7 +392,11 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         List<AstNode.Import> Imports,
         bool IsPreludeModule,
         HashSet<string> UserImportNames
-    ) CompilePreParseAndDiscoverImports(List<SExpr> sexprs, HashSet<string> preludeModules)
+    ) CompilePreParseAndDiscoverImports(
+        List<SExpr> sexprs,
+        HashSet<string> preludeModules,
+        string? primaryModuleName
+    )
     {
         var preDiag = new DiagnosticBag();
         var preBuilder = new AstBuilder(preDiag);
@@ -396,12 +404,24 @@ public sealed partial class Compilation(CompilerOptions? options = null)
 
         var preImports = AllTopLevelForms(preProgram).OfType<AstNode.Import>().ToList();
 
-        // Check if this is a prelude module (prelude modules should not auto-import prelude)
+        // Check if this is a prelude module (prelude modules should not auto-import prelude).
+        //
+        // The package-qualified name is checked first because it is the only one that can
+        // match: the prelude is named by qualified module names ("stdlib/mutable/treelist")
+        // while the file declares the bare one ("(module mutable-treelist)"). Without it every
+        // stdlib source read outside a package build — `zs lint`, the language server — was
+        // compiled with the whole prelude injected, giving those files a wider set of
+        // ZScheme-declared type names than LibraryCompiler ever gives them. That is what made
+        // ZS0004 decline on `System.Collections.Generic.List.Count` in mutable/treelist.zs: the
+        // prelude's `stdlib/list` put a ZScheme `List` in scope, so the canonicalizer refused to
+        // read the short spelling as the CLR type, even though the package build has no such
+        // declaration and binds it exactly that way.
         var preModuleDecl = AllTopLevelForms(preProgram)
             .OfType<AstNode.ModuleDecl>()
             .FirstOrDefault();
         var isPreludeModule =
-            preModuleDecl is not null && preludeModules.Contains(preModuleDecl.ModuleName);
+            (primaryModuleName is not null && preludeModules.Contains(primaryModuleName))
+            || (preModuleDecl is not null && preludeModules.Contains(preModuleDecl.ModuleName));
         var userImportNames = new HashSet<string>(preImports.Select(i => i.ModuleName));
         Log.Debug(
             "Pre-parse: {ImportCount} imports, isPreludeModule={IsPrelude}",

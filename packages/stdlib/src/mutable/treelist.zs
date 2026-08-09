@@ -22,33 +22,33 @@
   System.Collections.Generic
   System.Collections.Immutable
   System.Linq
-  [ml-count-raw System.Collections.Generic.List.Count
+  [ml-count-raw List.Count
     :instance-property : ((Mutable-TreeList ^a) -> Int)]
-  [ml-item-raw System.Collections.Generic.List.Item
+  [ml-item-raw List.Item
     :instance-indexer : ((Mutable-TreeList ^a) Int -> ^a)]
-  [ml-set-item-raw System.Collections.Generic.List.Item
+  [ml-set-item-raw List.Item
     :instance-indexer-set : ((Mutable-TreeList ^a) Int ^a -> Unit)]
-  [ml-add-raw System.Collections.Generic.List.Add
+  [ml-add-raw List.Add
     :instance : ((Mutable-TreeList ^a) ^a -> Unit)]
-  [ml-insert-raw System.Collections.Generic.List.Insert
+  [ml-insert-raw List.Insert
     :instance : ((Mutable-TreeList ^a) Int ^a -> Unit)]
-  [ml-remove-at-raw System.Collections.Generic.List.RemoveAt
+  [ml-remove-at-raw List.RemoveAt
     :instance : ((Mutable-TreeList ^a) Int -> Unit)]
-  [ml-clear-raw System.Collections.Generic.List.Clear
+  [ml-clear-raw List.Clear
     :instance : ((Mutable-TreeList ^a) -> Unit)]
-  [ml-contains-raw System.Collections.Generic.List.Contains
+  [ml-contains-raw List.Contains
     :instance : ((Mutable-TreeList ^a) ^a -> Bool)]
-  [ml-add-range-raw System.Collections.Generic.List.AddRange
+  [ml-add-range-raw List.AddRange
     :instance : ((Mutable-TreeList ^a) (Mutable-TreeList ^a) -> Unit)]
-  [ml-insert-range-raw System.Collections.Generic.List.InsertRange
+  [ml-insert-range-raw List.InsertRange
     :instance : ((Mutable-TreeList ^a) Int (Mutable-TreeList ^a) -> Unit)]
-  [ml-remove-range-raw System.Collections.Generic.List.RemoveRange
+  [ml-remove-range-raw List.RemoveRange
     :instance : ((Mutable-TreeList ^a) Int Int -> Unit)]
-  [ml-get-range-raw System.Collections.Generic.List.GetRange
+  [ml-get-range-raw List.GetRange
     :instance : ((Mutable-TreeList ^a) Int Int -> (Mutable-TreeList ^a))]
-  [ml-reverse-raw System.Collections.Generic.List.Reverse
+  [ml-reverse-raw List.Reverse
     :instance : ((Mutable-TreeList ^a) -> Unit)]
-  [ml-index-of-raw System.Collections.Generic.List.IndexOf
+  [ml-index-of-raw List.IndexOf
     :instance : ((Mutable-TreeList ^a) ^a -> Int)]
   [treelist-to-mutable-raw Enumerable/ToList ^a
     : ((TreeList ^a) -> (Mutable-TreeList ^a))]
