@@ -5458,17 +5458,18 @@ public class IlEmitterTests
     {
         var match = new IrNode.Match(
             new IrNode.Var("x") { Type = ZType.Int },
-            [
-                new IrMatchArm(
-                    new IrPattern.Literal(5L),
-                    new IrNode.IntConst(1) { Type = ZType.Int }
-                ),
-            ]
+            [new IrMatchArm(new IrPattern.Literal(5L), new IrNode.IntConst(1) { Type = ZType.Int })]
         )
         {
             Type = ZType.Int,
         };
-        var func = new IrNode.FuncDef("Compute", [new IrParam("x", ZType.Int)], ZType.Int, match, false)
+        var func = new IrNode.FuncDef(
+            "Compute",
+            [new IrParam("x", ZType.Int)],
+            ZType.Int,
+            match,
+            false
+        )
         {
             Type = new ZType.ZFuncType([ZType.Int], ZType.Int),
         };
@@ -5488,5 +5489,94 @@ public class IlEmitterTests
             diag.Diagnostics,
             d => d.IsError && d.Message.Contains("Unsupported literal pattern value type")
         );
+    }
+
+    // A class method body calling a module-level function exported by another module must
+    // emit regardless of the order the two modules arrive in. Module emission order follows
+    // import-discovery preorder, not a dependency-first topological sort, so the module that
+    // owns the callee can legitimately come *after* the module that owns the class.
+    [Fact]
+    public void EmitClassMethod_CallsFunctionFromLaterModule_ResolvesTheCall()
+    {
+        var callerModule = (
+            "CallerModule",
+            (IReadOnlyList<IrNode>)
+                [
+                    new IrNode.InterfaceDecl(
+                        "IThing",
+                        [],
+                        [],
+                        [
+                            new IrInterfaceMethodSignature(
+                                "Poke",
+                                [new IrParam("x", ZType.Int)],
+                                ZType.Int
+                            ),
+                        ]
+                    ),
+                    new IrNode.ClassDecl(
+                        "Thing",
+                        [],
+                        ["IThing"],
+                        [],
+                        [
+                            new IrObjectMethod(
+                                "Poke",
+                                [new IrParam("x", ZType.Int)],
+                                ZType.Int,
+                                new IrNode.Call(
+                                    new IrNode.Var("a-helper")
+                                    {
+                                        Type = new ZType.ZFuncType([ZType.Int], ZType.Int),
+                                    },
+                                    [new IrNode.Var("x") { Type = ZType.Int }]
+                                )
+                                {
+                                    Type = ZType.Int,
+                                }
+                            ),
+                        ],
+                        Constructor: new IrConstructor([], null, [], [])
+                    ),
+                ]
+        );
+
+        // The callee's module is emitted *after* the class's module.
+        var calleeModule = (
+            "CalleeModule",
+            (IReadOnlyList<IrNode>)
+                [
+                    new IrNode.FuncDef(
+                        "a-helper",
+                        [new IrParam("x", ZType.Int)],
+                        ZType.Int,
+                        new IrNode.BinOp(
+                            "+",
+                            new IrNode.Var("x") { Type = ZType.Int },
+                            new IrNode.IntConst(1) { Type = ZType.Int }
+                        )
+                        {
+                            Type = ZType.Int,
+                        },
+                        false
+                    )
+                    {
+                        Type = new ZType.ZFuncType([ZType.Int], ZType.Int),
+                    },
+                ]
+        );
+
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter(
+            "TestAssembly",
+            diag,
+            "TestClass",
+            importedModules: [callerModule, calleeModule]
+        );
+        var bytes = emitter.Emit(new IrNode.Seq([]) { Type = ZType.Unit });
+
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
     }
 }

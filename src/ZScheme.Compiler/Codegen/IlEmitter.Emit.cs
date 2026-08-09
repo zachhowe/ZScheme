@@ -96,6 +96,12 @@ public sealed partial class IlEmitter
                     List<(IrNode.FuncDef Func, MethodDefinition Method)> Funcs
                 )>();
 
+            // Class constructor and method bodies, deferred out of pass 0a. They can call any
+            // module's functions, and modules arrive in import-discovery preorder rather than
+            // dependency-first order, so a body emitted while its own module's pass 0a runs can
+            // reach a function whose module has not registered its signatures yet.
+            var deferredClassBodies = new List<Action>();
+
             // Pass 0a: define all types, static fields, and function signatures.
             // Order matters: types and FuncDef signatures must be registered BEFORE
             // class declarations are emitted, so class method bodies can resolve
@@ -149,11 +155,12 @@ public sealed partial class IlEmitter
                         moduleFuncs.Add((func, methodDef));
                     }
 
-                // Sub-pass 4: emit class declarations (their method bodies can now resolve all
-                // module-level functions and static fields)
+                // Sub-pass 4: declare classes — their types, fields and method shells. The
+                // bodies are queued and emitted below, once every module has registered its
+                // function signatures.
                 foreach (var def in defs)
                     if (def is IrNode.ClassDecl classDecl)
-                        EmitClassDecl(classDecl, ctx);
+                        EmitClassDecl(classDecl, ctx, deferredClassBodies);
 
                 Log.Debug(
                     "IlEmitter: Pass 0a complete for {ModuleClassName}: {LetCount} let bindings, {FuncCount} functions",
@@ -163,6 +170,16 @@ public sealed partial class IlEmitter
                 );
                 moduleState.Add((moduleType, moduleLetBindings, defs, moduleFuncs));
             }
+
+            // Every module's signatures now exist, so the queued class bodies can resolve
+            // calls into modules that were emitted after the class's own.
+            foreach (var emitClassBody in deferredClassBodies)
+                emitClassBody();
+
+            Log.Debug(
+                "IlEmitter: Pass 0a complete, {ClassBodyCount} deferred class bodies emitted",
+                deferredClassBodies.Count
+            );
 
             // Pass 0b: emit all function bodies and .cctor bodies.
             // Set ctx.CurrentTypeDefinition to each imported module's type so that lambdas
@@ -816,7 +833,15 @@ public sealed partial class IlEmitter
                 // this path is always synchronous.)
                 var startLabel = new CilInstructionLabel();
                 startLabel.Instruction = il.Add(CilOpCodes.Nop);
-                EmitLoopBody(func.Body, il, func.Params, locals, funcBodyCtx, methodDef, startLabel);
+                EmitLoopBody(
+                    func.Body,
+                    il,
+                    func.Params,
+                    locals,
+                    funcBodyCtx,
+                    methodDef,
+                    startLabel
+                );
                 return;
             }
 
@@ -906,10 +931,7 @@ public sealed partial class IlEmitter
                     {
                         var argClrType = MapToReflectionClr(jump.NewArgs[i].Type);
                         if (argClrType.IsValueType && !sig.ParameterTypes[i].IsValueType)
-                            il.Add(
-                                CilOpCodes.Box,
-                                _module.DefaultImporter.ImportType(argClrType)
-                            );
+                            il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argClrType));
                     }
 
                     var tmp = new CilLocalVariable(slotType);
@@ -952,7 +974,8 @@ public sealed partial class IlEmitter
                     outerParams,
                     locals,
                     ctx,
-                    () => EmitLoopBody(let.Body, il, outerParams, locals, ctx, methodDef, startLabel)
+                    () =>
+                        EmitLoopBody(let.Body, il, outerParams, locals, ctx, methodDef, startLabel)
                 );
                 break;
 
@@ -2611,8 +2634,7 @@ public sealed partial class IlEmitter
         // nested constructor patterns over imported unions, whose field getters the raw
         // scrutinee name alone failed to find. See IlEmitter.cs (RegisterNestedTypes comment).
         var effectiveUnion =
-            ctor.ResolvedUnion
-            ?? (scrutineeType is ZType.ZNamedType named ? named.Name : null);
+            ctor.ResolvedUnion ?? (scrutineeType is ZType.ZNamedType named ? named.Name : null);
         var caseKey = effectiveUnion is not null ? $"{effectiveUnion}.{ctor.Name}" : null;
 
         List<string> propertyNames;
@@ -5303,7 +5325,19 @@ public sealed partial class IlEmitter
         return customAttr;
     }
 
-    private void EmitClassDecl(IrNode.ClassDecl classDecl, EmitContext ctx)
+    /// <param name="deferredBodies">
+    ///     When non-null, the constructor and method *bodies* are appended here instead of being
+    ///     emitted inline; the caller runs them once every module's function signatures exist.
+    ///     Module emission order is import-discovery preorder, not dependency-first, so a class
+    ///     method calling a function exported by a module emitted later would otherwise fail to
+    ///     resolve the call. Only body emission moves — the type, its fields, and every method
+    ///     shell are still declared in place, so nothing that depends on declaration order shifts.
+    /// </param>
+    private void EmitClassDecl(
+        IrNode.ClassDecl classDecl,
+        EmitContext ctx,
+        List<Action>? deferredBodies = null
+    )
     {
         Log.Debug(
             "IlEmitter: emitting class declaration {ClassName}, {FieldCount} fields, {MethodCount} methods, isOpen={IsOpen}, base={BaseClass}, interfaces=[{Interfaces}]",
@@ -5542,65 +5576,77 @@ public sealed partial class IlEmitter
                 CurrentBaseTypeDefinition = baseTypeDef,
             };
 
-            // Call base constructor
-            if (irCtor.SuperArgs is { Count: > 0 } classSuperArgs)
+            void EmitCtorBody()
             {
-                var ctorLocals = new Dictionary<string, CilLocalVariable>();
-                EmitSuperArgsWithThis(
-                    classSuperArgs,
-                    ctorBody,
-                    ctorIl,
-                    irCtor.Params,
-                    ctorLocals,
-                    ctorCtx
-                );
-            }
-            else
-            {
-                ctorIl.Add(CilOpCodes.Ldarg_0);
-            }
-
-            ctorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)baseCtorRef);
-
-            // Body expressions
-            var bodyLocals = new Dictionary<string, CilLocalVariable>();
-            foreach (var expr in irCtor.BodyExprs)
-            {
-                EmitNode(expr, ctorIl, irCtor.Params, bodyLocals, ctorCtx);
-                if (expr.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-                    ctorIl.Add(CilOpCodes.Pop);
-            }
-
-            // Field assignments from set!
-            foreach (var (fieldName, value) in irCtor.FieldSets)
-            {
-                var fieldIdx = classDecl.Fields.ToList().FindIndex(f => f.Name == fieldName);
-                if (fieldIdx < 0)
-                    continue;
-                var fieldType = fieldDefs[fieldIdx].Field.Signature!.FieldType;
-                if (WithHandlersHoister.ContainsWithHandlers(value))
+                // Call base constructor
+                if (irCtor.SuperArgs is { Count: > 0 } classSuperArgs)
                 {
-                    // Stack must be empty at try-block entry; spill the value to a
-                    // local before pushing `this`.
-                    EmitNode(value, ctorIl, irCtor.Params, bodyLocals, ctorCtx);
-                    EmitNullableWrapIfNeeded(value, fieldType, ctorIl);
-                    var tmp = new CilLocalVariable(fieldType);
-                    ctorBody.LocalVariables.Add(tmp);
-                    ctorIl.Add(CilOpCodes.Stloc, tmp);
-                    ctorIl.Add(CilOpCodes.Ldarg_0);
-                    ctorIl.Add(CilOpCodes.Ldloc, tmp);
+                    var ctorLocals = new Dictionary<string, CilLocalVariable>();
+                    EmitSuperArgsWithThis(
+                        classSuperArgs,
+                        ctorBody,
+                        ctorIl,
+                        irCtor.Params,
+                        ctorLocals,
+                        ctorCtx
+                    );
                 }
                 else
                 {
                     ctorIl.Add(CilOpCodes.Ldarg_0);
-                    EmitNode(value, ctorIl, irCtor.Params, bodyLocals, ctorCtx);
-                    EmitNullableWrapIfNeeded(value, fieldType, ctorIl);
                 }
 
-                ctorIl.Add(CilOpCodes.Stfld, fieldDefs[fieldIdx].Field);
+                ctorIl.Add(CilOpCodes.Call, (IMethodDefOrRef)baseCtorRef);
+
+                // Body expressions
+                var bodyLocals = new Dictionary<string, CilLocalVariable>();
+                foreach (var expr in irCtor.BodyExprs)
+                {
+                    EmitNode(expr, ctorIl, irCtor.Params, bodyLocals, ctorCtx);
+                    if (
+                        expr.Type
+                        is not null
+                            and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                    )
+                        ctorIl.Add(CilOpCodes.Pop);
+                }
+
+                // Field assignments from set!
+                foreach (var (fieldName, value) in irCtor.FieldSets)
+                {
+                    var fieldIdx = classDecl.Fields.ToList().FindIndex(f => f.Name == fieldName);
+                    if (fieldIdx < 0)
+                        continue;
+                    var fieldType = fieldDefs[fieldIdx].Field.Signature!.FieldType;
+                    if (WithHandlersHoister.ContainsWithHandlers(value))
+                    {
+                        // Stack must be empty at try-block entry; spill the value to a
+                        // local before pushing `this`.
+                        EmitNode(value, ctorIl, irCtor.Params, bodyLocals, ctorCtx);
+                        EmitNullableWrapIfNeeded(value, fieldType, ctorIl);
+                        var tmp = new CilLocalVariable(fieldType);
+                        ctorBody.LocalVariables.Add(tmp);
+                        ctorIl.Add(CilOpCodes.Stloc, tmp);
+                        ctorIl.Add(CilOpCodes.Ldarg_0);
+                        ctorIl.Add(CilOpCodes.Ldloc, tmp);
+                    }
+                    else
+                    {
+                        ctorIl.Add(CilOpCodes.Ldarg_0);
+                        EmitNode(value, ctorIl, irCtor.Params, bodyLocals, ctorCtx);
+                        EmitNullableWrapIfNeeded(value, fieldType, ctorIl);
+                    }
+
+                    ctorIl.Add(CilOpCodes.Stfld, fieldDefs[fieldIdx].Field);
+                }
+
+                ctorIl.Add(CilOpCodes.Ret);
             }
 
-            ctorIl.Add(CilOpCodes.Ret);
+            if (deferredBodies is null)
+                EmitCtorBody();
+            else
+                deferredBodies.Add(EmitCtorBody);
         }
         else
         {
@@ -5728,108 +5774,116 @@ public sealed partial class IlEmitter
             CurrentClassMethods = classMethodMap,
         };
 
-        for (var methodIdx = 0; methodIdx < classDecl.Methods.Count; methodIdx++)
+        void EmitMethodBodies()
         {
-            var method = classDecl.Methods[methodIdx];
-            var mb = methodShells[methodIdx];
-
-            if (method.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(method.Body))
+            for (var methodIdx = 0; methodIdx < classDecl.Methods.Count; methodIdx++)
             {
-                // Async class method: create synthetic FuncDef and delegate to async emitter
-                var methodCtx = methodsBaseCtx with
+                var method = classDecl.Methods[methodIdx];
+                var mb = methodShells[methodIdx];
+
+                if (method.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(method.Body))
                 {
-                    InstanceArgOffset = 1,
-                    CurrentClassFields = classFieldMap,
-                    CurrentTypeDefinition = classType,
-                    CurrentBaseTypeDefinition = baseTypeDef,
-                };
-
-                var syntheticFunc = new IrNode.FuncDef(
-                    method.Name,
-                    method.Params,
-                    method.ReturnType,
-                    method.Body,
-                    false
-                )
-                {
-                    Span = method.Body.Span,
-                };
-                Async.EmitAsyncFuncDef(syntheticFunc, mb, classType, methodCtx);
-            }
-            else
-            {
-                var methodBody = new CilMethodBody { InitializeLocals = true };
-                mb.MethodBody = methodBody;
-                var methodIl = methodBody.Instructions;
-                var methodLocals = new Dictionary<string, CilLocalVariable>();
-
-                var methodCtx = methodsBaseCtx with
-                {
-                    InstanceArgOffset = 1,
-                    CurrentClassFields = classFieldMap,
-                    CurrentTypeDefinition = classType,
-                    CurrentBaseTypeDefinition = baseTypeDef,
-                };
-
-                EmitNode(method.Body, methodIl, method.Params, methodLocals, methodCtx);
-
-                if (
-                    method is
+                    // Async class method: create synthetic FuncDef and delegate to async emitter
+                    var methodCtx = methodsBaseCtx with
                     {
-                        ReturnType: ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit },
-                        Body.Type: not null
-                            and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-                    }
-                )
-                    methodIl.Add(CilOpCodes.Pop);
+                        InstanceArgOffset = 1,
+                        CurrentClassFields = classFieldMap,
+                        CurrentTypeDefinition = classType,
+                        CurrentBaseTypeDefinition = baseTypeDef,
+                    };
 
-                // Async class methods without any await still need their body wrapped into a Task
-                // before returning (the async state machine path is skipped when there are no awaits).
-                if (method.IsAsync)
-                {
-                    var isVoidTask =
-                        method.ReturnType is ZType.ZNamedType { TypeArgs: [] } voidTask2
-                        && _typeAliases.IsTaskName(voidTask2.Name);
-                    var isUnitMethod =
-                        method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
-
-                    if (isUnitMethod || isVoidTask)
+                    var syntheticFunc = new IrNode.FuncDef(
+                        method.Name,
+                        method.Params,
+                        method.ReturnType,
+                        method.Body,
+                        false
+                    )
                     {
-                        if (
-                            !isUnitMethod
-                            && method.Body.Type
-                                is not null
-                                    and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-                        )
-                            methodIl.Add(CilOpCodes.Pop);
-                        var completedTaskGetter = typeof(Task)
-                            .GetProperty("CompletedTask")!
-                            .GetGetMethod()!;
-                        methodIl.Add(
-                            CilOpCodes.Call,
-                            _module.DefaultImporter.ImportMethod(completedTaskGetter)
-                        );
-                    }
-                    else
-                    {
-                        var inner =
-                            method.ReturnType is ZType.ZNamedType { TypeArgs: [var t] } taskNt2
-                            && _typeAliases.IsTaskName(taskNt2.Name)
-                                ? t
-                                : method.ReturnType;
-                        var fromResult = typeof(Task)
-                            .GetMethod("FromResult")!
-                            .MakeGenericMethod(MapToReflectionClr(inner));
-                        methodIl.Add(
-                            CilOpCodes.Call,
-                            _module.DefaultImporter.ImportMethod(fromResult)
-                        );
-                    }
+                        Span = method.Body.Span,
+                    };
+                    Async.EmitAsyncFuncDef(syntheticFunc, mb, classType, methodCtx);
                 }
+                else
+                {
+                    var methodBody = new CilMethodBody { InitializeLocals = true };
+                    mb.MethodBody = methodBody;
+                    var methodIl = methodBody.Instructions;
+                    var methodLocals = new Dictionary<string, CilLocalVariable>();
 
-                methodIl.Add(CilOpCodes.Ret);
+                    var methodCtx = methodsBaseCtx with
+                    {
+                        InstanceArgOffset = 1,
+                        CurrentClassFields = classFieldMap,
+                        CurrentTypeDefinition = classType,
+                        CurrentBaseTypeDefinition = baseTypeDef,
+                    };
+
+                    EmitNode(method.Body, methodIl, method.Params, methodLocals, methodCtx);
+
+                    if (
+                        method is
+                        {
+                            ReturnType: ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit },
+                            Body.Type: not null
+                                and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                        }
+                    )
+                        methodIl.Add(CilOpCodes.Pop);
+
+                    // Async class methods without any await still need their body wrapped into a Task
+                    // before returning (the async state machine path is skipped when there are no awaits).
+                    if (method.IsAsync)
+                    {
+                        var isVoidTask =
+                            method.ReturnType is ZType.ZNamedType { TypeArgs: [] } voidTask2
+                            && _typeAliases.IsTaskName(voidTask2.Name);
+                        var isUnitMethod =
+                            method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+
+                        if (isUnitMethod || isVoidTask)
+                        {
+                            if (
+                                !isUnitMethod
+                                && method.Body.Type
+                                    is not null
+                                        and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                            )
+                                methodIl.Add(CilOpCodes.Pop);
+                            var completedTaskGetter = typeof(Task)
+                                .GetProperty("CompletedTask")!
+                                .GetGetMethod()!;
+                            methodIl.Add(
+                                CilOpCodes.Call,
+                                _module.DefaultImporter.ImportMethod(completedTaskGetter)
+                            );
+                        }
+                        else
+                        {
+                            var inner =
+                                method.ReturnType is ZType.ZNamedType { TypeArgs: [var t] } taskNt2
+                                && _typeAliases.IsTaskName(taskNt2.Name)
+                                    ? t
+                                    : method.ReturnType;
+                            var fromResult = typeof(Task)
+                                .GetMethod("FromResult")!
+                                .MakeGenericMethod(MapToReflectionClr(inner));
+                            methodIl.Add(
+                                CilOpCodes.Call,
+                                _module.DefaultImporter.ImportMethod(fromResult)
+                            );
+                        }
+                    }
+
+                    methodIl.Add(CilOpCodes.Ret);
+                }
             }
         }
+
+        if (deferredBodies is null)
+            EmitMethodBodies();
+        else
+            deferredBodies.Add(EmitMethodBodies);
 
         // Store class info for future subclasses
         _asmClassInfos[classDecl.Name] = new AsmClassInfo(
