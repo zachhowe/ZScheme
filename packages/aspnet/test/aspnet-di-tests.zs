@@ -31,7 +31,7 @@
     (await (response/write-string ctx (string-append (Greeter/prefix g) " world")))))
 
 ;; Build an app with a Greeter registered via a pre-built instance (Singleton).
-(define (build-instance-app) : Microsoft.AspNetCore.Builder.WebApplication
+(define (build-instance-app) : WebApplication
   (let ([builder (logging/clear-providers (app/create-builder))])
     (services/add-singleton-instance (services/builder-services builder)
                                      (typeof Greeter) (Greeter "hello"))
@@ -40,7 +40,7 @@
       app)))
 
 ;; Build an app with a Greeter produced by a registered factory (Singleton).
-(define (build-factory-app) : Microsoft.AspNetCore.Builder.WebApplication
+(define (build-factory-app) : WebApplication
   (let ([builder (logging/clear-providers (app/create-builder))])
     (services/add-singleton-factory (services/builder-services builder)
       (typeof Greeter)

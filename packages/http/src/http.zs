@@ -11,50 +11,54 @@
 (import http/auth)
 
 (import-clr
+  System
+  System.Net
   System.Net.Http
+  System.Net.Http.Headers
+  System.Text
 
   ;; HttpClient convenience methods
-  [client-send-async System.Net.Http.HttpClient.SendAsync
-    :instance : (System.Net.Http.HttpClient System.Net.Http.HttpRequestMessage -> (Task System.Net.Http.HttpResponseMessage))]
-  [client-post-async System.Net.Http.HttpClient.PostAsync
-    :instance : (System.Net.Http.HttpClient String System.Net.Http.HttpContent -> (Task System.Net.Http.HttpResponseMessage))]
-  [client-put-async System.Net.Http.HttpClient.PutAsync
-    :instance : (System.Net.Http.HttpClient String System.Net.Http.HttpContent -> (Task System.Net.Http.HttpResponseMessage))]
+  [client-send-async HttpClient.SendAsync
+    :instance : (HttpClient HttpRequestMessage -> (Task HttpResponseMessage))]
+  [client-post-async HttpClient.PostAsync
+    :instance : (HttpClient String HttpContent -> (Task HttpResponseMessage))]
+  [client-put-async HttpClient.PutAsync
+    :instance : (HttpClient String HttpContent -> (Task HttpResponseMessage))]
 
   ;; Response accessors
   ;; StatusCode is the HttpStatusCode enum; response-status-code (below) converts it to Int.
-  [response-status-code-raw System.Net.Http.HttpResponseMessage.StatusCode
-    :instance-property : (System.Net.Http.HttpResponseMessage -> System.Net.HttpStatusCode)]
-  [status-code->int System.Convert/ToInt32
-    : (System.Net.HttpStatusCode -> Int)]
-  [response-is-success System.Net.Http.HttpResponseMessage.IsSuccessStatusCode
-    :instance-property : (System.Net.Http.HttpResponseMessage -> Bool)]
-  [response-reason System.Net.Http.HttpResponseMessage.ReasonPhrase
-    :instance-property : (System.Net.Http.HttpResponseMessage -> String)]
-  [response-content System.Net.Http.HttpResponseMessage.Content
-    :instance-property : (System.Net.Http.HttpResponseMessage -> System.Net.Http.HttpContent)]
+  [response-status-code-raw HttpResponseMessage.StatusCode
+    :instance-property : (HttpResponseMessage -> HttpStatusCode)]
+  [status-code->int Convert/ToInt32
+    : (HttpStatusCode -> Int)]
+  [response-is-success HttpResponseMessage.IsSuccessStatusCode
+    :instance-property : (HttpResponseMessage -> Bool)]
+  [response-reason HttpResponseMessage.ReasonPhrase
+    :instance-property : (HttpResponseMessage -> String)]
+  [response-content HttpResponseMessage.Content
+    :instance-property : (HttpResponseMessage -> HttpContent)]
 
   ;; Read body
-  [content-read-string System.Net.Http.HttpContent.ReadAsStringAsync
-    :instance : (System.Net.Http.HttpContent -> (Task String))]
+  [content-read-string HttpContent.ReadAsStringAsync
+    :instance : (HttpContent -> (Task String))]
 
   ;; Request headers
-  [request-headers System.Net.Http.HttpRequestMessage.Headers
-    :instance-property : (System.Net.Http.HttpRequestMessage -> System.Net.Http.Headers.HttpRequestHeaders)]
-  [headers-add System.Net.Http.Headers.HttpRequestHeaders.TryAddWithoutValidation
-    :instance : (System.Net.Http.Headers.HttpRequestHeaders String String -> Bool)])
+  [request-headers HttpRequestMessage.Headers
+    :instance-property : (HttpRequestMessage -> HttpRequestHeaders)]
+  [headers-add HttpRequestHeaders.TryAddWithoutValidation
+    :instance : (HttpRequestHeaders String String -> Bool)])
 
 ;; Shared HttpClient instance
-(define http-client (new System.Net.Http.HttpClient))
+(define http-client (new HttpClient))
 
 ;; --- Internal helpers ---
 
 ;; HttpResponseMessage.StatusCode is the HttpStatusCode enum; expose it as the numeric code.
-(define (response-status-code [raw : System.Net.Http.HttpResponseMessage]) : Int
+(define (response-status-code [raw : HttpResponseMessage]) : Int
   (status-code->int (response-status-code-raw raw)))
 
 ;; Convert raw HttpResponseMessage to HttpResponse record
-(define-async (raw->response [raw : System.Net.Http.HttpResponseMessage])
+(define-async (raw->response [raw : HttpResponseMessage])
   : (Task HttpResponse)
   (let ([body (await (content-read-string (response-content raw)))])
     (HttpResponse
@@ -64,7 +68,7 @@
       (response-is-success raw))))
 
 ;; Apply headers from a list of pairs to an HttpRequestMessage
-(define (apply-headers-loop [hdrs : System.Net.Http.Headers.HttpRequestHeaders]
+(define (apply-headers-loop [hdrs : HttpRequestHeaders]
                             [pairs : (TreeList (TreeList String))]
                             [i : Int] [len : Int]) : Unit
   (if (= i len) ()
@@ -72,7 +76,7 @@
       (headers-add hdrs (treelist-ref pair 0) (treelist-ref pair 1))
       (apply-headers-loop hdrs pairs (+ i 1) len))))
 
-(define (apply-headers [msg : System.Net.Http.HttpRequestMessage]
+(define (apply-headers [msg : HttpRequestMessage]
                        [headers : (TreeList (TreeList String))]) : Unit
   (apply-headers-loop (request-headers msg) headers 0 (treelist-length headers)))
 
@@ -81,7 +85,7 @@
                             [url : String]
                             [headers : (TreeList (TreeList String))])
   : (Task HttpResponse)
-  (let ([msg (new System.Net.Http.HttpRequestMessage (new System.Net.Http.HttpMethod method-str) url)])
+  (let ([msg (new HttpRequestMessage (new HttpMethod method-str) url)])
     (apply-headers msg headers)
     (let ([raw (await (client-send-async http-client msg))])
       (await (raw->response raw)))))
@@ -101,7 +105,7 @@
                          [_headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse Error))
   (catch
-    (let* ([content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
+    (let* ([content (new StringContent body (new UTF8Encoding) content-type)]
            [raw (await (client-post-async http-client url content))])
       (await (raw->response raw)))))
 
@@ -111,7 +115,7 @@
                               [_headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse Error))
   (catch
-    (let* ([content (new System.Net.Http.StringContent json-body (new System.Text.UTF8Encoding) "application/json")]
+    (let* ([content (new StringContent json-body (new UTF8Encoding) "application/json")]
            [raw (await (client-post-async http-client url content))])
       (await (raw->response raw)))))
 
@@ -122,7 +126,7 @@
                         [_headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse Error))
   (catch
-    (let* ([content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
+    (let* ([content (new StringContent body (new UTF8Encoding) content-type)]
            [raw (await (client-put-async http-client url content))])
       (await (raw->response raw)))))
 
@@ -147,8 +151,8 @@
                           [headers : (TreeList (TreeList String))])
   : (Task (Result HttpResponse Error))
   (catch
-    (let* ([_content (new System.Net.Http.StringContent body (new System.Text.UTF8Encoding) content-type)]
-           [msg (new System.Net.Http.HttpRequestMessage (new System.Net.Http.HttpMethod "PATCH") url)])
+    (let* ([_content (new StringContent body (new UTF8Encoding) content-type)]
+           [msg (new HttpRequestMessage (new HttpMethod "PATCH") url)])
       (apply-headers msg headers)
       ;; Can't use client convenience methods for PATCH, use SendAsync
       ;; TODO: set msg.Content when InstancePropertySet is available

@@ -4,12 +4,13 @@
 (import stdlib/mutable/vector)
 
 (import-clr
-  [clr-format System.String/Format : (String (Mutable-Vector String) -> String)]
-  [clr-string-equals System.String/Equals : (String String -> Bool)]
-  [clr-string-is-empty System.String/IsNullOrEmpty : (String -> Bool)]
-  [clr-starts-with System.String.StartsWith :instance : (String String -> Bool)]
-  [clr-ends-with System.String.EndsWith :instance : (String String -> Bool)]
-  [clr-contains System.String/Contains :instance : (String String -> Bool)])
+  System
+  [clr-format String/Format : (String (Mutable-Vector String) -> String)]
+  [clr-string-equals String/Equals : (String String -> Bool)]
+  [clr-string-is-empty String/IsNullOrEmpty : (String -> Bool)]
+  [clr-starts-with String.StartsWith :instance : (String String -> Bool)]
+  [clr-ends-with String.EndsWith :instance : (String String -> Bool)]
+  [clr-contains String/Contains :instance : (String String -> Bool)])
 
 (define (format [fmt : String] [args : String ...]) : String
   (clr-format fmt args))

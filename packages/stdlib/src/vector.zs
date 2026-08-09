@@ -14,19 +14,19 @@
 (import-clr
   System.Collections.Immutable
   System.Linq
-  [vector-length-raw System.Collections.Immutable.ImmutableArray.Length
+  [vector-length-raw ImmutableArray.Length
     :instance-property : ((Vector ^a) -> Int)]
-  [vector-item-raw System.Collections.Immutable.ImmutableArray.Item
+  [vector-item-raw ImmutableArray.Item
     :instance-indexer : ((Vector ^a) Int -> ^a)]
-  [vector-add-raw System.Collections.Immutable.ImmutableArray.Add
+  [vector-add-raw ImmutableArray.Add
     :instance : ((Vector ^a) ^a -> (Vector ^a))]
-  [vector-add-range-raw System.Collections.Immutable.ImmutableArray.AddRange
+  [vector-add-range-raw ImmutableArray.AddRange
     :instance : ((Vector ^a) (Vector ^a) -> (Vector ^a))]
-  [vector-set-raw System.Collections.Immutable.ImmutableArray.SetItem
+  [vector-set-raw ImmutableArray.SetItem
     :instance : ((Vector ^a) Int ^a -> (Vector ^a))]
-  [vector-index-of-raw System.Collections.Immutable.ImmutableArray.IndexOf
+  [vector-index-of-raw ImmutableArray.IndexOf
     :instance : ((Vector ^a) ^a -> Int)]
-  [vector-create System.Collections.Immutable.ImmutableArray/Create ^a
+  [vector-create ImmutableArray/Create ^a
     : ((Mutable-Vector ^a) -> (Vector ^a))])
 
 ;; Constructors

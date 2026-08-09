@@ -18,25 +18,25 @@
 (import-clr
   System.Collections.Generic
   System.Collections.Immutable
-  [mh-count-raw System.Collections.Generic.Dictionary.Count
+  [mh-count-raw Dictionary.Count
     :instance-property : ((Mutable-Hash ^k ^v) -> Int)]
-  [mh-item-raw System.Collections.Generic.Dictionary.Item
+  [mh-item-raw Dictionary.Item
     :instance-indexer : ((Mutable-Hash ^k ^v) ^k -> ^v)]
-  [mh-set-item-raw System.Collections.Generic.Dictionary.Item
+  [mh-set-item-raw Dictionary.Item
     :instance-indexer-set : ((Mutable-Hash ^k ^v) ^k ^v -> Unit)]
-  [mh-contains-key-raw System.Collections.Generic.Dictionary.ContainsKey
+  [mh-contains-key-raw Dictionary.ContainsKey
     :instance : ((Mutable-Hash ^k ^v) ^k -> Bool)]
-  [mh-remove-raw System.Collections.Generic.Dictionary.Remove
+  [mh-remove-raw Dictionary.Remove
     :instance : ((Mutable-Hash ^k ^v) ^k -> Bool)]
-  [mh-clear-raw System.Collections.Generic.Dictionary.Clear
+  [mh-clear-raw Dictionary.Clear
     :instance : ((Mutable-Hash ^k ^v) -> Unit)]
   ;; Dictionary.Keys/.Values return KeyCollection/ValueCollection, which are IEnumerable<T>
   ;; (Seq); create-list-from materializes them into a TreeList via ImmutableList.CreateRange.
-  [mh-keys-raw System.Collections.Generic.Dictionary.Keys
+  [mh-keys-raw Dictionary.Keys
     :instance-property : ((Mutable-Hash ^k ^v) -> (Seq ^k))]
-  [mh-values-raw System.Collections.Generic.Dictionary.Values
+  [mh-values-raw Dictionary.Values
     :instance-property : ((Mutable-Hash ^k ^v) -> (Seq ^v))]
-  [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
+  [create-list-from ImmutableList/CreateRange ^a
     : ((Seq ^a) -> (TreeList ^a))])
 
 ;; Exported functions
@@ -44,7 +44,7 @@
 ;; Create an empty mutable hash
 (define (make-hash) : (Mutable-Hash ^k ^v)
   :where (^k notnull)
-  (new (System.Collections.Generic.Dictionary ^k ^v)))
+  (new (Dictionary ^k ^v)))
 
 (define (hash-count [h : (Mutable-Hash ^k ^v)]) : Int
   :where (^k notnull)
@@ -90,7 +90,7 @@
 ;; Matches Racket's hash-copy: produces a mutable copy of any hash.
 (define (hash-copy [h : (Hash ^k ^v)]) : (Mutable-Hash ^k ^v)
   :where (^k notnull)
-  (new (System.Collections.Generic.Dictionary ^k ^v) h))
+  (new (Dictionary ^k ^v) h))
 
 (export make-hash hash-count hash-set! hash-ref hash-remove!
         hash-has-key? hash-clear! hash-empty? hash-keys hash-values

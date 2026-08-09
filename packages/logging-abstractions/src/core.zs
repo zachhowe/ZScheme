@@ -15,67 +15,65 @@
   Microsoft.Extensions.Logging
 
   ;; ILoggerFactory.CreateLogger(string) : ILogger — non-generic, category-named.
-  [factory-create-logger Microsoft.Extensions.Logging.ILoggerFactory.CreateLogger
+  [factory-create-logger ILoggerFactory.CreateLogger
     :from "Microsoft.Extensions.Logging.Abstractions"
-    :instance : (Microsoft.Extensions.Logging.ILoggerFactory String
-                 -> Microsoft.Extensions.Logging.ILogger)]
+    :instance : (ILoggerFactory String -> ILogger)]
 
   ;; ILogger.IsEnabled(LogLevel) : bool — guard before building an expensive message.
-  [logger-is-enabled Microsoft.Extensions.Logging.ILogger.IsEnabled
+  [logger-is-enabled ILogger.IsEnabled
     :from "Microsoft.Extensions.Logging.Abstractions"
-    :instance : (Microsoft.Extensions.Logging.ILogger
-                 Microsoft.Extensions.Logging.LogLevel -> Bool)]
+    :instance : (ILogger LogLevel -> Bool)]
 
   ;; LogLevel enum members. These are static literal fields; the codegen static-field
   ;; fallback emits them as their integer constant (cf. CancellationToken/None in
   ;; stdlib/concurrent/cancellation.zs binding a static get-only member as (-> T)).
-  [clr-log-level-trace Microsoft.Extensions.Logging.LogLevel/Trace
+  [clr-log-level-trace LogLevel/Trace
     :from "Microsoft.Extensions.Logging.Abstractions"
-    :instance-property : (-> Microsoft.Extensions.Logging.LogLevel)]
-  [clr-log-level-debug Microsoft.Extensions.Logging.LogLevel/Debug
+    :instance-property : (-> LogLevel)]
+  [clr-log-level-debug LogLevel/Debug
     :from "Microsoft.Extensions.Logging.Abstractions"
-    :instance-property : (-> Microsoft.Extensions.Logging.LogLevel)]
-  [clr-log-level-information Microsoft.Extensions.Logging.LogLevel/Information
+    :instance-property : (-> LogLevel)]
+  [clr-log-level-information LogLevel/Information
     :from "Microsoft.Extensions.Logging.Abstractions"
-    :instance-property : (-> Microsoft.Extensions.Logging.LogLevel)]
-  [clr-log-level-warning Microsoft.Extensions.Logging.LogLevel/Warning
+    :instance-property : (-> LogLevel)]
+  [clr-log-level-warning LogLevel/Warning
     :from "Microsoft.Extensions.Logging.Abstractions"
-    :instance-property : (-> Microsoft.Extensions.Logging.LogLevel)]
-  [clr-log-level-error Microsoft.Extensions.Logging.LogLevel/Error
+    :instance-property : (-> LogLevel)]
+  [clr-log-level-error LogLevel/Error
     :from "Microsoft.Extensions.Logging.Abstractions"
-    :instance-property : (-> Microsoft.Extensions.Logging.LogLevel)]
-  [clr-log-level-critical Microsoft.Extensions.Logging.LogLevel/Critical
+    :instance-property : (-> LogLevel)]
+  [clr-log-level-critical LogLevel/Critical
     :from "Microsoft.Extensions.Logging.Abstractions"
-    :instance-property : (-> Microsoft.Extensions.Logging.LogLevel)]
-  [clr-log-level-none Microsoft.Extensions.Logging.LogLevel/None
+    :instance-property : (-> LogLevel)]
+  [clr-log-level-none LogLevel/None
     :from "Microsoft.Extensions.Logging.Abstractions"
-    :instance-property : (-> Microsoft.Extensions.Logging.LogLevel)]
+    :instance-property : (-> LogLevel)]
 
   ;; NullLogger.Instance : a no-op ILogger singleton — useful as a default/sink.
   [clr-null-logger Microsoft.Extensions.Logging.Abstractions.NullLogger/Instance
     :from "Microsoft.Extensions.Logging.Abstractions"
-    :instance-property : (-> Microsoft.Extensions.Logging.ILogger)]
+    :instance-property : (-> ILogger)]
 
   ;; LoggerExtensions.Log* — each (this ILogger, string message, params object[] args),
   ;; in Microsoft.Extensions.Logging.Abstractions.dll.
-  [clr-log-trace Microsoft.Extensions.Logging.LoggerExtensions/LogTrace
+  [clr-log-trace LoggerExtensions/LogTrace
     :from "Microsoft.Extensions.Logging.Abstractions"
-    : (Microsoft.Extensions.Logging.ILogger String (Mutable-Vector System.Object) -> Unit)]
-  [clr-log-debug Microsoft.Extensions.Logging.LoggerExtensions/LogDebug
+    : (ILogger String (Mutable-Vector System.Object) -> Unit)]
+  [clr-log-debug LoggerExtensions/LogDebug
     :from "Microsoft.Extensions.Logging.Abstractions"
-    : (Microsoft.Extensions.Logging.ILogger String (Mutable-Vector System.Object) -> Unit)]
-  [clr-log-info Microsoft.Extensions.Logging.LoggerExtensions/LogInformation
+    : (ILogger String (Mutable-Vector System.Object) -> Unit)]
+  [clr-log-info LoggerExtensions/LogInformation
     :from "Microsoft.Extensions.Logging.Abstractions"
-    : (Microsoft.Extensions.Logging.ILogger String (Mutable-Vector System.Object) -> Unit)]
-  [clr-log-warning Microsoft.Extensions.Logging.LoggerExtensions/LogWarning
+    : (ILogger String (Mutable-Vector System.Object) -> Unit)]
+  [clr-log-warning LoggerExtensions/LogWarning
     :from "Microsoft.Extensions.Logging.Abstractions"
-    : (Microsoft.Extensions.Logging.ILogger String (Mutable-Vector System.Object) -> Unit)]
-  [clr-log-error Microsoft.Extensions.Logging.LoggerExtensions/LogError
+    : (ILogger String (Mutable-Vector System.Object) -> Unit)]
+  [clr-log-error LoggerExtensions/LogError
     :from "Microsoft.Extensions.Logging.Abstractions"
-    : (Microsoft.Extensions.Logging.ILogger String (Mutable-Vector System.Object) -> Unit)]
-  [clr-log-critical Microsoft.Extensions.Logging.LoggerExtensions/LogCritical
+    : (ILogger String (Mutable-Vector System.Object) -> Unit)]
+  [clr-log-critical LoggerExtensions/LogCritical
     :from "Microsoft.Extensions.Logging.Abstractions"
-    : (Microsoft.Extensions.Logging.ILogger String (Mutable-Vector System.Object) -> Unit)])
+    : (ILogger String (Mutable-Vector System.Object) -> Unit)])
 
 ;; --- LogLevel values ---
 
@@ -91,42 +89,42 @@
 
 ;; A category-named ILogger from a factory. The factory itself is produced either by
 ;; the host (e.g. aspnet resolves ILoggerFactory from DI) or by logging/create-factory.
-(define (logger/from-factory [factory : Microsoft.Extensions.Logging.ILoggerFactory]
+(define (logger/from-factory [factory : ILoggerFactory]
                              [category : String])
-  : Microsoft.Extensions.Logging.ILogger
+  : ILogger
   (factory-create-logger factory category))
 
 ;; A shared no-op logger that discards everything written to it.
 (define null-logger (clr-null-logger))
 
 ;; True when `logger` would actually emit at `level` (skip building costly messages).
-(define (logger/enabled? [logger : Microsoft.Extensions.Logging.ILogger]
-                         [level : Microsoft.Extensions.Logging.LogLevel]) : Bool
+(define (logger/enabled? [logger : ILogger]
+                         [level : LogLevel]) : Bool
   (logger-is-enabled logger level))
 
 ;; --- Log verbs (message template + optional structured args) ---
 
-(define (log/trace [logger : Microsoft.Extensions.Logging.ILogger] [msg : String]
+(define (log/trace [logger : ILogger] [msg : String]
                    [args : System.Object ...]) : Unit
   (clr-log-trace logger msg args))
 
-(define (log/debug [logger : Microsoft.Extensions.Logging.ILogger] [msg : String]
+(define (log/debug [logger : ILogger] [msg : String]
                    [args : System.Object ...]) : Unit
   (clr-log-debug logger msg args))
 
-(define (log/info [logger : Microsoft.Extensions.Logging.ILogger] [msg : String]
+(define (log/info [logger : ILogger] [msg : String]
                   [args : System.Object ...]) : Unit
   (clr-log-info logger msg args))
 
-(define (log/warning [logger : Microsoft.Extensions.Logging.ILogger] [msg : String]
+(define (log/warning [logger : ILogger] [msg : String]
                      [args : System.Object ...]) : Unit
   (clr-log-warning logger msg args))
 
-(define (log/error [logger : Microsoft.Extensions.Logging.ILogger] [msg : String]
+(define (log/error [logger : ILogger] [msg : String]
                    [args : System.Object ...]) : Unit
   (clr-log-error logger msg args))
 
-(define (log/critical [logger : Microsoft.Extensions.Logging.ILogger] [msg : String]
+(define (log/critical [logger : ILogger] [msg : String]
                       [args : System.Object ...]) : Unit
   (clr-log-critical logger msg args))
 

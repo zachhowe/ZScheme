@@ -7,62 +7,61 @@
 (import-clr
   System.Threading
 
-  [cts-token System.Threading.CancellationTokenSource.Token
-    :instance-property : (System.Threading.CancellationTokenSource
-                          -> System.Threading.CancellationToken)]
-  [cts-cancel System.Threading.CancellationTokenSource.Cancel
-    :instance : (System.Threading.CancellationTokenSource -> Unit)]
-  [cts-cancel-after System.Threading.CancellationTokenSource.CancelAfter
-    :instance : (System.Threading.CancellationTokenSource Int -> Unit)]
-  [cts-is-requested System.Threading.CancellationTokenSource.IsCancellationRequested
-    :instance-property : (System.Threading.CancellationTokenSource -> Bool)]
-  [cts-dispose System.Threading.CancellationTokenSource.Dispose
-    :instance : (System.Threading.CancellationTokenSource -> Unit)]
-  [token-is-requested System.Threading.CancellationToken.IsCancellationRequested
-    :instance-property : (System.Threading.CancellationToken -> Bool)]
+  [cts-token CancellationTokenSource.Token
+    :instance-property : (CancellationTokenSource -> CancellationToken)]
+  [cts-cancel CancellationTokenSource.Cancel
+    :instance : (CancellationTokenSource -> Unit)]
+  [cts-cancel-after CancellationTokenSource.CancelAfter
+    :instance : (CancellationTokenSource Int -> Unit)]
+  [cts-is-requested CancellationTokenSource.IsCancellationRequested
+    :instance-property : (CancellationTokenSource -> Bool)]
+  [cts-dispose CancellationTokenSource.Dispose
+    :instance : (CancellationTokenSource -> Unit)]
+  [token-is-requested CancellationToken.IsCancellationRequested
+    :instance-property : (CancellationToken -> Bool)]
   ;; CancellationToken.None is a static get-only property returning the struct
   ;; (same shape as System.DateTime/Now in datetime.zs).
-  [token-none System.Threading.CancellationToken/None
-    :instance-property : (-> System.Threading.CancellationToken)])
+  [token-none CancellationToken/None
+    :instance-property : (-> CancellationToken)])
 
 ;; Exported functions
 
 ;; Create a new cancellation source.
-(define (cancellation/new) : System.Threading.CancellationTokenSource
-  (new System.Threading.CancellationTokenSource))
+(define (cancellation/new) : CancellationTokenSource
+  (new CancellationTokenSource))
 
 ;; Create a source that cancels itself after `millis` milliseconds.
-(define (cancellation/new-with-timeout [millis : Int]) : System.Threading.CancellationTokenSource
-  (new System.Threading.CancellationTokenSource millis))
+(define (cancellation/new-with-timeout [millis : Int]) : CancellationTokenSource
+  (new CancellationTokenSource millis))
 
 ;; The token associated with a source (a struct view over it).
-(define (cancellation/token [src : System.Threading.CancellationTokenSource])
-  : System.Threading.CancellationToken
+(define (cancellation/token [src : CancellationTokenSource])
+  : CancellationToken
   (cts-token src))
 
 ;; Request cancellation.
-(define (cancellation/cancel! [src : System.Threading.CancellationTokenSource]) : Unit
+(define (cancellation/cancel! [src : CancellationTokenSource]) : Unit
   (cts-cancel src))
 
 ;; Schedule cancellation after `millis` milliseconds.
-(define (cancellation/cancel-after! [src : System.Threading.CancellationTokenSource] [millis : Int])
+(define (cancellation/cancel-after! [src : CancellationTokenSource] [millis : Int])
   : Unit
   (cts-cancel-after src millis))
 
 ;; Has cancellation been requested on the source?
-(define (cancellation/requested? [src : System.Threading.CancellationTokenSource]) : Bool
+(define (cancellation/requested? [src : CancellationTokenSource]) : Bool
   (cts-is-requested src))
 
 ;; Has cancellation been requested on the token?
-(define (cancellation/token-requested? [token : System.Threading.CancellationToken]) : Bool
+(define (cancellation/token-requested? [token : CancellationToken]) : Bool
   (token-is-requested token))
 
 ;; Release the resources held by the source.
-(define (cancellation/dispose! [src : System.Threading.CancellationTokenSource]) : Unit
+(define (cancellation/dispose! [src : CancellationTokenSource]) : Unit
   (cts-dispose src))
 
 ;; A token that can never be canceled.
-(define (cancellation/none) : System.Threading.CancellationToken
+(define (cancellation/none) : CancellationToken
   (token-none))
 
 (export cancellation/new cancellation/new-with-timeout

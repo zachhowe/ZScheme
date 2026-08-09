@@ -20,93 +20,80 @@
   ;; --- Service collection (the registration target) ---
   ;; IServiceCollection.Count : the number of registered descriptors (inherited from
   ;; ICollection<ServiceDescriptor>); handy for asserting registrations took effect.
-  [collection-count Microsoft.Extensions.DependencyInjection.IServiceCollection.Count
+  [collection-count IServiceCollection.Count
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    :instance-property : (Microsoft.Extensions.DependencyInjection.IServiceCollection -> Int)]
+    :instance-property : (IServiceCollection -> Int)]
 
   ;; --- Registration: SINGLETON (type->type, self, instance, factory) ---
-  [clr-add-singleton-type Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions/AddSingleton
+  [clr-add-singleton-type ServiceCollectionServiceExtensions/AddSingleton
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    : (Microsoft.Extensions.DependencyInjection.IServiceCollection System.Type System.Type
-       -> Microsoft.Extensions.DependencyInjection.IServiceCollection)]
-  [clr-add-singleton-self Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions/AddSingleton
+    : (IServiceCollection System.Type System.Type
+       -> IServiceCollection)]
+  [clr-add-singleton-self ServiceCollectionServiceExtensions/AddSingleton
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    : (Microsoft.Extensions.DependencyInjection.IServiceCollection System.Type
-       -> Microsoft.Extensions.DependencyInjection.IServiceCollection)]
+    : (IServiceCollection System.Type -> IServiceCollection)]
   ;; Instance registration exists for Singleton only (Scoped/Transient have no instance
   ;; overload — a per-scope/per-resolve lifetime is meaningless for a shared instance).
-  [clr-add-singleton-instance Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions/AddSingleton
+  [clr-add-singleton-instance ServiceCollectionServiceExtensions/AddSingleton
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    : (Microsoft.Extensions.DependencyInjection.IServiceCollection System.Type System.Object
-       -> Microsoft.Extensions.DependencyInjection.IServiceCollection)]
-  [clr-add-singleton-factory Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions/AddSingleton
+    : (IServiceCollection System.Type System.Object -> IServiceCollection)]
+  [clr-add-singleton-factory ServiceCollectionServiceExtensions/AddSingleton
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    : (Microsoft.Extensions.DependencyInjection.IServiceCollection System.Type
-       (System.IServiceProvider -> System.Object)
-       -> Microsoft.Extensions.DependencyInjection.IServiceCollection)]
+    : (IServiceCollection System.Type (System.IServiceProvider -> System.Object) -> IServiceCollection)]
 
   ;; --- Registration: SCOPED (type->type, self, factory) ---
-  [clr-add-scoped-type Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions/AddScoped
+  [clr-add-scoped-type ServiceCollectionServiceExtensions/AddScoped
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    : (Microsoft.Extensions.DependencyInjection.IServiceCollection System.Type System.Type
-       -> Microsoft.Extensions.DependencyInjection.IServiceCollection)]
-  [clr-add-scoped-self Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions/AddScoped
+    : (IServiceCollection System.Type System.Type -> IServiceCollection)]
+  [clr-add-scoped-self ServiceCollectionServiceExtensions/AddScoped
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    : (Microsoft.Extensions.DependencyInjection.IServiceCollection System.Type
-       -> Microsoft.Extensions.DependencyInjection.IServiceCollection)]
-  [clr-add-scoped-factory Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions/AddScoped
+    : (IServiceCollection System.Type -> IServiceCollection)]
+  [clr-add-scoped-factory ServiceCollectionServiceExtensions/AddScoped
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    : (Microsoft.Extensions.DependencyInjection.IServiceCollection System.Type
-       (System.IServiceProvider -> System.Object)
-       -> Microsoft.Extensions.DependencyInjection.IServiceCollection)]
+    : (IServiceCollection System.Type (System.IServiceProvider -> System.Object) -> IServiceCollection)]
 
   ;; --- Registration: TRANSIENT (type->type, self, factory) ---
-  [clr-add-transient-type Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions/AddTransient
+  [clr-add-transient-type ServiceCollectionServiceExtensions/AddTransient
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    : (Microsoft.Extensions.DependencyInjection.IServiceCollection System.Type System.Type
-       -> Microsoft.Extensions.DependencyInjection.IServiceCollection)]
-  [clr-add-transient-self Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions/AddTransient
+    : (IServiceCollection System.Type System.Type -> IServiceCollection)]
+  [clr-add-transient-self ServiceCollectionServiceExtensions/AddTransient
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    : (Microsoft.Extensions.DependencyInjection.IServiceCollection System.Type
-       -> Microsoft.Extensions.DependencyInjection.IServiceCollection)]
-  [clr-add-transient-factory Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions/AddTransient
+    : (IServiceCollection System.Type -> IServiceCollection)]
+  [clr-add-transient-factory ServiceCollectionServiceExtensions/AddTransient
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    : (Microsoft.Extensions.DependencyInjection.IServiceCollection System.Type
-       (System.IServiceProvider -> System.Object)
-       -> Microsoft.Extensions.DependencyInjection.IServiceCollection)]
+    : (IServiceCollection System.Type (System.IServiceProvider -> System.Object) -> IServiceCollection)]
 
   ;; --- Resolution (generic; T derived from the expected return type) ---
   ;; GetRequiredService<T> throws when T is unregistered; GetService<T> returns null.
   ;; Exported directly (not wrapped in a define) so the ^a return reaches the call site,
   ;; mirroring stdlib/json's json/deserialize.
-  [services/get-required-service Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions/GetRequiredService ^a
+  [services/get-required-service ServiceProviderServiceExtensions/GetRequiredService ^a
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
     : (System.IServiceProvider -> ^a)]
-  [services/get-service Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions/GetService ^a
+  [services/get-service ServiceProviderServiceExtensions/GetService ^a
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
     : (System.IServiceProvider -> ^a)]
 
   ;; --- Scopes (one resolution context for scoped lifetimes) ---
   ;; CreateScope yields an IServiceScope; resolve scoped services from its ServiceProvider.
-  [clr-create-scope Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions/CreateScope
+  [clr-create-scope ServiceProviderServiceExtensions/CreateScope
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    : (System.IServiceProvider -> Microsoft.Extensions.DependencyInjection.IServiceScope)]
-  [scope-service-provider Microsoft.Extensions.DependencyInjection.IServiceScope.ServiceProvider
+    : (System.IServiceProvider -> IServiceScope)]
+  [scope-service-provider IServiceScope.ServiceProvider
     :from "Microsoft.Extensions.DependencyInjection.Abstractions"
-    :instance-property : (Microsoft.Extensions.DependencyInjection.IServiceScope
-                          -> System.IServiceProvider)])
+    :instance-property : (IServiceScope -> System.IServiceProvider)])
 
 ;; --- Service collection ---
 
 ;; A fresh, empty service collection to register services on (then build a provider with
 ;; `di`'s services/build-provider, or hand to a host).
 (define (service-collection/new)
-  : Microsoft.Extensions.DependencyInjection.IServiceCollection
-  (new Microsoft.Extensions.DependencyInjection.ServiceCollection))
+  : IServiceCollection
+  (new ServiceCollection))
 
 ;; The number of registered service descriptors.
 (define (service-collection/count
-          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection]) : Int
+          [svcs : IServiceCollection]) : Int
   (collection-count svcs))
 
 ;; --- Singleton registration ---
@@ -116,73 +103,73 @@
 ;; resolvable services; plain ZScheme records/classes (all-fields ctor) are usually
 ;; better registered with -instance or -factory below.
 (define (services/add-singleton
-          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection]
+          [svcs : IServiceCollection]
           [service-type : System.Type] [impl-type : System.Type])
-  : Microsoft.Extensions.DependencyInjection.IServiceCollection
+  : IServiceCollection
   (clr-add-singleton-type svcs service-type impl-type))
 
 ;; Register `service-type` as its own singleton implementation.
 (define (services/add-singleton-self
-          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection]
+          [svcs : IServiceCollection]
           [service-type : System.Type])
-  : Microsoft.Extensions.DependencyInjection.IServiceCollection
+  : IServiceCollection
   (clr-add-singleton-self svcs service-type))
 
 ;; Register a pre-built `instance` as the singleton for `service-type`.
 (define (services/add-singleton-instance
-          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection]
+          [svcs : IServiceCollection]
           [service-type : System.Type] [instance : System.Object])
-  : Microsoft.Extensions.DependencyInjection.IServiceCollection
+  : IServiceCollection
   (clr-add-singleton-instance svcs service-type instance))
 
 ;; Register a `factory` that builds the singleton for `service-type` on first resolve.
 (define (services/add-singleton-factory
-          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection]
+          [svcs : IServiceCollection]
           [service-type : System.Type]
           [factory : (System.IServiceProvider -> System.Object)])
-  : Microsoft.Extensions.DependencyInjection.IServiceCollection
+  : IServiceCollection
   (clr-add-singleton-factory svcs service-type factory))
 
 ;; --- Scoped registration (one instance per request scope) ---
 
 (define (services/add-scoped
-          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection]
+          [svcs : IServiceCollection]
           [service-type : System.Type] [impl-type : System.Type])
-  : Microsoft.Extensions.DependencyInjection.IServiceCollection
+  : IServiceCollection
   (clr-add-scoped-type svcs service-type impl-type))
 
 (define (services/add-scoped-self
-          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection]
+          [svcs : IServiceCollection]
           [service-type : System.Type])
-  : Microsoft.Extensions.DependencyInjection.IServiceCollection
+  : IServiceCollection
   (clr-add-scoped-self svcs service-type))
 
 (define (services/add-scoped-factory
-          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection]
+          [svcs : IServiceCollection]
           [service-type : System.Type]
           [factory : (System.IServiceProvider -> System.Object)])
-  : Microsoft.Extensions.DependencyInjection.IServiceCollection
+  : IServiceCollection
   (clr-add-scoped-factory svcs service-type factory))
 
 ;; --- Transient registration (a new instance on every resolve) ---
 
 (define (services/add-transient
-          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection]
+          [svcs : IServiceCollection]
           [service-type : System.Type] [impl-type : System.Type])
-  : Microsoft.Extensions.DependencyInjection.IServiceCollection
+  : IServiceCollection
   (clr-add-transient-type svcs service-type impl-type))
 
 (define (services/add-transient-self
-          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection]
+          [svcs : IServiceCollection]
           [service-type : System.Type])
-  : Microsoft.Extensions.DependencyInjection.IServiceCollection
+  : IServiceCollection
   (clr-add-transient-self svcs service-type))
 
 (define (services/add-transient-factory
-          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection]
+          [svcs : IServiceCollection]
           [service-type : System.Type]
           [factory : (System.IServiceProvider -> System.Object)])
-  : Microsoft.Extensions.DependencyInjection.IServiceCollection
+  : IServiceCollection
   (clr-add-transient-factory svcs service-type factory))
 
 ;; --- Scopes ---
@@ -191,11 +178,11 @@
 ;; returned scope. The scope is IDisposable — dispose it (e.g. via `use`) to release
 ;; scoped instances.
 (define (service-provider/create-scope [provider : System.IServiceProvider])
-  : Microsoft.Extensions.DependencyInjection.IServiceScope
+  : IServiceScope
   (clr-create-scope provider))
 
 ;; The IServiceProvider backing a scope — resolve scoped/transient services from here.
-(define (scope/services [scope : Microsoft.Extensions.DependencyInjection.IServiceScope])
+(define (scope/services [scope : IServiceScope])
   : System.IServiceProvider
   (scope-service-provider scope))
 

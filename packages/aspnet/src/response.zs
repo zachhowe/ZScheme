@@ -6,46 +6,42 @@
   Microsoft.Extensions.Primitives
 
   ;; HttpContext.Response : HttpResponse
-  [http-response Microsoft.AspNetCore.Http.HttpContext.Response
-    :instance-property : (Microsoft.AspNetCore.Http.HttpContext
-                          -> Microsoft.AspNetCore.Http.HttpResponse)]
+  [http-response HttpContext.Response
+    :instance-property : (HttpContext -> HttpResponse)]
 
   ;; HttpResponse.StatusCode setter
-  [status-set! Microsoft.AspNetCore.Http.HttpResponse.StatusCode
-    :instance-property-set : (Microsoft.AspNetCore.Http.HttpResponse Int -> Unit)]
+  [status-set! HttpResponse.StatusCode
+    :instance-property-set : (HttpResponse Int -> Unit)]
 
   ;; HttpResponse.ContentType setter (a plain string, so JSON avoids StringValues)
-  [content-type-set! Microsoft.AspNetCore.Http.HttpResponse.ContentType
-    :instance-property-set : (Microsoft.AspNetCore.Http.HttpResponse String -> Unit)]
+  [content-type-set! HttpResponse.ContentType
+    :instance-property-set : (HttpResponse String -> Unit)]
 
   ;; HttpResponse.Headers : IHeaderDictionary
-  [response-headers Microsoft.AspNetCore.Http.HttpResponse.Headers
-    :instance-property : (Microsoft.AspNetCore.Http.HttpResponse
-                          -> Microsoft.AspNetCore.Http.IHeaderDictionary)]
+  [response-headers HttpResponse.Headers
+    :instance-property : (HttpResponse -> IHeaderDictionary)]
 
   ;; HeaderDictionaryExtensions.Append(IHeaderDictionary, string, StringValues)
-  [headers-append Microsoft.AspNetCore.Http.HeaderDictionaryExtensions/Append
-    : (Microsoft.AspNetCore.Http.IHeaderDictionary
-       String
-       Microsoft.Extensions.Primitives.StringValues -> Unit)]
+  [headers-append HeaderDictionaryExtensions/Append
+    : (IHeaderDictionary String StringValues -> Unit)]
 
   ;; HttpResponseWritingExtensions.WriteAsync(HttpResponse, string); the trailing
   ;; CancellationToken/Encoding parameters are optional and supplied by the backend.
-  [write-async Microsoft.AspNetCore.Http.HttpResponseWritingExtensions/WriteAsync
-    : (Microsoft.AspNetCore.Http.HttpResponse String -> Task)])
+  [write-async HttpResponseWritingExtensions/WriteAsync
+    : (HttpResponse String -> Task)])
 
-(define (response/status-set [ctx : Microsoft.AspNetCore.Http.HttpContext] [code : Int]) : Unit
+(define (response/status-set [ctx : HttpContext] [code : Int]) : Unit
   (status-set! (http-response ctx) code))
 
-(define (response/header-set [ctx : Microsoft.AspNetCore.Http.HttpContext]
+(define (response/header-set [ctx : HttpContext]
                              [name : String] [value : String]) : Unit
   (headers-append (response-headers (http-response ctx)) name
-                  (new Microsoft.Extensions.Primitives.StringValues value)))
+                  (new StringValues value)))
 
-(define (response/write-string [ctx : Microsoft.AspNetCore.Http.HttpContext] [body : String]) : Task
+(define (response/write-string [ctx : HttpContext] [body : String]) : Task
   (write-async (http-response ctx) body))
 
-(define (response/write-json [ctx : Microsoft.AspNetCore.Http.HttpContext] [json : String]) : Task
+(define (response/write-json [ctx : HttpContext] [json : String]) : Task
   (begin
     (content-type-set! (http-response ctx) "application/json; charset=utf-8")
     (write-async (http-response ctx) json)))

@@ -2,13 +2,14 @@
 (module math)
 
 (import-clr
-  [sqrt System.Math/Sqrt]
-  [abs System.Math/Abs]
-  [min System.Math/Min]
-  [max System.Math/Max]
-  [floor System.Math/Floor]
-  [ceiling System.Math/Ceiling]
-  [maxf System.Math/Max : (Float Float -> Float)]
-  [minf System.Math/Min : (Float Float -> Float)])
+  System
+  [sqrt Math/Sqrt]
+  [abs Math/Abs]
+  [min Math/Min]
+  [max Math/Max]
+  [floor Math/Floor]
+  [ceiling Math/Ceiling]
+  [maxf Math/Max : (Float Float -> Float)]
+  [minf Math/Min : (Float Float -> Float)])
 
 (export sqrt abs min max floor ceiling maxf minf)

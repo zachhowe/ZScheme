@@ -22,33 +22,33 @@
 (import-clr
   System.Collections.Immutable
   System.Linq
-  [treelist-count-raw System.Collections.Immutable.ImmutableList.Count
+  [treelist-count-raw ImmutableList.Count
     :instance-property : ((TreeList ^a) -> Int)]
-  [treelist-item-raw System.Collections.Immutable.ImmutableList.Item
+  [treelist-item-raw ImmutableList.Item
     :instance-indexer : ((TreeList ^a) Int -> ^a)]
-  [treelist-add-raw System.Collections.Immutable.ImmutableList.Add
+  [treelist-add-raw ImmutableList.Add
     :instance : ((TreeList ^a) ^a -> (TreeList ^a))]
-  [treelist-insert-raw System.Collections.Immutable.ImmutableList.Insert
+  [treelist-insert-raw ImmutableList.Insert
     :instance : ((TreeList ^a) Int ^a -> (TreeList ^a))]
-  [treelist-remove-at-raw System.Collections.Immutable.ImmutableList.RemoveAt
+  [treelist-remove-at-raw ImmutableList.RemoveAt
     :instance : ((TreeList ^a) Int -> (TreeList ^a))]
-  [treelist-set-raw System.Collections.Immutable.ImmutableList.SetItem
+  [treelist-set-raw ImmutableList.SetItem
     :instance : ((TreeList ^a) Int ^a -> (TreeList ^a))]
-  [treelist-add-range-raw System.Collections.Immutable.ImmutableList.AddRange
+  [treelist-add-range-raw ImmutableList.AddRange
     :instance : ((TreeList ^a) (TreeList ^a) -> (TreeList ^a))]
-  [treelist-get-range-raw System.Collections.Immutable.ImmutableList.GetRange
+  [treelist-get-range-raw ImmutableList.GetRange
     :instance : ((TreeList ^a) Int Int -> (TreeList ^a))]
-  [treelist-reverse-raw System.Collections.Immutable.ImmutableList.Reverse
+  [treelist-reverse-raw ImmutableList.Reverse
     :instance : ((TreeList ^a) -> (TreeList ^a))]
-  [treelist-contains-raw System.Collections.Immutable.ImmutableList.Contains
+  [treelist-contains-raw ImmutableList.Contains
     :instance : ((TreeList ^a) ^a -> Bool)]
-  [treelist-index-of-raw System.Collections.Immutable.ImmutableList.IndexOf
+  [treelist-index-of-raw ImmutableList.IndexOf
     :instance : ((TreeList ^a) ^a -> Int)]
-  [treelist-create System.Collections.Immutable.ImmutableList/Create ^a
+  [treelist-create ImmutableList/Create ^a
     : ((Mutable-Vector ^a) -> (TreeList ^a))]
-  [treelist-create-from-mutable System.Collections.Immutable.ImmutableList/CreateRange ^a
+  [treelist-create-from-mutable ImmutableList/CreateRange ^a
     : ((Mutable-TreeList ^a) -> (TreeList ^a))]
-  [treelist-to-array-raw System.Linq.Enumerable/ToArray ^a
+  [treelist-to-array-raw Enumerable/ToArray ^a
     : ((TreeList ^a) -> (Mutable-Vector ^a))])
 
 ;; Constructors

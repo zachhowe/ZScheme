@@ -10,18 +10,16 @@
   Microsoft.AspNetCore.Builder
   Microsoft.AspNetCore.Http
 
-  [clr-use Microsoft.AspNetCore.Builder.UseExtensions/Use
+  [clr-use UseExtensions/Use
     :from "Microsoft.AspNetCore.Http.Abstractions"
-    : (Microsoft.AspNetCore.Builder.IApplicationBuilder
-       (Microsoft.AspNetCore.Http.HttpContext (-> Task) -> Task)
-       -> Microsoft.AspNetCore.Builder.IApplicationBuilder)])
+    : (IApplicationBuilder (HttpContext (-> Task) -> Task) -> IApplicationBuilder)])
 
 ;; Register a middleware: (fn ctx next) where `next` is a thunk that returns a
 ;; Task. Call `(next)` to invoke the rest of the pipeline. WebApplication
 ;; implements IApplicationBuilder; upcast and discard the returned builder.
-(define (app/use [app : Microsoft.AspNetCore.Builder.WebApplication]
-                 [middleware : (Microsoft.AspNetCore.Http.HttpContext (-> Task) -> Task)]) : Unit
-  (let ([ab : Microsoft.AspNetCore.Builder.IApplicationBuilder app])
+(define (app/use [app : WebApplication]
+                 [middleware : (HttpContext (-> Task) -> Task)]) : Unit
+  (let ([ab : IApplicationBuilder app])
     (clr-use ab middleware) ()))
 
 (export app/use)

@@ -11,9 +11,10 @@
 (import zunit)
 (import logging/builder)
 (import logging-abstractions/core)
+(import-clr Microsoft.Extensions.Logging)
 
 ;; Configure callback: silence output and raise the floor to Warning.
-(define (configure [b : Microsoft.Extensions.Logging.ILoggingBuilder]) : Unit
+(define (configure [b : ILoggingBuilder]) : Unit
   (begin
     (logging-builder/clear-providers b)
     (logging-builder/set-minimum-level b log-level/warning)

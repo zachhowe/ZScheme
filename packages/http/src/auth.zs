@@ -5,13 +5,15 @@
         stdlib/mutable/vector)
 
 (import-clr
-  [to-base64 System.Convert/ToBase64String : ((Mutable-Vector Byte) -> String)]
-  [utf8-get-bytes System.Text.UTF8Encoding.GetBytes
-    :instance : (System.Text.UTF8Encoding String -> (Mutable-Vector Byte))])
+  System
+  System.Text
+  [to-base64 Convert/ToBase64String : ((Mutable-Vector Byte) -> String)]
+  [utf8-get-bytes UTF8Encoding.GetBytes
+    :instance : (UTF8Encoding String -> (Mutable-Vector Byte))])
 
 ;; Returns ("Authorization" "Basic <encoded>") header pair
 (define (basic-auth [username : String] [password : String]) : (TreeList String)
-  (let* ([enc (new System.Text.UTF8Encoding)]
+  (let* ([enc (new UTF8Encoding)]
          [creds (string-append (string-append username ":") password)]
          [encoded (to-base64 (utf8-get-bytes enc creds))])
     (treelist "Authorization" (string-append "Basic " encoded))))

@@ -51,7 +51,7 @@
 ;; Build a test app without starting the server.
 ;; Routes and middleware should be registered before calling start-test-app.
 (define (test-support/build-test-app)
-  : Microsoft.AspNetCore.Builder.WebApplication
+  : WebApplication
   (let* ([builder (logging/clear-providers (app/create-builder))]
          [app (app/build builder)])
     (app/url-add app "http://127.0.0.1:0")
@@ -59,32 +59,32 @@
 
 ;; Start a test app that was built with build-test-app.
 ;; Waits until the server is ready to accept connections (max 10 seconds).
-(define-async (test-support/start-test-app [app : Microsoft.AspNetCore.Builder.WebApplication])
-  : (Task Microsoft.AspNetCore.Builder.WebApplication)
+(define-async (test-support/start-test-app [app : WebApplication])
+  : (Task WebApplication)
   (begin
     (await (app/start app))
     (await (test-support/wait-for-server (app/first-url app)))
     app))
 
 ;; Gracefully shut down a test server.
-(define (test-support/shutdown-test-server [app : Microsoft.AspNetCore.Builder.WebApplication])
+(define (test-support/shutdown-test-server [app : WebApplication])
   : Unit
   (app/shutdown app))
 
 ;; --- Default test handlers ---
 
 ;; A simple handler that writes a greeting.
-(define-async (test-support/hello-handler [ctx : Microsoft.AspNetCore.Http.HttpContext])
+(define-async (test-support/hello-handler [ctx : HttpContext])
   : Task
   (await (response/write-string ctx "hello world")))
 
 ;; A handler that writes a JSON response.
-(define-async (test-support/json-handler [ctx : Microsoft.AspNetCore.Http.HttpContext])
+(define-async (test-support/json-handler [ctx : HttpContext])
   : Task
   (await (response/write-json ctx "{\"status\":\"ok\"}")))
 
 ;; Register the default handlers on an app (used when no custom handlers are provided).
-(define (test-support/register-defaults [app : Microsoft.AspNetCore.Builder.WebApplication])
+(define (test-support/register-defaults [app : WebApplication])
   : Unit
   (route/get app "/hello" test-support/hello-handler)
   (route/get app "/json" test-support/json-handler))

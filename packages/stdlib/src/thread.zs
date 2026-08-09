@@ -2,7 +2,8 @@
 (module thread)
 
 (import-clr
-  [thread-sleep System.Threading.Thread.Sleep
+  System.Threading
+  [thread-sleep Thread.Sleep
     :static : (Int -> Unit)])
 
 (thread-sleep 0)

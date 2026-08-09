@@ -12,26 +12,25 @@
   Microsoft.AspNetCore.Builder
 
   ;; WebApplicationBuilder.Services : IServiceCollection — register before Build.
-  [builder-services Microsoft.AspNetCore.Builder.WebApplicationBuilder.Services
-    :instance-property : (Microsoft.AspNetCore.Builder.WebApplicationBuilder
+  [builder-services WebApplicationBuilder.Services
+    :instance-property : (WebApplicationBuilder
                           -> Microsoft.Extensions.DependencyInjection.IServiceCollection)]
   ;; WebApplication.Services : IServiceProvider — the ROOT provider (singletons only;
   ;; a request handler must resolve scoped services from request/services instead).
-  [app-services Microsoft.AspNetCore.Builder.WebApplication.Services
-    :instance-property : (Microsoft.AspNetCore.Builder.WebApplication
-                          -> System.IServiceProvider)])
+  [app-services WebApplication.Services
+    :instance-property : (WebApplication -> System.IServiceProvider)])
 
 ;; --- Accessors ---
 
 ;; The builder's service collection — register services on this before app/build
 ;; (with the di-abstractions registration verbs).
 (define (services/builder-services
-          [builder : Microsoft.AspNetCore.Builder.WebApplicationBuilder])
+          [builder : WebApplicationBuilder])
   : Microsoft.Extensions.DependencyInjection.IServiceCollection
   (builder-services builder))
 
 ;; The app's root service provider (singletons / startup-time resolution only).
-(define (services/app-services [app : Microsoft.AspNetCore.Builder.WebApplication])
+(define (services/app-services [app : WebApplication])
   : System.IServiceProvider
   (app-services app))
 

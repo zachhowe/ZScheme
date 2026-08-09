@@ -1,13 +1,13 @@
 ;; zunit.zs — Rackunit-style testing assertions
 (module zunit)
 
-(import-clr Xunit)
 (import-clr
-  [check-equal?     Xunit.Assert/Equal ^a]
-  [check-not-equal? Xunit.Assert/NotEqual ^a]
-  [check-true       Xunit.Assert/True]
-  [check-false      Xunit.Assert/False]
-  [fail             Xunit.Assert/Fail])
+  Xunit
+  [check-equal?     Assert/Equal ^a]
+  [check-not-equal? Assert/NotEqual ^a]
+  [check-true       Assert/True]
+  [check-false      Assert/False]
+  [fail             Assert/Fail])
 
 (export check-equal? check-not-equal? check-true check-false
         check-pred check-not-false fail test-case test-suite test-suite-async

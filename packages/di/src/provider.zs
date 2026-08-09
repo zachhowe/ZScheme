@@ -14,17 +14,15 @@
   ;; : ServiceProvider — the concrete provider, returned here as System.IServiceProvider so
   ;; it feeds di-abstractions' get-required-service/get-service directly. Lives in
   ;; Microsoft.Extensions.DependencyInjection.dll (NOT Abstractions), so name it via :from.
-  [clr-build-provider Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions/BuildServiceProvider
+  [clr-build-provider ServiceCollectionContainerBuilderExtensions/BuildServiceProvider
     :from "Microsoft.Extensions.DependencyInjection"
-    : (Microsoft.Extensions.DependencyInjection.IServiceCollection
-       -> System.IServiceProvider)])
+    : (IServiceCollection -> System.IServiceProvider)])
 
 ;; --- Provider construction ---
 
 ;; Build a live IServiceProvider from a registered collection. Resolve services from the
 ;; result with di-abstractions' services/get-required-service / services/get-service.
-(define (services/build-provider
-          [svcs : Microsoft.Extensions.DependencyInjection.IServiceCollection])
+(define (services/build-provider [svcs : IServiceCollection])
   : System.IServiceProvider
   (clr-build-provider svcs))
 

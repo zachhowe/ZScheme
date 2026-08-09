@@ -50,15 +50,15 @@
     :instance : ((Mutable-TreeList ^a) -> Unit)]
   [ml-index-of-raw System.Collections.Generic.List.IndexOf
     :instance : ((Mutable-TreeList ^a) ^a -> Int)]
-  [treelist-to-mutable-raw System.Linq.Enumerable/ToList ^a
+  [treelist-to-mutable-raw Enumerable/ToList ^a
     : ((TreeList ^a) -> (Mutable-TreeList ^a))]
-  [ml-from-mutable-raw System.Linq.Enumerable/ToList ^a
+  [ml-from-mutable-raw Enumerable/ToList ^a
     : ((Mutable-TreeList ^a) -> (Mutable-TreeList ^a))]
-  [ml-from-mutable-vector-raw System.Linq.Enumerable/ToList ^a
+  [ml-from-mutable-vector-raw Enumerable/ToList ^a
     : ((Mutable-Vector ^a) -> (Mutable-TreeList ^a))]
-  [ml-from-vector-raw System.Linq.Enumerable/ToList ^a
+  [ml-from-vector-raw Enumerable/ToList ^a
     : ((Vector ^a) -> (Mutable-TreeList ^a))]
-  [ml-snapshot-range-raw System.Collections.Immutable.ImmutableList/CreateRange ^a
+  [ml-snapshot-range-raw ImmutableList/CreateRange ^a
     : ((Mutable-TreeList ^a) -> (TreeList ^a))])
 
 ;; Internal loop helpers

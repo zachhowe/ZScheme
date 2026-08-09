@@ -8,22 +8,22 @@
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Concurrent
-  [cq-count-raw System.Collections.Concurrent.ConcurrentQueue.Count
+  [cq-count-raw ConcurrentQueue.Count
     :instance-property : ((Concurrent-Queue ^a) -> Int)]
-  [cq-is-empty-raw System.Collections.Concurrent.ConcurrentQueue.IsEmpty
+  [cq-is-empty-raw ConcurrentQueue.IsEmpty
     :instance-property : ((Concurrent-Queue ^a) -> Bool)]
-  [cq-enqueue-raw System.Collections.Concurrent.ConcurrentQueue.Enqueue
+  [cq-enqueue-raw ConcurrentQueue.Enqueue
     :instance : ((Concurrent-Queue ^a) ^a -> Unit)]
-  [cq-try-dequeue-raw System.Collections.Concurrent.ConcurrentQueue.TryDequeue
+  [cq-try-dequeue-raw ConcurrentQueue.TryDequeue
     :instance : ((Concurrent-Queue ^a) -> (ValueTuple Bool ^a))]
-  [cq-try-peek-raw System.Collections.Concurrent.ConcurrentQueue.TryPeek
+  [cq-try-peek-raw ConcurrentQueue.TryPeek
     :instance : ((Concurrent-Queue ^a) -> (ValueTuple Bool ^a))])
 
 ;; Exported functions
 
 ;; Create an empty concurrent queue
 (define (concurrent-queue/new) : (Concurrent-Queue ^a)
-  (new (System.Collections.Concurrent.ConcurrentQueue ^a)))
+  (new (ConcurrentQueue ^a)))
 
 (define (length [q : (Concurrent-Queue ^a)]) : Int
   (cq-count-raw q))

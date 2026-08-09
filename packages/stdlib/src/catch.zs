@@ -6,7 +6,8 @@
         stdlib/option)
 
 (import-clr
-  [__ex-message System.Exception.Message :instance-property : (System.Exception -> String)])
+  System
+  [__ex-message Exception.Message :instance-property : (Exception -> String)])
 
 (export catch __ex-message)
 

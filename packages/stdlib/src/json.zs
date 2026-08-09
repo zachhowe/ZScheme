@@ -12,13 +12,13 @@
   System
   System.Text.Json
 
-  [json/serialize System.Text.Json.JsonSerializer/Serialize ^a
+  [json/serialize JsonSerializer/Serialize ^a
     : (^a -> String)]
 
-  [json/deserialize System.Text.Json.JsonSerializer/Deserialize ^a
+  [json/deserialize JsonSerializer/Deserialize ^a
     : (String -> ^a)]
 
-  [json/serialize-typed System.Text.Json.JsonSerializer/Serialize
-    : (Object System.Type -> String)])
+  [json/serialize-typed JsonSerializer/Serialize
+    : (Object Type -> String)])
 
 (export json/serialize json/deserialize json/serialize-typed)

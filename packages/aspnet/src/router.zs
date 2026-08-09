@@ -12,61 +12,61 @@
   Microsoft.AspNetCore.Http
   Microsoft.AspNetCore.Routing
 
-  [clr-map-get Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions/MapGet
+  [clr-map-get EndpointRouteBuilderExtensions/MapGet
     :from "Microsoft.AspNetCore.Routing"
-    : (Microsoft.AspNetCore.Routing.IEndpointRouteBuilder String
+    : (IEndpointRouteBuilder String
        (delegate Microsoft.AspNetCore.Http.RequestDelegate)
-       -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder)]
+       -> IEndpointConventionBuilder)]
 
-  [clr-map-post Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions/MapPost
+  [clr-map-post EndpointRouteBuilderExtensions/MapPost
     :from "Microsoft.AspNetCore.Routing"
-    : (Microsoft.AspNetCore.Routing.IEndpointRouteBuilder String
+    : (IEndpointRouteBuilder String
        (delegate Microsoft.AspNetCore.Http.RequestDelegate)
-       -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder)]
+       -> IEndpointConventionBuilder)]
 
-  [clr-map-put Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions/MapPut
+  [clr-map-put EndpointRouteBuilderExtensions/MapPut
     :from "Microsoft.AspNetCore.Routing"
-    : (Microsoft.AspNetCore.Routing.IEndpointRouteBuilder String
+    : (IEndpointRouteBuilder String
        (delegate Microsoft.AspNetCore.Http.RequestDelegate)
-       -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder)]
+       -> IEndpointConventionBuilder)]
 
-  [clr-map-patch Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions/MapPatch
+  [clr-map-patch EndpointRouteBuilderExtensions/MapPatch
     :from "Microsoft.AspNetCore.Routing"
-    : (Microsoft.AspNetCore.Routing.IEndpointRouteBuilder String
+    : (IEndpointRouteBuilder String
        (delegate Microsoft.AspNetCore.Http.RequestDelegate)
-       -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder)]
+       -> IEndpointConventionBuilder)]
 
-  [clr-map-delete Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions/MapDelete
+  [clr-map-delete EndpointRouteBuilderExtensions/MapDelete
     :from "Microsoft.AspNetCore.Routing"
-    : (Microsoft.AspNetCore.Routing.IEndpointRouteBuilder String
+    : (IEndpointRouteBuilder String
        (delegate Microsoft.AspNetCore.Http.RequestDelegate)
-       -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder)])
+       -> IEndpointConventionBuilder)])
 
 ;; WebApplication implements IEndpointRouteBuilder; upcast then register, discarding
 ;; the returned IEndpointConventionBuilder so the public surface stays `-> Unit`.
-(define (route/get [app : Microsoft.AspNetCore.Builder.WebApplication] [pattern : String]
-                   [handler : (Microsoft.AspNetCore.Http.HttpContext -> Task)]) : Unit
-  (let ([erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app])
+(define (route/get [app : WebApplication] [pattern : String]
+                   [handler : (HttpContext -> Task)]) : Unit
+  (let ([erb : IEndpointRouteBuilder app])
     (clr-map-get erb pattern handler) ()))
 
-(define (route/post [app : Microsoft.AspNetCore.Builder.WebApplication] [pattern : String]
-                    [handler : (Microsoft.AspNetCore.Http.HttpContext -> Task)]) : Unit
-  (let ([erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app])
+(define (route/post [app : WebApplication] [pattern : String]
+                    [handler : (HttpContext -> Task)]) : Unit
+  (let ([erb : IEndpointRouteBuilder app])
     (clr-map-post erb pattern handler) ()))
 
-(define (route/put [app : Microsoft.AspNetCore.Builder.WebApplication] [pattern : String]
-                   [handler : (Microsoft.AspNetCore.Http.HttpContext -> Task)]) : Unit
-  (let ([erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app])
+(define (route/put [app : WebApplication] [pattern : String]
+                   [handler : (HttpContext -> Task)]) : Unit
+  (let ([erb : IEndpointRouteBuilder app])
     (clr-map-put erb pattern handler) ()))
 
-(define (route/patch [app : Microsoft.AspNetCore.Builder.WebApplication] [pattern : String]
-                     [handler : (Microsoft.AspNetCore.Http.HttpContext -> Task)]) : Unit
-  (let ([erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app])
+(define (route/patch [app : WebApplication] [pattern : String]
+                     [handler : (HttpContext -> Task)]) : Unit
+  (let ([erb : IEndpointRouteBuilder app])
     (clr-map-patch erb pattern handler) ()))
 
-(define (route/delete [app : Microsoft.AspNetCore.Builder.WebApplication] [pattern : String]
-                      [handler : (Microsoft.AspNetCore.Http.HttpContext -> Task)]) : Unit
-  (let ([erb : Microsoft.AspNetCore.Routing.IEndpointRouteBuilder app])
+(define (route/delete [app : WebApplication] [pattern : String]
+                      [handler : (HttpContext -> Task)]) : Unit
+  (let ([erb : IEndpointRouteBuilder app])
     (clr-map-delete erb pattern handler) ()))
 
 (export route/get route/post route/put route/patch route/delete)

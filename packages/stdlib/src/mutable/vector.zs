@@ -14,13 +14,13 @@
 (import-clr
   System
   System.Linq
-  [mv-length-raw System.Array.Length
+  [mv-length-raw Array.Length
     :instance-property : ((Mutable-Vector ^a) -> Int)]
-  [mv-item-raw System.Array.Item
+  [mv-item-raw Array.Item
     :instance-indexer : ((Mutable-Vector ^a) Int -> ^a)]
-  [mv-set-item-raw System.Array.Item
+  [mv-set-item-raw Array.Item
     :instance-indexer-set : ((Mutable-Vector ^a) Int ^a -> Unit)]
-  [vector-to-mutable-raw System.Linq.Enumerable/ToArray ^a
+  [vector-to-mutable-raw Enumerable/ToArray ^a
     : ((Vector ^a) -> (Mutable-Vector ^a))])
 
 ;; Internal loop helpers

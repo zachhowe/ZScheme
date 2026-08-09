@@ -17,31 +17,31 @@
 (import-clr
   System.Collections.Concurrent
   System.Collections.Immutable
-  [cd-count-raw System.Collections.Concurrent.ConcurrentDictionary.Count
+  [cd-count-raw ConcurrentDictionary.Count
     :instance-property : ((Concurrent-Dictionary ^k ^v) -> Int)]
-  [cd-is-empty-raw System.Collections.Concurrent.ConcurrentDictionary.IsEmpty
+  [cd-is-empty-raw ConcurrentDictionary.IsEmpty
     :instance-property : ((Concurrent-Dictionary ^k ^v) -> Bool)]
-  [cd-item-raw System.Collections.Concurrent.ConcurrentDictionary.Item
+  [cd-item-raw ConcurrentDictionary.Item
     :instance-indexer : ((Concurrent-Dictionary ^k ^v) ^k -> ^v)]
-  [cd-set-item-raw System.Collections.Concurrent.ConcurrentDictionary.Item
+  [cd-set-item-raw ConcurrentDictionary.Item
     :instance-indexer-set : ((Concurrent-Dictionary ^k ^v) ^k ^v -> Unit)]
-  [cd-try-add-raw System.Collections.Concurrent.ConcurrentDictionary.TryAdd
+  [cd-try-add-raw ConcurrentDictionary.TryAdd
     :instance : ((Concurrent-Dictionary ^k ^v) ^k ^v -> Bool)]
-  [cd-try-get-raw System.Collections.Concurrent.ConcurrentDictionary.TryGetValue
+  [cd-try-get-raw ConcurrentDictionary.TryGetValue
     :instance : ((Concurrent-Dictionary ^k ^v) ^k -> (ValueTuple Bool ^v))]
-  [cd-try-remove-raw System.Collections.Concurrent.ConcurrentDictionary.TryRemove
+  [cd-try-remove-raw ConcurrentDictionary.TryRemove
     :instance : ((Concurrent-Dictionary ^k ^v) ^k -> (ValueTuple Bool ^v))]
-  [cd-contains-key-raw System.Collections.Concurrent.ConcurrentDictionary.ContainsKey
+  [cd-contains-key-raw ConcurrentDictionary.ContainsKey
     :instance : ((Concurrent-Dictionary ^k ^v) ^k -> Bool)]
-  [cd-clear-raw System.Collections.Concurrent.ConcurrentDictionary.Clear
+  [cd-clear-raw ConcurrentDictionary.Clear
     :instance : ((Concurrent-Dictionary ^k ^v) -> Unit)]
   ;; cd-keys-raw/cd-values-raw return ICollection<T> at the CLR level, which is IEnumerable<T>
   ;; (Seq); create-list-from materializes them into a TreeList via ImmutableList.CreateRange.
-  [cd-keys-raw System.Collections.Concurrent.ConcurrentDictionary.Keys
+  [cd-keys-raw ConcurrentDictionary.Keys
     :instance-property : ((Concurrent-Dictionary ^k ^v) -> (Seq ^k))]
-  [cd-values-raw System.Collections.Concurrent.ConcurrentDictionary.Values
+  [cd-values-raw ConcurrentDictionary.Values
     :instance-property : ((Concurrent-Dictionary ^k ^v) -> (Seq ^v))]
-  [create-list-from System.Collections.Immutable.ImmutableList/CreateRange ^a
+  [create-list-from ImmutableList/CreateRange ^a
     : ((Seq ^a) -> (TreeList ^a))])
 
 ;; Exported functions
@@ -49,7 +49,7 @@
 ;; Create an empty concurrent dictionary
 (define (concurrent-dictionary/new) : (Concurrent-Dictionary ^k ^v)
   :where (^k notnull)
-  (new (System.Collections.Concurrent.ConcurrentDictionary ^k ^v)))
+  (new (ConcurrentDictionary ^k ^v)))
 
 (define (length [d : (Concurrent-Dictionary ^k ^v)]) : Int
   :where (^k notnull)

@@ -8,24 +8,24 @@
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Concurrent
-  [cs-count-raw System.Collections.Concurrent.ConcurrentStack.Count
+  [cs-count-raw ConcurrentStack.Count
     :instance-property : ((Concurrent-Stack ^a) -> Int)]
-  [cs-is-empty-raw System.Collections.Concurrent.ConcurrentStack.IsEmpty
+  [cs-is-empty-raw ConcurrentStack.IsEmpty
     :instance-property : ((Concurrent-Stack ^a) -> Bool)]
-  [cs-push-raw System.Collections.Concurrent.ConcurrentStack.Push
+  [cs-push-raw ConcurrentStack.Push
     :instance : ((Concurrent-Stack ^a) ^a -> Unit)]
-  [cs-clear-raw System.Collections.Concurrent.ConcurrentStack.Clear
+  [cs-clear-raw ConcurrentStack.Clear
     :instance : ((Concurrent-Stack ^a) -> Unit)]
-  [cs-try-pop-raw System.Collections.Concurrent.ConcurrentStack.TryPop
+  [cs-try-pop-raw ConcurrentStack.TryPop
     :instance : ((Concurrent-Stack ^a) -> (ValueTuple Bool ^a))]
-  [cs-try-peek-raw System.Collections.Concurrent.ConcurrentStack.TryPeek
+  [cs-try-peek-raw ConcurrentStack.TryPeek
     :instance : ((Concurrent-Stack ^a) -> (ValueTuple Bool ^a))])
 
 ;; Exported functions
 
 ;; Create an empty concurrent stack
 (define (concurrent-stack/new) : (Concurrent-Stack ^a)
-  (new (System.Collections.Concurrent.ConcurrentStack ^a)))
+  (new (ConcurrentStack ^a)))
 
 (define (length [s : (Concurrent-Stack ^a)]) : Int
   (cs-count-raw s))

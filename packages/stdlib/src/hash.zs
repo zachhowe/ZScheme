@@ -25,29 +25,29 @@
 (import-clr
   System.Collections.Immutable
   System.Collections.Generic
-  [pair-create System.Collections.Generic.KeyValuePair/Create ^k ^v
+  [pair-create KeyValuePair/Create ^k ^v
     : (^k ^v -> (Pair ^k ^v))]
-  [hash-create-range System.Collections.Immutable.ImmutableDictionary/CreateRange ^k ^v
+  [hash-create-range ImmutableDictionary/CreateRange ^k ^v
     : ((Mutable-Vector (Pair ^k ^v)) -> (Hash ^k ^v))]
-  [hash-count-raw System.Collections.Immutable.ImmutableDictionary.Count
+  [hash-count-raw ImmutableDictionary.Count
     :instance-property : ((Hash ^k ^v) -> Int)]
-  [hash-item-raw System.Collections.Immutable.ImmutableDictionary.Item
+  [hash-item-raw ImmutableDictionary.Item
     :instance-indexer : ((Hash ^k ^v) ^k -> ^v)]
-  [hash-set-raw System.Collections.Immutable.ImmutableDictionary.SetItem
+  [hash-set-raw ImmutableDictionary.SetItem
     :instance : ((Hash ^k ^v) ^k ^v -> (Hash ^k ^v))]
-  [hash-remove-raw System.Collections.Immutable.ImmutableDictionary.Remove
+  [hash-remove-raw ImmutableDictionary.Remove
     :instance : ((Hash ^k ^v) ^k -> (Hash ^k ^v))]
-  [hash-contains-raw System.Collections.Immutable.ImmutableDictionary.ContainsKey
+  [hash-contains-raw ImmutableDictionary.ContainsKey
     :instance : ((Hash ^k ^v) ^k -> Bool)]
   ;; dict-keys/dict-values return IEnumerable<T> at the CLR level (Seq), which
   ;; create-treelist-from materializes into a TreeList via ImmutableList.CreateRange.
-  [dict-keys System.Collections.Immutable.ImmutableDictionary.Keys
+  [dict-keys ImmutableDictionary.Keys
     :instance-property : ((Hash ^k ^v) -> (Seq ^k))]
-  [dict-values System.Collections.Immutable.ImmutableDictionary.Values
+  [dict-values ImmutableDictionary.Values
     :instance-property : ((Hash ^k ^v) -> (Seq ^v))]
-  [create-treelist-from System.Collections.Immutable.ImmutableList/CreateRange ^a
+  [create-treelist-from ImmutableList/CreateRange ^a
     : ((Seq ^a) -> (TreeList ^a))]
-  [hash-from-mutable-raw System.Collections.Immutable.ImmutableDictionary/CreateRange ^k ^v
+  [hash-from-mutable-raw ImmutableDictionary/CreateRange ^k ^v
     : ((Mutable-Hash ^k ^v) -> (Hash ^k ^v))])
 
 ;; Constructors

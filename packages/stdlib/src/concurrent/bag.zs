@@ -8,22 +8,22 @@
 ;; CLR bindings (internal)
 (import-clr
   System.Collections.Concurrent
-  [cb-count-raw System.Collections.Concurrent.ConcurrentBag.Count
+  [cb-count-raw ConcurrentBag.Count
     :instance-property : ((Concurrent-Bag ^a) -> Int)]
-  [cb-is-empty-raw System.Collections.Concurrent.ConcurrentBag.IsEmpty
+  [cb-is-empty-raw ConcurrentBag.IsEmpty
     :instance-property : ((Concurrent-Bag ^a) -> Bool)]
-  [cb-add-raw System.Collections.Concurrent.ConcurrentBag.Add
+  [cb-add-raw ConcurrentBag.Add
     :instance : ((Concurrent-Bag ^a) ^a -> Unit)]
-  [cb-try-take-raw System.Collections.Concurrent.ConcurrentBag.TryTake
+  [cb-try-take-raw ConcurrentBag.TryTake
     :instance : ((Concurrent-Bag ^a) -> (ValueTuple Bool ^a))]
-  [cb-try-peek-raw System.Collections.Concurrent.ConcurrentBag.TryPeek
+  [cb-try-peek-raw ConcurrentBag.TryPeek
     :instance : ((Concurrent-Bag ^a) -> (ValueTuple Bool ^a))])
 
 ;; Exported functions
 
 ;; Create an empty concurrent bag
 (define (concurrent-bag/new) : (Concurrent-Bag ^a)
-  (new (System.Collections.Concurrent.ConcurrentBag ^a)))
+  (new (ConcurrentBag ^a)))
 
 (define (length [bag : (Concurrent-Bag ^a)]) : Int
   (cb-count-raw bag))
