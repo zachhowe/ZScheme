@@ -27,7 +27,15 @@ public sealed partial class CSharpEmitter
         // async self-recursive functions are included (includeAsync: true), preserving the
         // pre-existing async-TCO behavior. Unlike the IL backend the C# emitter does not hoist,
         // so this simply runs first, before any walk of the tree.
-        node = new TailCallLowering(includeAsync: true).Rewrite(node);
+        //
+        // Inlined source modules are lowered alongside the main IR, not by the callers that
+        // assemble them: a package library emits with an empty main IR and every function
+        // arriving as an imported module, so lowering only `node` would leave the whole library
+        // recursive. The construction-time maps built from `importedModules` key off names and
+        // signatures, which this rewrite does not touch.
+        var tco = new TailCallLowering(includeAsync: true);
+        node = tco.Rewrite(node);
+        importedModules = tco.RewriteModules(importedModules);
         // Register the current module's collision-renamed type names before any emission so
         // declarations and references (which may forward-reference a type) resolve alike.
         RegisterCurrentTypeEmitNames(node);

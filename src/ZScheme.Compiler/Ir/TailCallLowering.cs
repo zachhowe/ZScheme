@@ -27,6 +27,32 @@ namespace ZScheme.Compiler.Ir;
 /// </summary>
 public sealed class TailCallLowering(bool includeAsync)
 {
+    /// <summary>
+    ///     Rewrites every definition of every inlined source module, the same way
+    ///     <see cref="Rewrite" /> does the main IR. Each emitter calls this on its
+    ///     <c>importedModules</c> so a module function loops exactly as it would had it been
+    ///     written in the main program — without it, only the main IR is lowered and a package
+    ///     library (whose main IR is an empty <c>Seq</c>, with every function arriving as an
+    ///     imported module) gets no tail-call lowering at all.
+    ///
+    ///     Idempotent: re-running over an already-lowered tree finds <see cref="IrNode.TcoJump" />
+    ///     where the tail self-call was, rewrites nothing, and leaves
+    ///     <see cref="IrNode.FuncDef.IsTcoLoop" /> as it stands.
+    /// </summary>
+    public IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? RewriteModules(
+        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules
+    )
+    {
+        if (modules is null or { Count: 0 })
+            return modules;
+
+        return modules
+            .Select(m =>
+                (m.ClassName, (IReadOnlyList<IrNode>)m.Definitions.Select(Rewrite).ToList())
+            )
+            .ToList();
+    }
+
     public IrNode Rewrite(IrNode node)
     {
         return node switch
@@ -73,7 +99,11 @@ public sealed class TailCallLowering(bool includeAsync)
                 // would be miscompiled by a name-based jump; that limitation is shared by
                 // both backends and predates this pass.
                 return (
-                    new IrNode.TcoJump(paramNames, call.Args) { Type = call.Type, Span = call.Span },
+                    new IrNode.TcoJump(paramNames, call.Args)
+                    {
+                        Type = call.Type,
+                        Span = call.Span,
+                    },
                     true
                 );
 
@@ -122,7 +152,11 @@ public sealed class TailCallLowering(bool includeAsync)
                 if (!rewrote)
                     return (node, false);
                 return (
-                    new IrNode.Match(match.Scrutinee, arms) { Type = match.Type, Span = match.Span },
+                    new IrNode.Match(match.Scrutinee, arms)
+                    {
+                        Type = match.Type,
+                        Span = match.Span,
+                    },
                     true
                 );
             }

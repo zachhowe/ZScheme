@@ -413,6 +413,18 @@ overflowed under IL. Uses the `.tail.` prefix are deliberately avoided (unverifi
 miscompile polymorphic recursion (`f<T>` calling `f<int>`), and — because the match ignores
 scope — a call to a local that shadows the function's own name.
 
+Each emitter lowers **both** the main IR and its `importedModules` (via
+`RewriteModules`), rather than trusting whoever assembled that list to have done it. The
+inlined-module and package paths deliver their code by very different routes, and only the
+emitter sits on all of them: `Compilation.CompileEmit` passes source modules alongside a
+real main IR, while `LibraryCompiler` emits a package with an *empty* main IR and every
+single function arriving as an imported module. Lowering only the emitter's `node` argument
+therefore left an inlined source module recursive under C#, and a whole package library
+recursive under both backends — the stdlib included — with no diagnostic to show for it,
+since Stage 4.8 is correctly silent on a tail self-call it expects the pass to loop. The
+rewrite is idempotent, so a caller that lowers first (as `Compilation.CompileEmit` once did
+for the IL backend) changes nothing.
+
 Self-recursion this pass leaves un-looped is reported to the author as `ZS0005` by
 [Stage 4.8](#stage-48--un-looped-self-recursion), which models these same rules on the AST
 early enough for the language server to see them.

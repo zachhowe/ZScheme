@@ -35,7 +35,16 @@ public sealed partial class IlEmitter
         // hoisting, so every tail self-call is already a plain Call with clean args and nothing
         // downstream needs to know about TcoJump. Async functions are excluded here: the async
         // state-machine emitter cannot consume a TcoJump, so they keep plain recursion.
-        node = new TailCallLowering(includeAsync: false).Rewrite(node);
+        //
+        // Inlined source modules are lowered alongside the main IR, not by the callers that
+        // assemble them: a package library emits with an empty main IR and every function
+        // arriving as an imported module, so lowering only `node` would leave the whole library
+        // recursive. Compilation.CompileEmit hoists those modules before handing them over, so
+        // the hoist-then-lower order holds there as it does for `node` above; a package build
+        // has nothing to hoist.
+        var tco = new TailCallLowering(includeAsync: false);
+        node = tco.Rewrite(node);
+        importedModules = tco.RewriteModules(importedModules);
 
         Log.Debug(
             "IlEmitter: emitting assembly {AssemblyName}, usings={UsingCount}, searchPaths={SearchPathCount}, importedModules={ImportedModuleCount}",

@@ -101,9 +101,10 @@ public class TailCallLoweringTests
     {
         // The last node of a `begin` is in tail position; earlier nodes are not. This is the
         // Seq case the old marker was missing entirely.
-        var body = new IrNode.Seq(
-            [new IrNode.IntConst(0) { Type = ZType.Int }, Call("factorial", Var("n"), Var("acc"))]
-        )
+        var body = new IrNode.Seq([
+            new IrNode.IntConst(0) { Type = ZType.Int },
+            Call("factorial", Var("n"), Var("acc")),
+        ])
         {
             Type = ZType.Int,
         };
@@ -197,4 +198,97 @@ public class TailCallLoweringTests
         var cs = Rewrite(Func("f", body, isAsync: true), includeAsync: true);
         Assert.True(cs.IsTcoLoop);
     }
+
+    #region RewriteModules
+
+    /// <summary>
+    ///     `loop(n, acc) = if (n == 0) acc else loop(n - 1, acc)` — the shape every stdlib
+    ///     `*-loop` helper has.
+    /// </summary>
+    private static IrNode.FuncDef TailRecursiveLoop(string name) =>
+        Func(
+            name,
+            new IrNode.If(
+                new IrNode.BinOp("=", Var("n"), new IrNode.IntConst(0) { Type = ZType.Int })
+                {
+                    Type = ZType.Bool,
+                },
+                Var("acc"),
+                Call(
+                    name,
+                    new IrNode.BinOp("-", Var("n"), new IrNode.IntConst(1) { Type = ZType.Int })
+                    {
+                        Type = ZType.Int,
+                    },
+                    Var("acc")
+                )
+            )
+            {
+                Type = ZType.Int,
+            }
+        );
+
+    private static IrNode.FuncDef SingleFunc(
+        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules
+    ) => Assert.IsType<IrNode.FuncDef>(Assert.Single(Assert.Single(modules!).Definitions));
+
+    [Fact]
+    public void RewriteModules_LoopsFunctionsInsideImportedModules()
+    {
+        // The regression this guards: both emitters used to lower only the main IR, so every
+        // function reaching them as an imported module — which, for a package library, is
+        // every function it has — stayed plain recursion on both backends.
+        var modules = new[]
+        {
+            ("AlphaModule", (IReadOnlyList<IrNode>)[TailRecursiveLoop("alpha/loop")]),
+        };
+
+        var rewritten = new TailCallLowering(includeAsync: true).RewriteModules(modules);
+
+        var func = SingleFunc(rewritten);
+        Assert.True(func.IsTcoLoop);
+        Assert.IsType<IrNode.TcoJump>(Assert.IsType<IrNode.If>(func.Body).Else);
+    }
+
+    [Fact]
+    public void RewriteModules_LeavesNonTailRecursionAlone()
+    {
+        var body = new IrNode.BinOp("+", Call("f", Var("n"), Var("acc")), Var("acc"))
+        {
+            Type = ZType.Int,
+        };
+        var modules = new[] { ("M", (IReadOnlyList<IrNode>)[Func("f", body)]) };
+
+        var rewritten = new TailCallLowering(includeAsync: true).RewriteModules(modules);
+
+        Assert.False(SingleFunc(rewritten).IsTcoLoop);
+    }
+
+    [Fact]
+    public void RewriteModules_IsIdempotent()
+    {
+        // Compilation.CompileEmit hoists imported modules and hands them to IlEmitter, which
+        // lowers them itself. Nothing stops a caller from lowering first, so a second pass over
+        // an already-lowered tree must find TcoJump, change nothing, and keep IsTcoLoop set.
+        var modules = new[] { ("M", (IReadOnlyList<IrNode>)[TailRecursiveLoop("f")]) };
+        var lowering = new TailCallLowering(includeAsync: true);
+
+        var once = lowering.RewriteModules(modules);
+        var twice = lowering.RewriteModules(once);
+
+        var func = SingleFunc(twice);
+        Assert.True(func.IsTcoLoop);
+        Assert.IsType<IrNode.TcoJump>(Assert.IsType<IrNode.If>(func.Body).Else);
+    }
+
+    [Fact]
+    public void RewriteModules_PassesThroughNullAndEmpty()
+    {
+        var lowering = new TailCallLowering(includeAsync: true);
+
+        Assert.Null(lowering.RewriteModules(null));
+        Assert.Empty(lowering.RewriteModules([])!);
+    }
+
+    #endregion
 }

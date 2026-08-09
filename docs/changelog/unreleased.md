@@ -87,6 +87,13 @@ The LSP went from a small feature set to broad coverage:
 
 - **Multi-expression `define` / `lambda` / `define-async` bodies were silently dropping
   statements** — the most serious bug in this cycle; documented, then fixed.
+- **Tail-call optimization never reached module code.** Both emitters lowered only the main
+  IR, so an inlined source module stayed recursive under the C# backend, and a package
+  library — which emits with an empty main IR and every function arriving as an imported
+  module — stayed recursive under *both*. The entire stdlib compiled to stack-consuming
+  recursion, silently: `ZS0005` is correctly quiet about a tail self-call, on the assumption
+  the pass would loop it. Each emitter now lowers its imported modules too, so the fix covers
+  every route module code takes to codegen rather than only the two that were patched.
 - **C# TCO-loop match leaked a pattern-variable rename across sibling arms**; TCO-loop and
   ordinary statement/match rendering were then unified in both backends.
 - **IL backend compared strings by reference** in `=` and `!=`.
