@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using Serilog;
+using ZScheme.Compiler.Analysis;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Modules;

@@ -50,6 +50,9 @@ The LSP went from a small feature set to broad coverage:
 ## Added — diagnostics
 
 - **`ZS0004`** suggests dropping a namespace qualifier that an `import-clr` makes redundant.
+- **`zs lint`** reports ZS0004 across a whole package instead of one editor buffer at a time,
+  and `--fix` applies it in place. The analyzer moved from the language server into
+  `ZScheme.Compiler/Analysis/` so both front ends share it; no compile path runs it.
 
 ## Changed
 

@@ -210,6 +210,7 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 | `build` | Build a package from its manifest |
 | `test` | Run package tests |
 | `run <file.zs>` | Compile and execute a file |
+| `lint [paths...]` | Report style diagnostics; `--fix` rewrites the files in place |
 | `install` | Compile and cache a library package |
 | `repl` | Start the interactive REPL |
 | `package init` | Initialize a new package |

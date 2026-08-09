@@ -617,6 +617,7 @@ zs <command> [options]
 | `install` | `InstallCommand` | Compile a library package and cache it (precompiled) |
 | `test` | `TestCommand` | Run package tests defined in a manifest |
 | `run <file.zs>` | `ExecuteCommand` | Compile and run a file *(not yet implemented)* |
+| `lint [paths...]` | `LintCommand` | Report (or fix) style diagnostics |
 | `repl` | `ReplCommand` | Start the interactive REPL |
 | `package <cmd>` | `PackageCommand` | Package management (`init`) |
 | `generate-project` | `GenerateProjectCommand` | Generate a `.csproj` project directory |
@@ -709,6 +710,42 @@ Runs the tests declared in a package manifest. Options:
 
 Intended to compile and run a file directly. **Not yet implemented** — it
 currently prints a message directing you to `compile` followed by `dotnet run`.
+
+### `lint [paths...]`
+
+Reports — and with `--fix` applies — the style diagnostics that no compile path
+emits. Currently one rule: **ZS0004**, the redundant namespace qualifier
+(`RedundantTypeQualifierAnalyzer`).
+
+| Option | Description |
+| --- | --- |
+| `--manifest`, `-m <path>` | Package context for the files being linted |
+| `--fix` | Rewrite the files in place |
+| `--ref <dir>` | Directory containing CLR assemblies (repeatable) |
+| `--module-path <dir>` | Additional module search directory (repeatable) |
+| `--package-path <dir>` | Register a package for qualified imports (repeatable) |
+| `[paths...]` | Files or directories (default: the current package's sources) |
+
+With no paths, lint auto-detects a `.zspkg` in the current directory and checks
+everything under its `sources.main` and `sources.test`. Given paths, it groups the
+files by the package that owns each (walking up to the nearest `.zspkg`) so every
+file is checked with its own manifest's dependencies and module names; `--manifest`
+overrides that and puts every file in one context. A file under no package lints
+standalone. The dependency closure folds in `test-dependencies`, so a package's
+test sources resolve their `zunit` import.
+
+Each file is type-checked on its own with `StopAfterTypeInference`, the way the
+language server checks the open document — the analyzer needs the compilation's
+`TypeNameCanonicalizer` to prove a short spelling resolves to the same type, and
+that only exists once stage 4 has run. A file that fails before then is reported
+and skipped, never rewritten.
+
+The fix is a pure deletion: ZS0004's span covers exactly the redundant `Ns.`
+characters, so `RedundantTypeQualifierFixer` splices them out of the raw source
+(descending offset order, line endings preserved) with no re-parse.
+
+Exit codes: `0` clean, `1` when issues were found without `--fix`, or when any
+file could not be analyzed.
 
 ### `repl`
 

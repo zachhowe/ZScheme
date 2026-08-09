@@ -27,8 +27,9 @@ public static class DiagnosticCodes
     ///     namespace prefix. The span covers only the <c>Ns.</c> characters, so the quick fix
     ///     is a plain deletion; clients render it with the <c>Unnecessary</c> tag.
     ///     <para>
-    ///         LSP-only — emitted by <c>Analysis/RedundantTypeQualifierAnalyzer.cs</c>, never by
-    ///         the compiler, so CLI builds stay quiet about a purely stylistic choice.
+    ///         Opt-in — emitted by <c>Analysis/RedundantTypeQualifierAnalyzer.cs</c>, which no
+    ///         compile path runs. Only the language server and <c>zs lint</c> ask for it, so
+    ///         <c>zs build</c> stays quiet about a purely stylistic choice.
     ///     </para>
     /// </summary>
     public const string RedundantTypeQualifier = "ZS0004";

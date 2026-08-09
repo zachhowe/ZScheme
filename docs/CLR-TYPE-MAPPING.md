@@ -114,7 +114,7 @@ A hint also lets you drop the namespace from a name it covers, exactly like a C#
     :instance : (StringBuilder String -> StringBuilder)])
 ```
 
-The short spelling resolves only through a namespace declared by an `import-clr` form — in this file or in a module it imports — and only when it is unambiguous; there is deliberately no blanket assembly scan. The language server flags a qualifier a hint makes redundant as `ZS0004`, with a "Simplify name to 'X'" quick fix.
+The short spelling resolves only through a namespace declared by an `import-clr` form — in this file or in a module it imports — and only when it is unambiguous; there is deliberately no blanket assembly scan. The language server flags a qualifier a hint makes redundant as `ZS0004`, with a "Simplify name to 'X'" quick fix; `zs lint` reports the same across a whole package, and `zs lint --fix` applies it.
 
 ### Static Methods
 

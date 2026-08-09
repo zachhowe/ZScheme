@@ -1,13 +1,13 @@
 using ZScheme.Compiler.Syntax;
 
-namespace ZScheme.LanguageServer.Analysis;
+namespace ZScheme.Compiler.Analysis;
 
 /// <summary>A named type written in a type position. <paramref name="Name" /> is the token
 ///     text with a trailing <c>?</c> stripped (the nullable suffix is not part of the name);
 ///     <paramref name="Arity" /> is the type-argument count, which is what
 ///     <c>TypeNameCanonicalizer.Canonical</c> needs to pick between <c>Foo</c> and
 ///     <c>Foo`n</c>.</summary>
-internal readonly record struct TypeNameOccurrence(Token Token, string Name, int Arity);
+public readonly record struct TypeNameOccurrence(Token Token, string Name, int Arity);
 
 /// <summary>The type half of an <c>import-clr</c> member binding's <c>Type/Member</c> path.
 ///     <paramref name="Token" /> is the whole path atom, so the type name still starts at its
@@ -15,11 +15,11 @@ internal readonly record struct TypeNameOccurrence(Token Token, string Name, int
 ///     <em>position</em>: it never becomes a <see cref="ZScheme.Compiler.Types.ZType" />, it
 ///     carries no arity, and the primitive-name exclusion that applies to annotations does not
 ///     apply to it.</summary>
-internal readonly record struct ImportMemberOccurrence(Token Token, string TypeName);
+public readonly record struct ImportMemberOccurrence(Token Token, string TypeName);
 
 /// <summary>Every part of a single pass: the type names written in the file, the bare namespace
 ///     atoms of its own <c>(import-clr Ns …)</c> forms, and those forms' member paths.</summary>
-internal sealed record TypeNameScan(
+public sealed record TypeNameScan(
     IReadOnlyList<TypeNameOccurrence> TypeNames,
     IReadOnlyList<Token> ClrNamespaces,
     IReadOnlyList<ImportMemberOccurrence> ImportMembers
@@ -31,7 +31,7 @@ internal sealed record TypeNameScan(
 ///         Type annotations do not survive parsing: <c>AstBuilder.ParseTypeExpr</c> turns them
 ///         into <see cref="ZScheme.Compiler.Types.ZType" />, which carries no span. So anything
 ///         that needs to point at a written type name has to work at the token level, the same
-///         way <see cref="TypePosition" /> does for completion.
+///         way the language server's <c>TypePosition</c> does for completion.
 ///     </para>
 ///     <para>
 ///         The walk mirrors the real grammar rather than guessing: a type expression is parsed
@@ -44,7 +44,7 @@ internal sealed record TypeNameScan(
 ///     </para>
 ///     Bracket-imbalance tolerant, so it keeps working mid-edit.
 /// </summary>
-internal static class TypeNameScanner
+public static class TypeNameScanner
 {
     public static TypeNameScan Scan(IReadOnlyList<Token> tokens)
     {
@@ -442,8 +442,8 @@ internal static class TypeNameScanner
             };
         }
 
-        /// <summary>An unclosed bracket runs to the end of the stream, matching
-        ///     <see cref="LexicalStructure.BuildTree" />'s mid-edit tolerance.</summary>
+        /// <summary>An unclosed bracket runs to the end of the stream, matching the language
+        ///     server's <c>LexicalStructure.BuildTree</c> mid-edit tolerance.</summary>
         private int SkipBracket(int i)
         {
             var depth = 0;

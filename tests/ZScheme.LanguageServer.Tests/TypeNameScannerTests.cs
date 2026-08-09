@@ -1,4 +1,5 @@
 using Xunit;
+using ZScheme.Compiler.Analysis;
 using ZScheme.LanguageServer.Analysis;
 
 namespace ZScheme.LanguageServer.Tests;

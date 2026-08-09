@@ -49,6 +49,7 @@ public static class Program
                 "install" => InstallCommand.Run(args[1..]),
                 "test" => await TestCommand.RunAsync(args[1..]),
                 "run" => ExecuteCommand.Run(args[1..]),
+                "lint" => LintCommand.Run(args[1..]),
                 "repl" => ReplCommand.Run(),
                 "package" => PackageCommand.Run(args[1..]),
                 "generate-project" => GenerateProjectCommand.Run(args[1..]),
@@ -94,6 +95,7 @@ public static class Program
         Console.WriteLine("  install                 Compile a library package and cache it");
         Console.WriteLine("  test                    Run package tests defined in manifest");
         Console.WriteLine("  run <file.zs>           Compile and run a ZScheme file");
+        Console.WriteLine("  lint [paths...]         Report (or fix) style diagnostics");
         Console.WriteLine("  repl                    Start interactive REPL");
         Console.WriteLine("  package <cmd>           Package management (init)");
         Console.WriteLine("  generate-project        Generate a .csproj project directory");
@@ -144,6 +146,25 @@ public static class Program
         );
         Console.WriteLine(
             "  --package-path <dir>    Register a package for qualified imports (repeatable)"
+        );
+        Console.WriteLine();
+        Console.WriteLine("Options (lint):");
+        Console.WriteLine("  --manifest, -m <path>   Package context for the files being linted");
+        Console.WriteLine(
+            "                          (default: the package owning each path, else auto-detect)"
+        );
+        Console.WriteLine("  --fix                   Rewrite the files in place");
+        Console.WriteLine(
+            "  --ref <dir>             Directory containing CLR assemblies (repeatable)"
+        );
+        Console.WriteLine(
+            "  --module-path <dir>     Additional module search directory (repeatable)"
+        );
+        Console.WriteLine(
+            "  --package-path <dir>    Register a package for qualified imports (repeatable)"
+        );
+        Console.WriteLine(
+            "  [paths...]              Files or directories (default: the current package's sources)"
         );
         Console.WriteLine();
         Console.WriteLine("Options (package init):");

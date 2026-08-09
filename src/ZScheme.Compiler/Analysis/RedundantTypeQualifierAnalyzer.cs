@@ -2,7 +2,7 @@ using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Syntax;
 using ZScheme.Compiler.Types;
 
-namespace ZScheme.LanguageServer.Analysis;
+namespace ZScheme.Compiler.Analysis;
 
 /// <summary>
 ///     Reports a fully-qualified CLR type name whose namespace the same file already declares
@@ -12,9 +12,9 @@ namespace ZScheme.LanguageServer.Analysis;
 ///     the redundant <c>Ns.</c> characters, which makes the quick fix a plain deletion and lets
 ///     clients grey the prefix out rather than squiggle the whole name.
 ///     <para>
-///         Editor-only by design: writing a type out in full is a style choice, not a defect, so
-///         it has no business failing a build or filling CLI output. Nothing in the compiler
-///         emits this code.
+///         Opt-in by design: writing a type out in full is a style choice, not a defect, so it
+///         has no business failing a build or filling CLI output. No compile path runs this —
+///         only the language server and <c>zs lint</c>, which ask for it explicitly.
 ///     </para>
 ///     <para>
 ///         Only the file's <em>own</em> namespace hints count. The canonicalizer would also
@@ -32,7 +32,10 @@ public sealed class RedundantTypeQualifierAnalyzer(DiagnosticBag diagnostics)
     /// </param>
     public void Analyze(string source, string fileName, TypeNameCanonicalizer canonicalizer)
     {
-        var scan = TypeNameScanner.Scan(LexicalStructure.Tokens(source, fileName));
+        // Comment tokens are kept so the scanner's bracket skipping sees the same stream the
+        // language server's LexicalStructure.Tokens hands it.
+        var tokens = new Lexer(source, fileName, new DiagnosticBag()).Tokenize(keepComments: true);
+        var scan = TypeNameScanner.Scan(tokens);
         if (scan.ClrNamespaces.Count == 0)
             return;
 
