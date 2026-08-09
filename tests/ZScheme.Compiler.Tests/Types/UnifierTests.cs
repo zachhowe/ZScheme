@@ -75,6 +75,108 @@ public class UnifierTests
         Assert.False(diag.HasErrors);
     }
 
+    /// <summary>
+    ///     A unifier for a compilation in which a ZScheme declaration owns
+    ///     <paramref name="declaredName" />. <see cref="TypeInferer" /> supplies the same origin
+    ///     lookup; <see cref="CreateWithNamespaces" /> supplies none, so there every name is fair
+    ///     game for the namespace hints.
+    /// </summary>
+    private static (Unifier unifier, DiagnosticBag diag) CreateWithDeclaredType(
+        string declaredName,
+        string origin,
+        params string[] namespaces
+    )
+    {
+        var diag = new DiagnosticBag();
+        var unifier = new Unifier(
+            new Substitution(),
+            diag,
+            null,
+            null,
+            namespaces,
+            null,
+            name => name == declaredName ? origin : null
+        );
+        return (unifier, diag);
+    }
+
+    /// <summary>
+    ///     stdlib's <c>List</c> and <c>System.Collections.Generic.List</c> genuinely are different
+    ///     types, so rejecting this is correct — but rendered alone the message reads as a
+    ///     canonicalization failure, the very thing namespace hints exist to prevent. It has to say
+    ///     which side the ZScheme declaration owns, and where that declaration lives: <c>List</c>
+    ///     arrives through the prelude, so a user never wrote it.
+    /// </summary>
+    [Fact]
+    public void ShadowedZSchemeTypeName_MismatchNamesTheDeclarationThatOwnsIt()
+    {
+        var (unifier, diag) = CreateWithDeclaredType(
+            "List",
+            "stdlib/list",
+            "System.Collections.Generic"
+        );
+        var zs = new ZType.ZNamedType("List", [ZType.Int]);
+        var clr = new ZType.ZNamedType("System.Collections.Generic.List", [ZType.Int]);
+
+        Assert.False(unifier.Unify(zs, clr, SourceSpan.None));
+        var message = Assert.Single(diag.Diagnostics).Message;
+        Assert.Contains("'List' is a ZScheme type declared in stdlib/list", message);
+        Assert.Contains("not 'System.Collections.Generic.List'", message);
+    }
+
+    [Fact]
+    public void ShadowedZSchemeTypeName_IsNamedWhicheverSideOfTheMismatchItIsOn()
+    {
+        var (unifier, diag) = CreateWithDeclaredType(
+            "List",
+            "stdlib/list",
+            "System.Collections.Generic"
+        );
+        var clr = new ZType.ZNamedType("System.Collections.Generic.List", [ZType.Int]);
+        var zs = new ZType.ZNamedType("List", [ZType.Int]);
+
+        Assert.False(unifier.Unify(clr, zs, SourceSpan.None));
+        Assert.Contains(
+            "'List' is a ZScheme type declared in stdlib/list",
+            Assert.Single(diag.Diagnostics).Message
+        );
+    }
+
+    /// <summary>
+    ///     At arity 0 the CLR-subtype fallback used to complete the short name through the
+    ///     namespace hint, find the CLR type and <em>accept</em> the mismatch — the annotation type
+    ///     checked and codegen then emitted the ZScheme record where the CLR type was required.
+    /// </summary>
+    [Fact]
+    public void ZSchemeTypeShadowingAClrSimpleName_IsNotResolvedThroughANamespaceHint()
+    {
+        var (unifier, diag) = CreateWithDeclaredType("StringBuilder", "this file", "System.Text");
+        var zs = new ZType.ZNamedType("StringBuilder", []);
+        var clr = new ZType.ZNamedType("System.Text.StringBuilder", []);
+
+        Assert.False(unifier.Unify(zs, clr, SourceSpan.None));
+        Assert.Contains(
+            "'StringBuilder' is a ZScheme type declared in this file",
+            Assert.Single(diag.Diagnostics).Message
+        );
+    }
+
+    /// <summary>Two names that merely fail to unify share no simple name, so the note — which only
+    ///     ever explains shadowing — stays out of the message.</summary>
+    [Fact]
+    public void MismatchOfUnrelatedNames_CarriesNoShadowingNote()
+    {
+        var (unifier, diag) = CreateWithDeclaredType("Buffer", "this file", "System.IO");
+        var declared = new ZType.ZNamedType("Buffer", []);
+        var other = new ZType.ZNamedType("System.IO.Stream", []);
+
+        Assert.False(unifier.Unify(declared, other, SourceSpan.None));
+        Assert.DoesNotContain(
+            "is a ZScheme type declared in",
+            Assert.Single(diag.Diagnostics).Message
+        );
+    }
+
     [Fact]
     public void UnifyShortNamesOfUnrelatedTypes_StillFails()
     {

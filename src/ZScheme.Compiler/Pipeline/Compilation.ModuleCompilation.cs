@@ -190,7 +190,8 @@ public sealed partial class Compilation
             {
                 CurrentModuleName = moduleName,
             };
-            inferer.RegisterDeclaredTypeNames(ImportedTypeNames(transModules));
+            foreach (var mod in transModules)
+                inferer.RegisterDeclaredTypeNames(ImportedTypeNames(mod), mod.Name);
             foreach (var mod in transModules)
                 if (mod.ExportedClassInterfaces is not null)
                     inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);

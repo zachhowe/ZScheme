@@ -185,6 +185,62 @@ public class ShortClrTypeNameTests
     }
 
     /// <summary>
+    ///     The flip side of the test above: mixing the two really is an error, but at arity 0 the
+    ///     unifier's CLR-subtype fallback used to complete the short name through the hint, find
+    ///     <c>System.Text.StringBuilder</c> and accept it — so this compiled clean and emitted a
+    ///     ZScheme record where the CLR type was required. It is now rejected, and the message says
+    ///     which side the ZScheme declaration owns.
+    /// </summary>
+    [Fact]
+    public void MixingAZSchemeTypeWithTheClrTypeItShadows_IsRejectedAndExplained()
+    {
+        var result = CompileWith(
+            """
+            (module shadowmix)
+
+            (import-clr System.Text)
+
+            (define-record StringBuilder [tag : String])
+
+            (define (widen [b : StringBuilder]) : System.Text.StringBuilder b)
+            """,
+            OutputMode.Il
+        );
+
+        Assert.False(result.Success);
+        Assert.Contains(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("'StringBuilder' is a ZScheme type declared in this file")
+        );
+    }
+
+    /// <summary>
+    ///     Why the note names the declaring module rather than just saying "a ZScheme type":
+    ///     <c>List</c> is stdlib's union, in scope through the prelude, so the user never wrote the
+    ///     declaration that owns the name and has nothing to search for without it.
+    /// </summary>
+    [Fact]
+    public void MixingStdlibListWithTheClrList_NamesTheModuleThatDeclaresIt()
+    {
+        var result = CompileWith(
+            """
+            (module shadowlist)
+
+            (import-clr System.Collections.Generic)
+
+            (define (f [xs : (List Int)]) : (System.Collections.Generic.List Int) xs)
+            """,
+            OutputMode.Il
+        );
+
+        Assert.False(result.Success);
+        Assert.Contains(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("'List' is a ZScheme type declared in stdlib/list")
+        );
+    }
+
+    /// <summary>
     ///     A short name in <c>new</c> position resolves through the namespace hints even when a
     ///     <c>define-type-alias</c> stands between the expression and its annotation.
     ///     <para>

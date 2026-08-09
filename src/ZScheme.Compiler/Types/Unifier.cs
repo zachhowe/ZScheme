@@ -3,13 +3,23 @@ using ZScheme.Compiler.Diagnostics;
 
 namespace ZScheme.Compiler.Types;
 
+/// <param name="userDeclaredTypeOrigin">
+///     Where a name owned by a ZScheme record/union/class/interface/alias declaration was
+///     declared, phrased for a diagnostic (<c>"this file"</c>, or the declaring module's name);
+///     null for a name no ZScheme declaration owns. Such a name is never a CLR type — see
+///     <see cref="TypeNameCanonicalizer" />, which for the same reason refuses to canonicalize
+///     it — so this both keeps a namespace hint from completing it to an unrelated CLR type of
+///     the same simple name and lets the mismatch say so. Callers that supply nothing (scratch
+///     unifiers, direct unit tests) get neither.
+/// </param>
 public sealed class Unifier(
     Substitution subst,
     DiagnosticBag diagnostics,
     IReadOnlyList<string>? assemblySearchPaths = null,
     Func<string, IReadOnlyList<string>?>? classInterfaceLookup = null,
     IReadOnlyList<string>? clrNamespaces = null,
-    Func<string, string>? canonicalTypeName = null
+    Func<string, string>? canonicalTypeName = null,
+    Func<string, string?>? userDeclaredTypeOrigin = null
 )
 {
     private readonly IReadOnlyList<string>? _clrNamespaces = clrNamespaces;
@@ -19,6 +29,9 @@ public sealed class Unifier(
     ///     compare equal. Identity when the caller supplies none (direct unit tests).
     /// </summary>
     private readonly Func<string, string> _canonical = canonicalTypeName ?? (name => name);
+
+    private readonly Func<string, string?> _userDeclaredTypeOrigin =
+        userDeclaredTypeOrigin ?? (_ => null);
 
     public bool Unify(ZType a, ZType b, SourceSpan span)
     {
@@ -118,7 +131,10 @@ public sealed class Unifier(
             if (na.TypeArgs.Count == 0 && nb.TypeArgs.Count == 0 && IsClrSubtype(na.Name, nb.Name))
                 return true;
 
-            diagnostics.Error($"Type mismatch: '{ta}' vs '{tb}'", span);
+            diagnostics.Error(
+                $"Type mismatch: '{ta}' vs '{tb}'{ShadowedNameNote(na.Name, nb.Name)}",
+                span
+            );
             return false;
         }
 
@@ -462,6 +478,13 @@ public sealed class Unifier(
 
     private Type? FindClrType(ClrInterop clr, string name)
     {
+        // A name a ZScheme declaration owns is not a CLR type, however many namespace hints are
+        // in scope. Without this a record named `Version` unifies with `System.Version` the
+        // moment `(import-clr System)` appears — the mismatch is accepted silently and codegen
+        // emits a ZScheme record where the CLR type is required.
+        if (_userDeclaredTypeOrigin(name) is not null)
+            return null;
+
         // Try direct resolution first (full CLR type names)
         var type = clr.FindType(name);
         if (type is not null)
@@ -481,6 +504,43 @@ public sealed class Unifier(
         }
 
         return null;
+    }
+
+    /// <summary>
+    ///     Explains a mismatch between two named types whose simple names are equal but whose full
+    ///     names are not, when a ZScheme declaration owns one of them. Rendered alone,
+    ///     <c>'List&lt;Int&gt;' vs 'System.Collections.Generic.List&lt;Int&gt;'</c> reads as a
+    ///     canonicalization failure — two spellings of one type that failed to unify — when in fact
+    ///     stdlib's <c>List</c> and the CLR's are different types and the compiler is right. A
+    ///     namespace hint deliberately never rebinds a name a ZScheme declaration already owns
+    ///     (<see cref="TypeNameCanonicalizer" />), and nothing else in the pipeline is in a position
+    ///     to say so. Empty when the case does not apply, so it appends to the message unguarded.
+    /// </summary>
+    private string ShadowedNameNote(string nameA, string nameB)
+    {
+        if (nameA == nameB || SimpleName(nameA) != SimpleName(nameB))
+            return "";
+
+        var originA = _userDeclaredTypeOrigin(nameA);
+        var originB = _userDeclaredTypeOrigin(nameB);
+        // Exactly one side may be ZScheme-declared: the other is the CLR type whose simple name it
+        // shadows. Two declared names sharing a simple name is an unrelated (and unexplainable) case.
+        if ((originA is null) == (originB is null))
+            return "";
+
+        var declared = originA is not null ? nameA : nameB;
+        var origin = originA ?? originB!;
+        var shadowed = originA is not null ? nameB : nameA;
+
+        return $" (note: '{declared}' is a ZScheme type declared in {origin}, not '{shadowed}' — "
+            + "a CLR namespace hint never rebinds a name a ZScheme declaration already owns. "
+            + "Write the CLR type's full name on both sides, or give it a (define-type-alias ...))";
+    }
+
+    private static string SimpleName(string name)
+    {
+        var dot = name.LastIndexOf('.');
+        return dot >= 0 ? name[(dot + 1)..] : name;
     }
 
     /// <summary>

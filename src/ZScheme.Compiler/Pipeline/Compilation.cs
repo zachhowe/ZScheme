@@ -883,7 +883,8 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         };
 
         // Imported ZScheme type names, so the canonicalizer leaves them at their short spelling.
-        inferer.RegisterDeclaredTypeNames(ImportedTypeNames(compiledModules));
+        foreach (var mod in compiledModules)
+            inferer.RegisterDeclaredTypeNames(ImportedTypeNames(mod), mod.Name);
 
         // Inject class interface info from imported modules for cross-module subtyping
         foreach (var mod in compiledModules)
@@ -921,44 +922,41 @@ public sealed partial class Compilation(CompilerOptions? options = null)
     ///     short spelling the importing file writes — see
     ///     <see cref="TypeInferer.RegisterDeclaredTypeNames" />.
     /// </summary>
-    private static IEnumerable<string> ImportedTypeNames(IEnumerable<CompiledModule> modules)
+    private static IEnumerable<string> ImportedTypeNames(CompiledModule mod)
     {
-        foreach (var mod in modules)
-        {
-            if (mod.ExportedRecordCtors is not null)
-                foreach (var recordName in mod.ExportedRecordCtors.Keys)
-                    yield return recordName;
+        if (mod.ExportedRecordCtors is not null)
+            foreach (var recordName in mod.ExportedRecordCtors.Keys)
+                yield return recordName;
 
-            if (mod.ExportedUnionCtors is not null)
-                foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
-                {
-                    yield return caseName;
-                    yield return unionName;
-                }
+        if (mod.ExportedUnionCtors is not null)
+            foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
+            {
+                yield return caseName;
+                yield return unionName;
+            }
 
-            if (mod.ExportedClassInterfaces is not null)
-                foreach (var className in mod.ExportedClassInterfaces.Keys)
-                    yield return className;
+        if (mod.ExportedClassInterfaces is not null)
+            foreach (var className in mod.ExportedClassInterfaces.Keys)
+                yield return className;
 
-            foreach (var def in mod.ExportedIrDefinitions)
-                switch (def)
-                {
-                    case IrNode.RecordDecl rd:
-                        yield return rd.Name;
-                        break;
-                    case IrNode.UnionDecl ud:
-                        yield return ud.Name;
-                        foreach (var unionCase in ud.Cases)
-                            yield return unionCase.Name;
-                        break;
-                    case IrNode.ClassDecl cd:
-                        yield return cd.Name;
-                        break;
-                    case IrNode.InterfaceDecl id:
-                        yield return id.Name;
-                        break;
-                }
-        }
+        foreach (var def in mod.ExportedIrDefinitions)
+            switch (def)
+            {
+                case IrNode.RecordDecl rd:
+                    yield return rd.Name;
+                    break;
+                case IrNode.UnionDecl ud:
+                    yield return ud.Name;
+                    foreach (var unionCase in ud.Cases)
+                        yield return unionCase.Name;
+                    break;
+                case IrNode.ClassDecl cd:
+                    yield return cd.Name;
+                    break;
+                case IrNode.InterfaceDecl id:
+                    yield return id.Name;
+                    break;
+            }
     }
 
     internal static IEnumerable<string> OwnClrNamespaces(AstNode.Program program)

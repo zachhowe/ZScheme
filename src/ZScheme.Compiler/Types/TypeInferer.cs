@@ -20,10 +20,12 @@ public sealed class TypeInferer
 
     private readonly TypeNameCanonicalizer _canonicalizer;
 
-    // Names of ZScheme-declared types visible here (own declarations plus imported ones).
-    // Consulted by the canonicalizer, which must not promote them to a CLR type that merely
-    // shares their simple name — see TypeNameCanonicalizer's isUserDeclaredType parameter.
-    private readonly HashSet<string> _declaredTypeNames = new(StringComparer.Ordinal);
+    // Names of ZScheme-declared types visible here (own declarations plus imported ones), each
+    // mapped to the module that declared it — null for this file's own declarations. Consulted by
+    // the canonicalizer, which must not promote them to a CLR type that merely shares their simple
+    // name (see TypeNameCanonicalizer's isUserDeclaredType parameter), and by the unifier, which
+    // names the origin when a mismatch turns out to be that shadowing.
+    private readonly Dictionary<string, string?> _declaredTypeNames = new(StringComparer.Ordinal);
 
     // Track class metadata for inheritance resolution
     private readonly Dictionary<string, ClassInfo> _classInfos = new();
@@ -63,7 +65,8 @@ public sealed class TypeInferer
             assemblySearchPaths,
             LookupClassInterfaces,
             clrNamespaces,
-            name => _canonicalizer.Canonical(name, 0)
+            name => _canonicalizer.Canonical(name, 0),
+            UserDeclaredTypeOrigin
         );
         _assemblySearchPaths = assemblySearchPaths ?? [];
         _typeAliases = typeAliases;
@@ -155,17 +158,38 @@ public sealed class TypeInferer
     ///     them could bind a ZScheme <c>Point</c> to, say, <c>System.Drawing.Point</c> merely
     ///     because a namespace hint was in scope.
     /// </summary>
-    public void RegisterDeclaredTypeNames(IEnumerable<string> names)
+    /// <param name="declaringModule">
+    ///     The module the names come from, for diagnostics that have to explain where a name a
+    ///     ZScheme declaration owns was declared. Null for this file's own declarations, which are
+    ///     registered last so they win over an import of the same name.
+    /// </param>
+    public void RegisterDeclaredTypeNames(IEnumerable<string> names, string? declaringModule = null)
     {
         foreach (var name in names)
-            _declaredTypeNames.Add(name);
+            _declaredTypeNames[name] = declaringModule;
     }
 
     private bool IsDeclaredTypeName(string name)
     {
-        return _declaredTypeNames.Contains(name)
-            || _classInfos.ContainsKey(name)
-            || _importedClassInterfaces.ContainsKey(name);
+        return UserDeclaredTypeOrigin(name) is not null;
+    }
+
+    /// <summary>
+    ///     Where a ZScheme declaration visible here declared <paramref name="name" />, phrased for a
+    ///     diagnostic; null when no ZScheme declaration owns the name. See the
+    ///     <c>userDeclaredTypeOrigin</c> parameter of <see cref="Unifier" />.
+    /// </summary>
+    private string? UserDeclaredTypeOrigin(string name)
+    {
+        if (_declaredTypeNames.TryGetValue(name, out var declaringModule))
+            return declaringModule ?? "this file";
+        if (_classInfos.ContainsKey(name))
+            return "this file";
+        // Registered per-module by RegisterClassInterfaces, which carries no module name; the same
+        // class names normally arrive through RegisterDeclaredTypeNames above, which does.
+        if (_importedClassInterfaces.ContainsKey(name))
+            return "an imported module";
+        return null;
     }
 
     /// <summary>
