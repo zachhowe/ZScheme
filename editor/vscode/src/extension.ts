@@ -22,7 +22,12 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: "file", language: "zscheme" }],
+    // Manifests are served too — AnalysisService dispatches on the .zspkg suffix.
+    // "zscheme-fmt" is deliberately absent: the server has no handler for .zsfmt.
+    documentSelector: [
+      { scheme: "file", language: "zscheme" },
+      { scheme: "file", language: "zscheme-package" },
+    ],
   };
 
   client = new LanguageClient(

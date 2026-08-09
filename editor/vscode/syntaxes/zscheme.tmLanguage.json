@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   "name": "ZScheme",
   "scopeName": "source.zscheme",
-  "fileTypes": ["zs", "zspkg"],
+  "fileTypes": ["zs"],
   "patterns": [
     { "include": "#expressions" }
   ],
@@ -21,6 +21,7 @@
         { "include": "#colon" },
         { "include": "#wildcard" },
         { "include": "#ellipsis" },
+        { "include": "#super-call" },
         { "include": "#value-constructors" },
         { "include": "#type-names" },
         { "include": "#type-variables" },
@@ -100,17 +101,19 @@
         { "include": "#head-keyword-control" },
         { "include": "#head-keyword-module" },
         { "include": "#head-attribute" },
-        { "include": "#head-keyword-manifest" },
         { "include": "#head-keyword-other" },
         { "include": "#head-operator-pipe" },
         { "include": "#head-operator" },
+        { "include": "#head-type-name" },
+        { "include": "#super-call" },
         { "include": "#head-function-call" },
         { "include": "#expressions" }
       ]
     },
 
     "head-keyword-control": {
-      "match": "(?<=\\()(?:define-syntax|define-async|define-type-alias|define-record|define-struct|define-union|define-class|define-interface|define|letrec|let\\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|values)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "comment": "The AstBuilder special-form switch, plus the macro layer's define-syntax/syntax-rules and the type-expression keyword 'delegate'. Longest alternatives first so a prefix cannot shadow a longer form.",
+      "match": "(?<=\\()(?:define-syntax|define-async|define-type-alias|define-record|define-struct|define-union|define-class|define-interface|define|letrec|let\\*|let|use\\*|use|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|values|quote)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
       "name": "keyword.control.zscheme"
     },
 
@@ -122,11 +125,6 @@
     "head-attribute": {
       "match": "(?<=\\()@(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
       "name": "keyword.other.attribute.zscheme"
-    },
-
-    "head-keyword-manifest": {
-      "match": "(?<=\\()(?:package|dependencies|test-dependencies|nuget|build|output|backend|stdlib|ref|name|version|entry)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
-      "name": "keyword.other.manifest.zscheme"
     },
 
     "head-keyword-other": {
@@ -167,8 +165,24 @@
       "name": "keyword.other.flag.zscheme"
     },
 
+    "head-type-name": {
+      "comment": "Generic type constructors are applied, so they sit in head position — (List Int), (Hash String Long). Without this they would be claimed by head-function-call and the built-in type list would never fire for them.",
+      "match": "(?<=\\()(?:Mutable-TreeList|TreeList|List|Vector|Hash|Option|Result|Fn|Task)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "name": "storage.type.zscheme"
+    },
+
+    "super-call": {
+      "comment": "(super/MethodName arg ...) — also legal as a bare atom, so this is included in both head and value position.",
+      "match": "(?<![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])(super/)([a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->]*)",
+      "captures": {
+        "1": { "name": "keyword.control.super.zscheme" },
+        "2": { "name": "variable.function.zscheme" }
+      }
+    },
+
     "clr-qualifiers": {
-      "match": ":(?:instance-property|instance-indexer|instance|where)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "comment": "import-clr member qualifiers. Longest alternatives first: ':instance-property' would otherwise shadow ':instance-property-set'.",
+      "match": ":(?:instance-property-init|instance-property-set|instance-indexer-set|instance-property|instance-indexer|instance|where|from)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
       "name": "keyword.other.clr-qualifier.zscheme"
     },
 
@@ -195,12 +209,14 @@
     "type-names": {
       "patterns": [
         {
-          "match": "(?:Int|Float|Bool|String|Unit|List|Vector|Map|Option|Result|Fn|Task)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+          "comment": "PrimitiveTypeNames.cs plus the stdlib generics. There is no 'Map' — packages/stdlib/src/map.zs is hash.zs and the type is Hash.",
+          "match": "(?:Int|Long|Float|Double|Byte|Char|Bool|String|Unit|Symbol|List|TreeList|Mutable-TreeList|Vector|Hash|Option|Result|Fn|Task)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
           "name": "storage.type.zscheme"
         },
         {
+          "comment": "User-defined types. Scoped apart from the built-ins so the list above is load-bearing, matching how the Zed queries separate @type.builtin from @type.",
           "match": "[A-Z][a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->]*",
-          "name": "storage.type.zscheme"
+          "name": "entity.name.type.zscheme"
         }
       ]
     },
