@@ -1858,14 +1858,21 @@ public sealed class TypeInferer
     private ZType InferImportClr(AstNode.ImportClr node, TypeEnv env)
     {
         var clr = new ClrInterop(Diagnostics, _assemblySearchPaths, _typeAliases);
+
+        // A `:from "Assembly"` hint loads the assembly into the compiler's private
+        // InteropLoadContext before any type resolution so FindType's loaded-assembly scan can
+        // locate types whose namespace differs from their assembly file name.
+        //
+        // Every hint in the form is loaded up front rather than per-import, because
+        // TypeNameCanonicalizer caches an unresolved lookup: a short type half in an earlier
+        // bracket must not be decided before a later bracket's assembly is in the load context.
+        // EnsureAssemblyLoaded is idempotent.
         foreach (var import in node.Imports)
-        {
-            // A `:from "Assembly"` hint loads the assembly into the compiler's private
-            // InteropLoadContext before any type resolution so FindType's loaded-assembly scan
-            // can locate types whose namespace differs from their assembly file name.
             if (import.AssemblyHint is not null)
                 clr.EnsureAssemblyLoaded(import.AssemblyHint, import.Span);
 
+        foreach (var import in node.Imports)
+        {
             // If an explicit type annotation is provided, use it directly
             if (import.TypeAnnotation is not null)
             {
@@ -1901,14 +1908,17 @@ public sealed class TypeInferer
                 {
                     if (import.Kind == ClrImportKind.Instance)
                     {
-                        var outParams = clr.DetectOutParams(import.QualifiedName, import.Span);
+                        var outParams = clr.DetectOutParams(
+                            CanonicalImportPath(import.QualifiedName),
+                            import.Span
+                        );
                         if (outParams is { Count: > 0 })
                             _outParamsByAlias[import.Alias] = outParams;
                     }
                     else if (import.Kind == ClrImportKind.Static)
                     {
                         var outParams = clr.DetectOutParams(
-                            import.QualifiedName,
+                            CanonicalImportPath(import.QualifiedName),
                             import.Span,
                             BindingFlags.Public | BindingFlags.Static
                         );
@@ -1933,11 +1943,12 @@ public sealed class TypeInferer
                 // Pick the "simplest" overload (all params are plain generic type params)
                 // to build the type signature. The actual method binding happens at the
                 // call site during IR lowering using the concrete argument types.
-                var slashIndex = import.QualifiedName.LastIndexOf('/');
+                var qualifiedName = CanonicalImportPath(import.QualifiedName);
+                var slashIndex = qualifiedName.LastIndexOf('/');
                 if (slashIndex > 0)
                 {
-                    var typeName = import.QualifiedName[..slashIndex];
-                    var methodName = import.QualifiedName[(slashIndex + 1)..];
+                    var typeName = qualifiedName[..slashIndex];
+                    var methodName = qualifiedName[(slashIndex + 1)..];
                     var clrType = clr.FindType(typeName);
                     if (clrType is not null)
                     {
@@ -1991,7 +2002,7 @@ public sealed class TypeInferer
             }
             else
             {
-                var method = clr.Resolve(import.QualifiedName, import.Span);
+                var method = clr.Resolve(CanonicalImportPath(import.QualifiedName), import.Span);
                 if (method is not null)
                 {
                     var (funcType, outParams) = clr.MethodInfoToZFuncTypeWithOutParams(method);
@@ -2003,6 +2014,27 @@ public sealed class TypeInferer
         }
 
         return Assign(node, ZType.Unit);
+    }
+
+    // Canonicalizes the type half of an import-clr member path, leaving the separator and member
+    // name exactly as written. The split is the one every consumer makes -- the last '/', or the
+    // last '.' when there is none (ClrInterop.DetectOutParams, IrLowering.LowerImportClr,
+    // ValidateClrImportAnnotation below). It needs no knowledge of the import's kind: a member name
+    // never contains a '.' and a type half never contains a '/', so the two rules agree.
+    //
+    // A namespace an (import-clr Ns ...) form declares need not be spelled out in the path, but
+    // nothing downstream has hints of its own -- ClrInterop reflects on the raw string and both
+    // emitters consume it verbatim -- so the short spelling is resolved here, once.
+    private string CanonicalImportPath(string qualifiedName)
+    {
+        var slash = qualifiedName.LastIndexOf('/');
+        var split = slash >= 0 ? slash : qualifiedName.LastIndexOf('.');
+        if (split <= 0 || split == qualifiedName.Length - 1)
+            return qualifiedName;
+
+        var typeName = qualifiedName[..split];
+        var canonical = _canonicalizer.CanonicalImportTypeName(typeName);
+        return canonical == typeName ? qualifiedName : canonical + qualifiedName[split..];
     }
 
     // Cross-checks a single annotated import-clr declaration against the CLR member it binds.
@@ -2068,8 +2100,12 @@ public sealed class TypeInferer
         {
             try
             {
+                // Canonicalized only here, past TryGetLocalClassInfo: a codegen-facing local
+                // class name like "ZSchemeFuzzed.FCls_0" is not in _declaredTypeNames in its
+                // dotted form, so canonicalizing first would let it through IsCanonicalizable
+                // and reflect against exactly the stale type the comment above warns about.
                 var member = clr.ResolveImportMember(
-                    typeName,
+                    _canonicalizer.CanonicalImportTypeName(typeName),
                     memberName,
                     import.Kind,
                     import.TypeParams.Count,

@@ -104,6 +104,16 @@ public sealed class IrLowering
         return _canonicalizer?.CanonicalizeNames(names) ?? names;
     }
 
+    /// <summary>Canonical form of the type half of an <c>import-clr</c> member path — see
+    ///     <see cref="TypeNameCanonicalizer.CanonicalImportTypeName" />. Distinct from
+    ///     <see cref="CanonName" /> because the path carries no arity. The name stored here
+    ///     reaches the emitters verbatim through <c>IrNode.ClrCall.QualifiedTypeName</c>, and
+    ///     neither has namespace hints of its own.</summary>
+    private string CanonImportType(string typeName)
+    {
+        return _canonicalizer?.CanonicalImportTypeName(typeName) ?? typeName;
+    }
+
     public IReadOnlyDictionary<
         string,
         (
@@ -1898,7 +1908,7 @@ public sealed class IrLowering
                 var splitIndex = lastSlash >= 0 ? Math.Max(lastSlash, lastDot) : lastDot;
                 if (splitIndex >= 0)
                 {
-                    var typeName = import.QualifiedName[..splitIndex];
+                    var typeName = CanonImportType(import.QualifiedName[..splitIndex]);
                     var memberName = import.QualifiedName[(splitIndex + 1)..];
                     _clrImports[import.Alias] = (
                         typeName,
@@ -1918,7 +1928,7 @@ public sealed class IrLowering
                 var splitIndex = lastSlash >= 0 ? Math.Max(lastSlash, lastDot) : lastDot;
                 if (splitIndex >= 0)
                 {
-                    var typeName = import.QualifiedName[..splitIndex];
+                    var typeName = CanonImportType(import.QualifiedName[..splitIndex]);
                     var methodName = import.QualifiedName[(splitIndex + 1)..];
                     _clrImports[import.Alias] = (
                         typeName,

@@ -79,18 +79,25 @@ public sealed class TypeNameScannerTests
     }
 
     [Fact]
-    public void ImportClrMemberPath_IsNotATypePositionButItsSignatureIs()
+    public void ImportClrMemberPath_IsRecordedApartFromItsSignature()
     {
         var src = """
             (import-clr
               [sb-append System.Text.StringBuilder.Append
                 :instance : (System.Text.StringBuilder String -> System.Text.StringBuilder)])
             """;
+        var scan = Scan(src);
 
+        // The path is not a type *position* — only the signature is — so TypeNames is unchanged.
         Assert.Equal(
             ["System.Text.StringBuilder", "String", "System.Text.StringBuilder"],
-            Scan(src).TypeNames.Select(t => t.Name)
+            scan.TypeNames.Select(t => t.Name)
         );
+
+        var member = Assert.Single(scan.ImportMembers);
+        Assert.Equal("System.Text.StringBuilder", member.TypeName);
+        // The token is the whole path, so the qualifier still starts at its column.
+        Assert.Equal("System.Text.StringBuilder.Append", member.Token.Text);
     }
 
     [Fact]
@@ -101,11 +108,18 @@ public sealed class TypeNameScannerTests
               [len System.String.Length :instance-property : (System.String -> Int) :from "System.Runtime"]
               [make Some.Ns.Box/Create ^a : where (^a notnull) : (^a -> Some.Ns.Box)])
             """;
+        var scan = Scan(src);
 
-        Assert.Equal(
-            ["System.String", "Int", "Some.Ns.Box"],
-            Scan(src).TypeNames.Select(t => t.Name)
-        );
+        Assert.Equal(["System.String", "Int", "Some.Ns.Box"], scan.TypeNames.Select(t => t.Name));
+        // Both split rules in one assertion: the last '.' for the property, the '/' for the
+        // static — whose type half keeps its own dots.
+        Assert.Equal(["System.String", "Some.Ns.Box"], scan.ImportMembers.Select(m => m.TypeName));
+    }
+
+    [Fact]
+    public void ImportClrMemberPathWithoutASeparator_IsNotRecorded()
+    {
+        Assert.Empty(Scan("(import-clr [x Foo])").ImportMembers);
     }
 
     [Fact]
@@ -116,6 +130,8 @@ public sealed class TypeNameScannerTests
 
         Assert.Equal(["System.Text", "System.IO"], scan.ClrNamespaces.Select(t => t.Text));
         Assert.Equal(13, scan.ClrNamespaces[0].Span.Column);
+        // A bare namespace atom is never mistaken for a member path, dots notwithstanding.
+        Assert.Equal(["A"], scan.ImportMembers.Select(m => m.TypeName));
     }
 
     [Fact]

@@ -95,6 +95,17 @@ The `import-clr` form binds .NET methods, properties, and indexers to ZScheme fu
 
 Bare symbols (like `System.Collections.Immutable`) are namespace hints that tell the compiler where to search for assemblies. They are not bindings themselves.
 
+A hint also lets you drop the namespace from a name it covers, exactly like a C# `using` — in a type annotation *and* in the leading type of a binding's `QualifiedName`:
+
+```scheme
+(import-clr
+  System.Text
+  [sb-append StringBuilder.Append          ;; not System.Text.StringBuilder.Append
+    :instance : (StringBuilder String -> StringBuilder)])
+```
+
+The short spelling resolves only through a namespace declared by an `import-clr` form — in this file or in a module it imports — and only when it is unambiguous; there is deliberately no blanket assembly scan. The language server flags a qualifier a hint makes redundant as `ZS0004`, with a "Simplify name to 'X'" quick fix.
+
 ### Static Methods
 
 Syntax: `[alias Type/Method]`

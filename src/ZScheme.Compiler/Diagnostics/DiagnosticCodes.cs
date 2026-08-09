@@ -20,9 +20,10 @@ public static class DiagnosticCodes
     public const string UnusedBinding = "ZS0003";
 
     /// <summary>
-    ///     A fully-qualified CLR type name in a type position whose namespace the same file
-    ///     already declares with <c>(import-clr Ns …)</c>, so the short name would resolve to
-    ///     the identical type. Data: <c>[0]</c> = the short name, <c>[1]</c> = the redundant
+    ///     A fully-qualified CLR type name — in a type position, or leading an
+    ///     <c>import-clr</c> member path — whose namespace the same file already declares with
+    ///     <c>(import-clr Ns …)</c>, so the short name would resolve to the identical type.
+    ///     Data: <c>[0]</c> = the short name, <c>[1]</c> = the redundant
     ///     namespace prefix. The span covers only the <c>Ns.</c> characters, so the quick fix
     ///     is a plain deletion; clients render it with the <c>Unnecessary</c> tag.
     ///     <para>

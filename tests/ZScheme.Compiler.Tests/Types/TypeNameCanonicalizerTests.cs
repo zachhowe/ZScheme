@@ -181,4 +181,62 @@ public class TypeNameCanonicalizerTests
         var names = new[] { "System.Text.StringBuilder" };
         Assert.Same(names, c.CanonicalizeNames(names));
     }
+
+    // ---- CanonicalImportTypeName: the type half of an import-clr member path ----
+
+    [Fact]
+    public void CanonicalImportTypeName_ResolvesAShortNameThroughANamespaceHint()
+    {
+        var c = Create();
+        Assert.Equal("System.Text.StringBuilder", c.CanonicalImportTypeName("StringBuilder"));
+    }
+
+    /// <summary>Why the helper exists: a member path names its type without an arity, and
+    ///     <c>ICollection</c> is backed only by <c>ICollection`1</c>.</summary>
+    [Fact]
+    public void CanonicalImportTypeName_ResolvesAGenericShortNameThatHasNoArity()
+    {
+        var c = Create(["System.Collections.Generic"]);
+
+        Assert.Equal("ICollection", c.Canonical("ICollection", 0));
+        Assert.Equal(
+            "System.Collections.Generic.ICollection",
+            c.CanonicalImportTypeName("ICollection")
+        );
+    }
+
+    [Fact]
+    public void CanonicalImportTypeName_LeavesAQualifiedGenericNameAlone()
+    {
+        var c = Create(["System.Collections.Generic"]);
+        // Notably without the `2 suffix a probe at arity 2 would otherwise introduce.
+        Assert.Equal(
+            "System.Collections.Generic.Dictionary",
+            c.CanonicalImportTypeName("System.Collections.Generic.Dictionary")
+        );
+    }
+
+    [Fact]
+    public void CanonicalImportTypeName_LeavesAnUnresolvableNameAlone()
+    {
+        var c = Create();
+        Assert.Equal("Widget", c.CanonicalImportTypeName("Widget"));
+    }
+
+    [Fact]
+    public void CanonicalImportTypeName_LeavesAUserDeclaredTypeAlone()
+    {
+        var c = Create(["System.Drawing"], isUserDeclaredType: n => n == "Point");
+        Assert.Equal("Point", c.CanonicalImportTypeName("Point"));
+    }
+
+    [Fact]
+    public void CanonicalImportTypeName_ResolvesANestedType()
+    {
+        var c = Create(["System"]);
+        Assert.Equal(
+            "System.Environment+SpecialFolder",
+            c.CanonicalImportTypeName("Environment+SpecialFolder")
+        );
+    }
 }

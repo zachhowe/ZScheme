@@ -304,6 +304,57 @@ public class IrLoweringTests
         Assert.Equal("Start", lowering.ClrImports["start"].MethodName);
     }
 
+    // The stored TypeName reaches both emitters verbatim through IrNode.ClrCall, and neither
+    // has namespace hints of its own — so a short type half must be resolved here.
+
+    [Fact]
+    public void ImportClr_ShortStaticTypeName_IsCanonicalized()
+    {
+        var lowering = new IrLowering(
+            new DiagnosticBag(),
+            canonicalizer: new TypeNameCanonicalizer(["System"])
+        );
+
+        lowering.Lower(
+            new AstNode.ImportClr(
+                [new ClrImport("sqrt", "Math/Sqrt", [], SourceSpan.None)],
+                [],
+                SourceSpan.None
+            )
+        );
+
+        Assert.Equal("System.Math", lowering.ClrImports["sqrt"].TypeName);
+        Assert.Equal("Sqrt", lowering.ClrImports["sqrt"].MethodName);
+    }
+
+    [Fact]
+    public void ImportClr_ShortInstanceTypeName_IsCanonicalized()
+    {
+        var lowering = new IrLowering(
+            new DiagnosticBag(),
+            canonicalizer: new TypeNameCanonicalizer(["System.Text"])
+        );
+
+        lowering.Lower(
+            new AstNode.ImportClr(
+                [
+                    new ClrImport(
+                        "to-string",
+                        "StringBuilder.ToString",
+                        [],
+                        SourceSpan.None,
+                        ClrImportKind.Instance
+                    ),
+                ],
+                [],
+                SourceSpan.None
+            )
+        );
+
+        Assert.Equal("System.Text.StringBuilder", lowering.ClrImports["to-string"].TypeName);
+        Assert.Equal("ToString", lowering.ClrImports["to-string"].MethodName);
+    }
+
     [Fact]
     public void Lambda_UsesInferredParamTypes()
     {

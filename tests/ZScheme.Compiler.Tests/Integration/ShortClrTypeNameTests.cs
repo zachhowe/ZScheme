@@ -220,4 +220,156 @@ public class ShortClrTypeNameTests
             """;
         Assert.Equal("0", InvokeString(CompileIl(source), "Compute"));
     }
+
+    // ---- Short type names in an import-clr member path ----
+    //
+    // The type half of `[alias Type/Member]` and `[alias Type.Member]` is a plain string that
+    // ClrInterop reflects on and both emitters consume verbatim, so it used to need the full
+    // spelling regardless of the namespaces the form declares. TypeInferer and IrLowering now
+    // canonicalize it at the split, through the same hints an annotation resolves by.
+
+    private const string ShortStaticMemberPath = """
+        (module shortstatic)
+
+        (import-clr System [int-str Convert/ToString : (Int -> String)])
+
+        (define (compute) : String
+          (int-str 42))
+        """;
+
+    [Fact]
+    public void ShortStaticMemberPath_Compiles_Il()
+    {
+        Assert.Equal("42", InvokeString(CompileIl(ShortStaticMemberPath), "Compute"));
+    }
+
+    [Fact]
+    public void ShortStaticMemberPath_EmitsTheFullNameInCSharp()
+    {
+        // Generated C# carries no `using`s, so a short name reaching the emitter would compile
+        // to `Convert.ToString(...)` and fail in Roslyn.
+        Assert.Contains("System.Convert.ToString(", CompileCSharp(ShortStaticMemberPath));
+    }
+
+    [Fact]
+    public void ShortInstanceMemberPath_Compiles_Il()
+    {
+        var source = """
+            (module shortinstance)
+
+            (import-clr
+              System.Text
+              [sb-append StringBuilder.Append
+                :instance : (StringBuilder String -> StringBuilder)]
+              [sb-str StringBuilder.ToString
+                :instance : (StringBuilder -> String)])
+
+            (define (compute) : String
+              (sb-str (sb-append (new StringBuilder) "hi")))
+            """;
+        Assert.Equal("hi", InvokeString(CompileIl(source), "Compute"));
+    }
+
+    /// <summary>
+    ///     A generic member path names its type without an arity — <c>ICollection.Add</c> means
+    ///     <c>ICollection`1</c> — so the type half is probed across arities rather than resolved
+    ///     at 0, which would miss both the short and the qualified spelling.
+    /// </summary>
+    [Fact]
+    public void ShortGenericInstanceMemberPath_Compiles_Il()
+    {
+        // Annotated through stdlib's Mutable-Hash alias, as the type-alias test above does:
+        // `new` infers the alias, so naming Dictionary on both sides would fail to unify for
+        // reasons unrelated to the member path.
+        var source = """
+            (module shortgeneric)
+
+            (import-clr
+              System.Collections.Generic
+              System
+              [d-count Dictionary.Count
+                :instance-property : ((Mutable-Hash String Int) -> Int)]
+              [int-str Convert/ToString : (Int -> String)])
+
+            (define (compute) : String
+              (int-str (d-count (new (Dictionary String Int)))))
+            """;
+        Assert.Equal("0", InvokeString(CompileIl(source), "Compute"));
+    }
+
+    /// <summary>
+    ///     An unannotated <c>^a</c> import derives its signature by reflecting on the type half
+    ///     itself, and reports a hard "CLR type not found" when it cannot — so that path needs
+    ///     the same canonicalization. Declaring the import is the whole test: the error fires
+    ///     during type inference, before any call site. (An annotated <c>^a</c> import takes the
+    ///     annotation branch instead and never reaches here.)
+    /// </summary>
+    [Fact]
+    public void ShortStaticMemberPathWithTypeParamsAndNoAnnotation_Compiles_Il()
+    {
+        var source = """
+            (module shortgenericstatic)
+
+            (import-clr System.Linq [xs-at Enumerable/ElementAt ^a])
+
+            (define (compute) : Int 0)
+            """;
+        var result = CompileWith(source, OutputMode.Il);
+
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+    }
+
+    /// <summary>
+    ///     Resolving a short type half restores the annotation cross-check, which used to be
+    ///     skipped silently for any member path the reflection lookup could not find.
+    /// </summary>
+    [Fact]
+    public void ShortMemberPathWithAWrongAnnotation_IsReported()
+    {
+        // The arity is right, so the member resolves and the return type is actually compared;
+        // a wrong arity would just fail to resolve, which is silent by design.
+        var result = CompileWith(
+            """
+            (module wrongannotation)
+
+            (import-clr
+              System.Text
+              [sb-str StringBuilder.ToString
+                :instance : (StringBuilder -> Int)])
+            """,
+            OutputMode.Il
+        );
+
+        Assert.False(result.Success);
+        Assert.Contains(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("does not match the CLR member")
+        );
+    }
+
+    /// <summary>A member path onto a class this compilation declares still resolves from the
+    ///     AST's own symbol table, never reflection — canonicalization happens past that
+    ///     branch precisely so a stale same-named type cannot be picked up.</summary>
+    [Fact]
+    public void MemberPathOntoALocalClass_IsUnaffected()
+    {
+        var source = """
+            (module localclass)
+
+            (import-clr
+              System
+              [int-str Convert/ToString : (Int -> String)]
+              [counter-value Counter/Value :instance : (Counter -> Int)])
+
+            (define-class Counter
+              (define (Value) : Int 7))
+
+            (define (compute) : String
+              (int-str (counter-value (new Counter))))
+            """;
+        Assert.Equal("7", InvokeString(CompileIl(source), "Compute"));
+    }
 }

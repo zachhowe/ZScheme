@@ -528,4 +528,58 @@ public sealed class CodeActionTests
             ApplyEdits(source, [edit])
         );
     }
+
+    [Fact]
+    public async Task Handler_RedundantTypeQualifier_OnAnImportClrMemberPath_OffersSimplifyName()
+    {
+        // The member path anchors the same pure-deletion fix: the span stops at the type name,
+        // so `/ToString` survives untouched.
+        var source = """
+            (module test)
+            (import-clr System [conv System.Convert/ToString : (Int -> String)])
+            """;
+        var (svc, uri) = LspTestSession.Open(source);
+        var state = svc.GetDocument(uri)!;
+        var diag = Assert.Single(
+            state.Diagnostics.Diagnostics,
+            d => d.Code == DiagnosticCodes.RedundantTypeQualifier
+        );
+        var range = TextDocumentSyncHandler.SpanToRange(diag.Span);
+        var handler = new CodeActionHandler(svc);
+
+        var result = await handler.Handle(
+            new CodeActionParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.Parse(uri)),
+                Range = range,
+                Context = new CodeActionContext
+                {
+                    Diagnostics = new Container<Diagnostic>(
+                        new Diagnostic
+                        {
+                            Range = range,
+                            Source = "zscheme",
+                            Message = diag.Message,
+                            Code = new DiagnosticCode(DiagnosticCodes.RedundantTypeQualifier),
+                            Data = JArray.FromObject(diag.Data!),
+                        }
+                    ),
+                },
+            },
+            CancellationToken.None
+        );
+
+        Assert.NotNull(result);
+        var action = Assert.Single(result!).CodeAction!;
+        Assert.Equal("Simplify name to 'Convert'", action.Title);
+
+        var edit = action.Edit!.Changes!.Values.Single().Single();
+        Assert.Equal(
+            """
+            (module test)
+            (import-clr System [conv Convert/ToString : (Int -> String)])
+            """,
+            ApplyEdits(source, [edit])
+        );
+    }
 }

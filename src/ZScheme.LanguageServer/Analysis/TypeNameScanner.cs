@@ -9,11 +9,20 @@ namespace ZScheme.LanguageServer.Analysis;
 ///     <c>Foo`n</c>.</summary>
 internal readonly record struct TypeNameOccurrence(Token Token, string Name, int Arity);
 
-/// <summary>Both halves of a single pass: the type names written in the file, and the bare
-///     namespace atoms of its own <c>(import-clr Ns …)</c> forms.</summary>
+/// <summary>The type half of an <c>import-clr</c> member binding's <c>Type/Member</c> path.
+///     <paramref name="Token" /> is the whole path atom, so the type name still starts at its
+///     column. Kept apart from <see cref="TypeNameOccurrence" /> because this is not a type
+///     <em>position</em>: it never becomes a <see cref="ZScheme.Compiler.Types.ZType" />, it
+///     carries no arity, and the primitive-name exclusion that applies to annotations does not
+///     apply to it.</summary>
+internal readonly record struct ImportMemberOccurrence(Token Token, string TypeName);
+
+/// <summary>Every part of a single pass: the type names written in the file, the bare namespace
+///     atoms of its own <c>(import-clr Ns …)</c> forms, and those forms' member paths.</summary>
 internal sealed record TypeNameScan(
     IReadOnlyList<TypeNameOccurrence> TypeNames,
-    IReadOnlyList<Token> ClrNamespaces
+    IReadOnlyList<Token> ClrNamespaces,
+    IReadOnlyList<ImportMemberOccurrence> ImportMembers
 );
 
 /// <summary>
@@ -41,7 +50,7 @@ internal static class TypeNameScanner
     {
         var walker = new Walker(tokens);
         walker.Run();
-        return new TypeNameScan(walker.TypeNames, walker.ClrNamespaces);
+        return new TypeNameScan(walker.TypeNames, walker.ClrNamespaces, walker.ImportMembers);
     }
 
     private sealed class Walker
@@ -71,6 +80,7 @@ internal static class TypeNameScanner
 
         public List<TypeNameOccurrence> TypeNames { get; } = [];
         public List<Token> ClrNamespaces { get; } = [];
+        public List<ImportMemberOccurrence> ImportMembers { get; } = [];
 
         public void Run()
         {
@@ -174,15 +184,58 @@ internal static class TypeNameScanner
         }
 
         /// <summary>Bare atoms of an <c>import-clr</c> form are namespace hints; bracketed
-        ///     entries are member bindings, whose <c>Type/Member</c> path sits at item 1 and is
-        ///     therefore never mistaken for a type (only the <c>: (…)</c> signature is one).</summary>
+        ///     entries are member bindings, whose <c>Type/Member</c> path sits at item 1. That
+        ///     path is not a type position — only the <c>: (…)</c> signature is — so it is
+        ///     recorded separately rather than through <see cref="Record" />.</summary>
         private void ScanImportClr(List<int> items)
         {
             for (var c = 1; c < items.Count; c++)
                 if (_tokens[items[c]].Kind == TokenKind.Symbol)
+                {
                     ClrNamespaces.Add(_tokens[items[c]]);
+                }
                 else
+                {
+                    RecordImportMember(items[c]);
                     ScanExpr(items[c]);
+                }
+        }
+
+        /// <summary>
+        ///     Records the type half of <c>[alias Ns.Type/Member …]</c>.
+        ///     <c>AstBuilder.BuildImportClr</c> takes the alias at item 0 and the path at item 1,
+        ///     so nothing else in the bracket can be one.
+        ///     <para>
+        ///         The split is the one every consumer makes — the last <c>/</c>, or the last
+        ///         <c>.</c> when there is none (<c>ClrInterop.DetectOutParams</c>,
+        ///         <c>IrLowering.LowerImportClr</c>, <c>TypeInferer.ValidateClrImportAnnotation</c>).
+        ///         It needs no knowledge of the <c>:instance…</c> kind: a member name never
+        ///         contains a <c>.</c> and a type half never contains a <c>/</c>, so the
+        ///         kind-specific rules agree.
+        ///     </para>
+        /// </summary>
+        private void RecordImportMember(int i)
+        {
+            if (!IsOpener(i))
+                return;
+            var (bracket, _) = Children(i);
+            if (bracket.Count < 2 || _tokens[bracket[1]].Kind != TokenKind.Symbol)
+                return;
+
+            var token = _tokens[bracket[1]];
+            var path = token.Text;
+            var slash = path.LastIndexOf('/');
+            var split = slash >= 0 ? slash : path.LastIndexOf('.');
+            if (split <= 0 || split == path.Length - 1)
+                return;
+
+            var typeName = path[..split];
+            // A closed generic carries its own arguments, a second '/' is not a Type/Member path,
+            // and `^a`/`#:flag` atoms are the enclosing form's own syntax.
+            if (typeName.Contains('<') || typeName.Contains('/') || typeName[0] is '^' or '#')
+                return;
+
+            ImportMembers.Add(new ImportMemberOccurrence(token, typeName));
         }
 
         /// <summary>

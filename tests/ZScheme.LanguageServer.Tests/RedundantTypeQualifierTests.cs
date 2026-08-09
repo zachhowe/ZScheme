@@ -91,7 +91,7 @@ public sealed class RedundantTypeQualifierTests
     }
 
     [Fact]
-    public void ImportClrMemberPath_IsNotReported_ButItsSignatureIs()
+    public void ImportClrMemberPath_IsReportedAlongsideItsSignature()
     {
         var src = """
             (module test)
@@ -102,10 +102,49 @@ public sealed class RedundantTypeQualifierTests
             """;
         var hints = Hints(src);
 
-        Assert.Equal(2, hints.Count);
-        // Both are in the signature on the last line; the member path on the line above is
-        // resolved by ClrInterop without namespace hints and must keep its full spelling.
-        Assert.All(hints, h => Assert.Equal(5, h.Span.Line));
+        Assert.Equal(3, hints.Count);
+        // Two in the signature on the last line, one on the member path above it.
+        var (line, col) = LspTestSession.Locate(src, "System.Text.StringBuilder.Append");
+        var path = Assert.Single(hints, h => h.Span.Line == line);
+
+        Assert.Equal(["StringBuilder", "System.Text"], path.Data);
+        Assert.Equal(col, path.Span.Column);
+        // Deleting the span leaves `StringBuilder.Append` — the member half is untouched.
+        Assert.Equal("System.Text.".Length, path.Span.Length);
+    }
+
+    [Fact]
+    public void ImportClrStaticMemberPath_IsReported()
+    {
+        // A static path separates type from member with '/', not '.'.
+        var src = """
+            (module test)
+            (import-clr System [conv System.Convert/ToString : (Int -> String)])
+            """;
+        var hint = Assert.Single(Hints(src));
+
+        Assert.Equal(["Convert", "System"], hint.Data);
+        Assert.Equal("System.".Length, hint.Span.Length);
+    }
+
+    [Fact]
+    public void ImportClrGenericMemberPath_IsReported()
+    {
+        // `ICollection` exists only as ICollection`1, so this resolves at no arity the path
+        // itself supplies — it pins that the analyzer probes arities rather than asking for
+        // Canonical(_, 0), which would report the signature's occurrences but not this one.
+        var src = """
+            (module test)
+            (import-clr
+              System.Collections.Generic
+              [coll-add System.Collections.Generic.ICollection.Add
+                :instance : ((System.Collections.Generic.ICollection String) String -> Unit)])
+            """;
+        var hints = Hints(src);
+        var (line, _) = LspTestSession.Locate(src, "System.Collections.Generic.ICollection.Add");
+        var path = Assert.Single(hints, h => h.Span.Line == line);
+
+        Assert.Equal(["ICollection", "System.Collections.Generic"], path.Data);
     }
 
     [Fact]
@@ -120,6 +159,77 @@ public sealed class RedundantTypeQualifierTests
             """;
 
         Assert.Empty(Hints(src));
+    }
+
+    [Fact]
+    public void ImportClrMemberPathWithAPrimitiveShortName_IsReported()
+    {
+        // The mirror image of the test above, and the reason the two loops differ: a member
+        // path's type half never becomes a ZType, so `String` here is the CLR System.String
+        // that ClrInterop reflects on — the primitive carve-out does not apply.
+        var src = """
+            (module test)
+            (import-clr System [str-len System.String.Length :instance-property : (String -> Int)])
+            """;
+        var hint = Assert.Single(Hints(src));
+
+        Assert.Equal(["String", "System"], hint.Data);
+    }
+
+    [Fact]
+    public void ImportClrMemberPathWithoutAQualifier_IsNotReported()
+    {
+        var src = """
+            (module test)
+            (import-clr System [conv Convert/ToString : (Int -> String)])
+            """;
+
+        Assert.Empty(Hints(src));
+    }
+
+    [Fact]
+    public void ImportClrMemberPathWhoseNamespaceIsNotImported_IsNotReported()
+    {
+        var src = """
+            (module test)
+            (import-clr
+              System.Text
+              [dispose System.IDisposable.Dispose :instance : (System.IDisposable -> Unit)])
+            """;
+
+        Assert.Empty(Hints(src));
+    }
+
+    [Fact]
+    public void ImportClrMemberPathShadowedByAZSchemeType_IsNotReported()
+    {
+        var src = """
+            (module test)
+            (import-clr
+              System.Text
+              [sb-append System.Text.StringBuilder.Append
+                :instance : (StringBuilder String -> StringBuilder)])
+            (define-record StringBuilder [n : Int])
+            """;
+
+        Assert.Empty(Hints(src));
+    }
+
+    [Fact]
+    public void ImportClrMemberPathOnTask_IsNotReported()
+    {
+        // `Task` is in NeverCanonicalized, so the short spelling resolves to nothing and the
+        // equality test declines — the same answer the compiler would give.
+        var src = """
+            (module test)
+            (import-clr
+              System.Threading.Tasks
+              [awaiter System.Threading.Tasks.Task.GetAwaiter
+                :instance : ((System.Threading.Tasks.Task Int) -> Object)])
+            """;
+        var (line, _) = LspTestSession.Locate(src, "System.Threading.Tasks.Task.GetAwaiter");
+
+        Assert.DoesNotContain(Hints(src), h => h.Span.Line == line);
     }
 
     [Fact]
@@ -221,6 +331,38 @@ public sealed class RedundantTypeQualifierTests
                 (module qual/b)
                 (import qual/a)
                 (define (grow [b : System.Text.StringBuilder]) b)
+                """,
+            }
+        );
+
+        var state = ws.Open("b.zs");
+
+        Assert.DoesNotContain(
+            state.Diagnostics.Diagnostics,
+            d => d.Code == DiagnosticCodes.RedundantTypeQualifier
+        );
+    }
+
+    [Fact]
+    public void ImportClrMemberPathWithAnInheritedNamespace_IsNotReported()
+    {
+        // The member-path loop reads the same own-namespaces-only set as the type-position one.
+        using var ws = new TempPackageWorkspace(
+            "qualmember",
+            new Dictionary<string, string>
+            {
+                ["a.zs"] = """
+                (module qualmember/a)
+                (import-clr System.Text)
+                (export a-marker)
+                (define (a-marker) 1)
+                """,
+                ["b.zs"] = """
+                (module qualmember/b)
+                (import qualmember/a)
+                (import-clr
+                  [sb-append System.Text.StringBuilder.Append
+                    :instance : (StringBuilder String -> StringBuilder)])
                 """,
             }
         );

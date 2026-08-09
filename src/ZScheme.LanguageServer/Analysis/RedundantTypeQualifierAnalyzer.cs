@@ -7,8 +7,9 @@ namespace ZScheme.LanguageServer.Analysis;
 /// <summary>
 ///     Reports a fully-qualified CLR type name whose namespace the same file already declares
 ///     with <c>(import-clr Ns …)</c>, so the short name would denote the identical type
-///     (<see cref="DiagnosticCodes.RedundantTypeQualifier" />). The diagnostic spans only the
-///     redundant <c>Ns.</c> characters, which makes the quick fix a plain deletion and lets
+///     (<see cref="DiagnosticCodes.RedundantTypeQualifier" />). Both a type position and the
+///     leading type name of an <c>import-clr</c> member path count. The diagnostic spans only
+///     the redundant <c>Ns.</c> characters, which makes the quick fix a plain deletion and lets
 ///     clients grey the prefix out rather than squiggle the whole name.
 ///     <para>
 ///         Editor-only by design: writing a type out in full is a style choice, not a defect, so
@@ -83,6 +84,40 @@ public sealed class RedundantTypeQualifierAnalyzer(DiagnosticBag diagnostics)
 
             diagnostics.Hint(
                 $"'{name}' can be written as '{shortName}'",
+                new SourceSpan(fileName, token.Span.Line, token.Span.Column, prefix.Length + 1),
+                DiagnosticCodes.RedundantTypeQualifier,
+                [shortName, prefix],
+                [new DiagnosticRelatedInfo(nsToken.Span, $"'{prefix}' is imported here")]
+            );
+        }
+
+        foreach (var (token, typeName) in scan.ImportMembers)
+        {
+            var dot = typeName.LastIndexOf('.');
+            if (dot <= 0 || dot == typeName.Length - 1)
+                continue;
+
+            var prefix = typeName[..dot];
+            var shortName = typeName[(dot + 1)..];
+            if (!namespaces.TryGetValue(prefix, out var nsToken))
+                continue;
+
+            // No PrimitiveNames exclusion here: a member path's type half never becomes a
+            // ZPrimitiveType — it stays a string that ClrInterop resolves by reflection — so
+            // `System.String.Length` really can be written `String.Length`.
+            //
+            // CanonicalImportTypeName rather than Canonical because the path carries no arity:
+            // `System.Collections.Generic.ICollection.Add` names ICollection`1 without saying
+            // so, and Canonical(_, 0) resolves neither spelling. The compiler splits and
+            // canonicalizes with the same helper, so the two cannot disagree.
+            if (
+                canonicalizer.CanonicalImportTypeName(shortName)
+                != canonicalizer.CanonicalImportTypeName(typeName)
+            )
+                continue;
+
+            diagnostics.Hint(
+                $"'{typeName}' can be written as '{shortName}'",
                 new SourceSpan(fileName, token.Span.Line, token.Span.Column, prefix.Length + 1),
                 DiagnosticCodes.RedundantTypeQualifier,
                 [shortName, prefix],

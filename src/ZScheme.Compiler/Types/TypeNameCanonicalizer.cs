@@ -45,6 +45,11 @@ public sealed class TypeNameCanonicalizer
         "Clr-Array",
     };
 
+    /// <summary>Highest generic arity probed by <see cref="CanonicalImportTypeName" />, mirroring
+    ///     the ``1..`4 sweep in <c>ClrInterop.CandidateImportTypes</c> and
+    ///     <c>ClrInterop.DetectOutParams</c>.</summary>
+    private const int MaxImportArity = 4;
+
     private readonly IReadOnlyList<string>? _assemblySearchPaths;
     private readonly Dictionary<(string Name, int Arity), string> _cache = new();
     private readonly IReadOnlyList<string> _clrNamespaces;
@@ -91,6 +96,34 @@ public sealed class TypeNameCanonicalizer
         if (!ReferenceEquals(canonical, name) && canonical != name)
             Log.Debug("TypeNameCanonicalizer: '{Name}' -> '{Canonical}'", name, canonical);
         return canonical;
+    }
+
+    /// <summary>
+    ///     The canonical spelling of the type half of an <c>import-clr</c> member path
+    ///     (<c>Ns.Type/Member</c> or <c>Ns.Type.Member</c>).
+    ///     <para>
+    ///         Unlike a type annotation, that name carries no arity —
+    ///         <c>System.Collections.Generic.ICollection.Add</c> names <c>ICollection`1</c> without
+    ///         saying so — so arities 0..<see cref="MaxImportArity" /> are probed in the same order
+    ///         <c>ClrInterop.CandidateImportTypes</c> uses: the direct lookup first, then the
+    ///         generic variants.
+    ///     </para>
+    ///     Returns <paramref name="typeName" /> unchanged when nothing resolves, which leaves a
+    ///     ZScheme-declared class, a registered alias and an unresolvable name exactly as written
+    ///     (see <see cref="Canonical" />).
+    /// </summary>
+    public string CanonicalImportTypeName(string typeName)
+    {
+        for (var arity = 0; arity <= MaxImportArity; arity++)
+        {
+            // An already-canonical name resolves to itself at some arity and never differs, so
+            // this falls through unchanged rather than short-circuiting on the first probe.
+            var canonical = Canonical(typeName, arity);
+            if (canonical != typeName)
+                return canonical;
+        }
+
+        return typeName;
     }
 
     /// <summary>Structurally rewrites every named type inside <paramref name="type" />.</summary>
