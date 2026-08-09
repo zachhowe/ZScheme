@@ -320,7 +320,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     {
         if (list.Items.Count != 2)
         {
-            diagnostics.Error("'quote' requires exactly one datum, e.g. (quote x) or 'x", list.Span);
+            diagnostics.Error(
+                "'quote' requires exactly one datum, e.g. (quote x) or 'x",
+                list.Span
+            );
             return new AstNode.UnitLit(list.Span);
         }
 
@@ -546,7 +549,13 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             else
             {
                 var value = Build(binding.Items[1]);
-                body = new AstNode.Let(nameAtom.Text, value, body, list.Span, NameSpan: nameAtom.Span);
+                body = new AstNode.Let(
+                    nameAtom.Text,
+                    value,
+                    body,
+                    list.Span,
+                    NameSpan: nameAtom.Span
+                );
             }
         }
 
@@ -648,7 +657,13 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             else
             {
                 var value = Build(binding.Items[1]);
-                body = new AstNode.Use(nameAtom.Text, value, body, list.Span, NameSpan: nameAtom.Span);
+                body = new AstNode.Use(
+                    nameAtom.Text,
+                    value,
+                    body,
+                    list.Span,
+                    NameSpan: nameAtom.Span
+                );
             }
         }
 
@@ -2663,12 +2678,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     // (`-`, `/`), single-arg flows through unchanged so the type inferer and IR
     // lowering can lower it to unary negation / inversion (the literal `0` or `1`
     // would mistype against `Float`, so the rewrite has to happen later).
-    private AstNode ExpandLeftFold(
-        string op,
-        List<AstNode> args,
-        SourceSpan span,
-        bool allowSingle
-    )
+    private AstNode ExpandLeftFold(string op, List<AstNode> args, SourceSpan span, bool allowSingle)
     {
         if (args.Count == 0)
         {
@@ -2948,7 +2958,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 when list.Items.Count >= 3 && list.Items[0] is SExpr.Atom { Text: "values" } =>
                 ParseTuplePattern(list),
             // A quoted datum pattern, e.g. 'foo — desugared to (quote foo).
-            SExpr.SList { Items: [SExpr.Atom { Text: "quote" }, _] } list => ParseQuotePattern(list),
+            SExpr.SList { Items: [SExpr.Atom { Text: "quote" }, _] } list => ParseQuotePattern(
+                list
+            ),
             SExpr.SList list when list.Items.Count >= 1 => ParseConstructorPattern(list),
             _ => ReportBadPattern(expr),
         };
@@ -2965,7 +2977,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 TokenKind.StringLit => new Pattern.Literal(atom.Text, atom.Span),
                 // A quoted symbol: store an interned ZSymbol so it is distinguishable from a
                 // string literal pattern (the pattern compiler keys on the value's CLR type).
-                _ => new Pattern.Literal(global::ZScheme.Runtime.ZSymbol.Intern(atom.Text), atom.Span),
+                _ => new Pattern.Literal(
+                    global::ZScheme.Runtime.ZSymbol.Intern(atom.Text),
+                    atom.Span
+                ),
             };
 
         diagnostics.Error(
@@ -3011,20 +3026,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 a.Text,
                 []
             ),
-            SExpr.Atom a => a.Text switch
-            {
-                "Int" => ZType.Int,
-                "Long" => ZType.Long,
-                "Float" => ZType.Float,
-                "Double" => ZType.Double,
-                "Byte" => ZType.Byte,
-                "Char" => ZType.Char,
-                "Bool" => ZType.Bool,
-                "String" => ZType.String,
-                "Unit" => ZType.Unit,
-                "Symbol" => ZType.Symbol,
-                _ => new ZType.ZNamedType(a.Text, []),
-            },
+            // A primitive answers to its keyword and to its CLR full name alike, so
+            // `System.Int32` and `Int` land on one ZType instead of two that never unify.
+            SExpr.Atom a => PrimitiveTypeNames.Lookup(a.Text) ?? new ZType.ZNamedType(a.Text, []),
             SExpr.SList list
                 when list.Items.Count >= 2
                     && list.Items[0] is SExpr.Atom atom0

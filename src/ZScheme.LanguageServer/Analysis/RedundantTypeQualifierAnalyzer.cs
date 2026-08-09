@@ -24,27 +24,6 @@ namespace ZScheme.LanguageServer.Analysis;
 /// </summary>
 public sealed class RedundantTypeQualifierAnalyzer(DiagnosticBag diagnostics)
 {
-    /// <summary>
-    ///     Bare names that <c>AstBuilder.ParseTypeExpr</c> maps to a
-    ///     <see cref="ZType.ZPrimitiveType" /> rather than a named type. <c>Unifier</c> has no
-    ///     primitive-to-named bridge, so rewriting <c>System.String</c> to <c>String</c> would
-    ///     silently change the annotation's type even though both spellings resolve to the same
-    ///     CLR type.
-    /// </summary>
-    private static readonly HashSet<string> PrimitiveNames = new(StringComparer.Ordinal)
-    {
-        "Int",
-        "Long",
-        "Float",
-        "Double",
-        "Byte",
-        "Char",
-        "Bool",
-        "String",
-        "Unit",
-        "Symbol",
-    };
-
     /// <param name="canonicalizer">
     ///     The canonicalizer the compilation used for this file
     ///     (<c>Compilation.Canonicalizer</c>) — not a fresh one. Its namespace set includes the
@@ -69,7 +48,11 @@ public sealed class RedundantTypeQualifierAnalyzer(DiagnosticBag diagnostics)
 
             var prefix = name[..dot];
             var shortName = name[(dot + 1)..];
-            if (PrimitiveNames.Contains(shortName))
+            // A primitive keyword bypasses the namespace hints entirely — ParseTypeExpr maps it
+            // straight to a ZPrimitiveType — so the canonicalizer below cannot speak for it.
+            // `System.Char` shortens to `Char` and keeps its type; some other namespace's `Char`
+            // would be quietly replaced by the primitive.
+            if (!PrimitiveTypeNames.ShorteningPreservesType(name, shortName))
                 continue;
             if (!namespaces.TryGetValue(prefix, out var nsToken))
                 continue;

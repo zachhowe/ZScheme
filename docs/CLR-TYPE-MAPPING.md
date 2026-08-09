@@ -19,6 +19,16 @@ ZScheme compiles to .NET and can interoperate directly with .NET types and metho
 
 These mappings are applied automatically when the compiler reflects on CLR method signatures.
 
+They also run in the other direction: a type annotation may spell a primitive with its CLR full name instead of the ZScheme keyword, and the two are the same type. This lets an `import-clr` signature stay fully qualified throughout rather than switching spelling halfway:
+
+```scheme
+(import-clr [println System.Console/WriteLine : (System.String -> System.Void)])
+
+(define (f [s : System.String]) : String s)   ;; System.String and String unify
+```
+
+The accepted CLR spellings are `System.Int32`, `System.Int64`, `System.Single`, `System.Double`, `System.Byte`, `System.Char`, `System.Boolean`, `System.String` and `System.Void`. `Symbol` is keyword-only — `ZSymbol` is a runtime type, not a CLR primitive.
+
 `Symbol` is the only primitive backed by a non-corlib type: `ZScheme.Runtime.ZSymbol`, from the `ZScheme.Runtime` runtime-support assembly (see [SYNTAX-FORMS.md](SYNTAX-FORMS.md) for the `'symbol` literal syntax). Every compiled program references `ZScheme.Runtime` — the C# backend emits a `<Reference>` to it and the IL backend copies `ZScheme.Runtime.dll` next to the output.
 
 ## Collection Types

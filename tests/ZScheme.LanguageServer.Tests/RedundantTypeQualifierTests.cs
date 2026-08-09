@@ -148,14 +148,31 @@ public sealed class RedundantTypeQualifierTests
     }
 
     [Fact]
-    public void PrimitiveShortName_IsNotReported()
+    public void PrimitiveClrSpelling_IsReported()
     {
-        // `String` parses as a primitive type, not a named one, so this is not a rename —
-        // it would change the annotation's ZType.
+        // `System.String` and `String` both parse to the same ZPrimitiveType, so dropping the
+        // qualifier is a pure rename. This used to be excluded outright, back when the two
+        // spellings were different types.
         var src = """
             (module test)
             (import-clr System)
             (define (len [s : System.String]) : Int 0)
+            """;
+        var hint = Assert.Single(Hints(src));
+
+        Assert.Equal(["String", "System"], hint.Data);
+    }
+
+    [Fact]
+    public void PrimitiveShortNameFromAnotherNamespace_IsNotReported()
+    {
+        // The carve-out that survives. A primitive keyword is mapped straight to its primitive
+        // without consulting the namespace hints, so `Char` here would mean the primitive, not
+        // this namespace's type of the same simple name — a change of meaning, not a rename.
+        var src = """
+            (module test)
+            (import-clr Some.Other.Ns)
+            (define (f [c : Some.Other.Ns.Char]) : Int 0)
             """;
 
         Assert.Empty(Hints(src));
