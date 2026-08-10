@@ -7804,4 +7804,53 @@ public class EndToEndTests
     [Fact]
     public void AsyncMultiExprBody_RunsEveryStatementInOrder_Il() =>
         Assert.Equal(123, CompileIlAndAwaitInt(AsyncMultiExprBody));
+
+    // Regression: a match-arm pattern binder read *after* an await in the same arm used to come
+    // back as the default value of its type. Arm binders were bound straight into the emitter's
+    // `locals` map, so the analyzer created no state-machine field for them and the suspension
+    // save/restore never saw them — on resume the CIL local held whatever InitializeLocals left.
+    // The awaited task must be genuinely incomplete: `await` on a completed Task never yields, so
+    // MoveNext runs straight through and the binder survives in its local even with the bug.
+    private const string AsyncMatchBinderAcrossAwait =
+        @"(module test)
+(import-clr
+  [task-delay System.Threading.Tasks.Task/Delay : (Int -> System.Threading.Tasks.Task)])
+(define-union Box (Full [v : Int]) (Empty))
+(define-async (open-box [b : Box]) : (Task Int)
+  (match b
+    [(Full v) (begin (await (task-delay 1)) v)]
+    [(Empty) 0]))
+(define-async (Compute) : (Task Int) (await (open-box (Full 42))))";
+
+    [Fact]
+    public void AsyncMatchArmBinder_SurvivesASuspension_Il() =>
+        Assert.Equal(42, CompileIlAndAwaitInt(AsyncMatchBinderAcrossAwait));
+
+    [Fact]
+    public void AsyncMatchArmBinder_SurvivesASuspension_CSharp() =>
+        Assert.Equal(42, CompileCSharpAndAwaitInt(AsyncMatchBinderAcrossAwait));
+
+    // The same hazard one level down: a binder from a *nested* constructor pattern, plus a
+    // top-level `IrPattern.Variable` arm binder (`other`) in a sibling arm, so both binding
+    // sites in EmitPatternTest are covered. Sibling arms bind different names, keeping each
+    // hoisted field distinct.
+    private const string AsyncNestedMatchBinderAcrossAwait =
+        @"(module test)
+(import-clr
+  [task-delay System.Threading.Tasks.Task/Delay : (Int -> System.Threading.Tasks.Task)])
+(define-union Inner (Leaf [n : Int]))
+(define-union Outer (Wrap [i : Inner]) (Bare [n : Int]))
+(define-async (open-outer [o : Outer]) : (Task Int)
+  (match o
+    [(Wrap (Leaf n)) (begin (await (task-delay 1)) n)]
+    [other (begin (await (task-delay 1)) 7)]))
+(define-async (Compute) : (Task Int) (await (open-outer (Wrap (Leaf 42)))))";
+
+    [Fact]
+    public void AsyncNestedMatchArmBinder_SurvivesASuspension_Il() =>
+        Assert.Equal(42, CompileIlAndAwaitInt(AsyncNestedMatchBinderAcrossAwait));
+
+    [Fact]
+    public void AsyncNestedMatchArmBinder_SurvivesASuspension_CSharp() =>
+        Assert.Equal(42, CompileCSharpAndAwaitInt(AsyncNestedMatchBinderAcrossAwait));
 }

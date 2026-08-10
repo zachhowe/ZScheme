@@ -37,6 +37,10 @@ public sealed partial class IlEmitter(
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<IlEmitter>();
 
+    // Structural equality over type signatures, used to check a hoisted local's slot type against
+    // the state-machine field it is about to be stored into (see HoistLocalToStateMachine).
+    private static readonly SignatureComparer TypeSigComparer = new();
+
     private readonly Pipeline.CoverageOptions? _coverage = coverage;
 
     private readonly Dictionary<string, AsmClassInfo> _asmClassInfos = new();

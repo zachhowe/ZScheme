@@ -226,6 +226,18 @@ public static class AsyncStateMachineAnalyzer
                     typeAliases
                 );
                 foreach (var arm in match.Arms)
+                {
+                    // An arm binder read after an await in the same arm has to survive the
+                    // suspension, exactly like a `let`-bound name. Only arms that actually
+                    // await need the field, matching the with-handlers binder rule below.
+                    if (ContainsAwait(arm.Body))
+                        CollectPatternBinders(
+                            arm.Pattern,
+                            match.Scrutinee.Type,
+                            hoistedLocals,
+                            seenLocals,
+                            typeAliases
+                        );
                     CollectInfo(
                         arm.Body,
                         awaitPoints,
@@ -234,6 +246,8 @@ public static class AsyncStateMachineAnalyzer
                         tryBodyStack,
                         typeAliases
                     );
+                }
+
                 break;
 
             case IrNode.Call call:
@@ -515,6 +529,74 @@ public static class AsyncStateMachineAnalyzer
                 break;
 
             // Leaf nodes and others that can't contain await — do nothing
+        }
+    }
+
+    /// <summary>
+    ///     Records the names a match arm's pattern binds as hoisted locals, so
+    ///     <see cref="IlEmitter" />'s pattern-binding sites can flush them to state-machine
+    ///     fields and the suspension save/restore can carry them across an await.
+    /// </summary>
+    /// <remarks>
+    ///     Each binder's type is read off the scrutinee as the walk descends: a top-level
+    ///     <see cref="IrPattern.Variable" /> binds the scrutinee itself, a constructor field
+    ///     binds the type <c>PatternResolver</c> annotated on that field, and a tuple element
+    ///     binds the matching type argument. A sub-pattern whose type could not be resolved is
+    ///     skipped — no field is better than a field of the wrong type, and the emitter's
+    ///     hoist is guarded on the two agreeing anyway. De-duplication is by name via
+    ///     <paramref name="seenLocals" />, shared with the <c>let</c>/<c>use</c> binders, so
+    ///     sibling arms binding one name at different types get a single field of the first
+    ///     type and the emitter declines to hoist the mismatched one.
+    /// </remarks>
+    private static void CollectPatternBinders(
+        IrPattern pattern,
+        ZType scrutineeType,
+        List<HoistedLocal> hoistedLocals,
+        HashSet<string> seenLocals,
+        TypeAliasRegistry typeAliases
+    )
+    {
+        switch (pattern)
+        {
+            // `_` is never read, and hoisting it would alias unrelated bindings onto one
+            // field — the same reasoning as the discard case in the `Let` branch above.
+            case IrPattern.Variable v
+                when v.Name != "_"
+                    && scrutineeType is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }:
+                if (seenLocals.Add(v.Name))
+                    hoistedLocals.Add(new HoistedLocal(v.Name, scrutineeType));
+                break;
+
+            case IrPattern.Constructor c:
+                for (var i = 0; i < c.Fields.Count; i++)
+                    if (c.FieldTypes is { } fieldTypes && i < fieldTypes.Count)
+                        if (fieldTypes[i] is { } fieldType)
+                            CollectPatternBinders(
+                                c.Fields[i],
+                                fieldType,
+                                hoistedLocals,
+                                seenLocals,
+                                typeAliases
+                            );
+                break;
+
+            case IrPattern.Tuple t:
+                var elementTypes =
+                    scrutineeType is ZType.ZNamedType tupleType
+                    && typeAliases.IsValueTupleName(tupleType.Name)
+                        ? tupleType.TypeArgs
+                        : null;
+                if (elementTypes is null)
+                    break;
+                for (var i = 0; i < t.Elements.Count && i < elementTypes.Count; i++)
+                    CollectPatternBinders(
+                        t.Elements[i],
+                        elementTypes[i],
+                        hoistedLocals,
+                        seenLocals,
+                        typeAliases
+                    );
+                break;
         }
     }
 

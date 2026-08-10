@@ -1457,16 +1457,7 @@ public sealed partial class IlEmitter
             locals[let.VarName] = local;
 
             // Also save to state machine field if we're inside MoveNext
-            if (
-                ctx.MoveNextCtx != null
-                && ctx.MoveNextCtx.VarFields.TryGetValue(let.VarName, out var smField)
-            )
-            {
-                il.Add(CilOpCodes.Ldarg_0);
-                il.Add(CilOpCodes.Ldloc, local);
-                il.Add(CilOpCodes.Stfld, smField);
-                ctx.MoveNextCtx.AllLocals.Add((let.VarName, local));
-            }
+            HoistLocalToStateMachine(let.VarName, local, il, ctx);
         }
 
         emitBody();
@@ -1476,6 +1467,42 @@ public sealed partial class IlEmitter
             locals[let.VarName] = previousLocal!;
         else
             locals.Remove(let.VarName);
+    }
+
+    /// Flushes a just-bound local into the state-machine field the
+    /// <see cref="AsyncStateMachineAnalyzer" /> reserved for that name, and enrols it in
+    /// <see cref="AsyncMoveNextContext.AllLocals" /> so every later suspension point saves and
+    /// restores it. A no-op outside a MoveNext body, or for a name that was not hoisted.
+    ///
+    /// Every binder whose value may be read after an `await` has to go through here: a CIL local
+    /// does not survive a suspension (MoveNext re-enters with `localsinit`-zeroed slots), so a
+    /// binder with no field reads back as the default value of its type — silently, with no
+    /// diagnostic. That was the match-arm binder bug; `let`, `use` and `with-handlers` binders
+    /// already did this by hand.
+    private void HoistLocalToStateMachine(
+        string name,
+        CilLocalVariable local,
+        CilInstructionCollection il,
+        EmitContext ctx
+    )
+    {
+        if (ctx.MoveNextCtx is not { } mnCtx || !mnCtx.VarFields.TryGetValue(name, out var field))
+            return;
+
+        // The field's type comes from the analyzer's view of the binding (MapToClr over the
+        // binder's ZType); the local's comes from however the emitter materialised it — a union
+        // case's property getter return type, a closed tuple's field signature. They agree in
+        // the normal case, but hoisting is keyed by name only, so sibling match arms binding one
+        // name at different types share a single field of whichever type was seen first. Emitting
+        // stfld/ldfld against the other type would be rejected by the verifier, so decline the
+        // hoist instead; that binder simply keeps the pre-hoist behaviour.
+        if (!TypeSigComparer.Equals(field.Signature!.FieldType, local.VariableType))
+            return;
+
+        il.Add(CilOpCodes.Ldarg_0);
+        il.Add(CilOpCodes.Ldloc, local);
+        il.Add(CilOpCodes.Stfld, field);
+        mnCtx.AllLocals.Add((name, local));
     }
 
     private void EmitClrNew(
@@ -2432,6 +2459,7 @@ public sealed partial class IlEmitter
                 il.Add(CilOpCodes.Ldloc, scrutineeLocal);
                 il.Add(CilOpCodes.Stloc, bindLocal);
                 locals[v.Name] = bindLocal;
+                HoistLocalToStateMachine(v.Name, bindLocal, il, ctx);
                 break;
 
             case IrPattern.Literal { Value: string s }:
@@ -2604,6 +2632,7 @@ public sealed partial class IlEmitter
             if (element is IrPattern.Variable v)
             {
                 locals[v.Name] = fieldLocal;
+                HoistLocalToStateMachine(v.Name, fieldLocal, il, ctx);
                 continue;
             }
 
@@ -2815,6 +2844,7 @@ public sealed partial class IlEmitter
             if (field is IrPattern.Variable v)
             {
                 locals[v.Name] = fieldLocal;
+                HoistLocalToStateMachine(v.Name, fieldLocal, il, ctx);
             }
             else
             {
