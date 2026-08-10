@@ -870,11 +870,13 @@ whole solution rather than one project:
 
 Shape decisions worth knowing:
 
-- **Dependencies are compiled from source, never referenced as cached `.dll`s.** A cached
-  package assembly is IL produced by the other backend, and C# cannot consume its public
-  signatures — see
-  [issues/il-package-assemblies-reference-system-private-corelib.md](../issues/il-package-assemblies-reference-system-private-corelib.md).
-  Compiling from source also makes the emitted tree self-contained and readable end to end.
+- **Dependencies are compiled from source, never referenced as cached `.dll`s.** This makes
+  the emitted tree self-contained and readable end to end, at the cost of re-emitting a
+  dependency's modules per consuming project. It was originally forced rather than chosen: the
+  IL backend scoped every corelib import to `System.Private.CoreLib`, which no reference pack
+  contains, so referencing a cached assembly failed with `CS0012` on every public signature
+  naming a corelib type. `CorLibFacadeMap` resolves the owning reference assembly per type now,
+  so that constraint is gone and referencing cached assemblies is a live option.
 - **Each test file is its own compilation but they share one project**, so a module may be
   emitted only once. The main package's modules are referenced from the main project; a
   module a test file compiles from source (a shared `test-support`, a test-only dependency

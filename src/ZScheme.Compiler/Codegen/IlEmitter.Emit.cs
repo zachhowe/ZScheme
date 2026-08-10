@@ -62,7 +62,12 @@ public sealed partial class IlEmitter
         {
             PublicKeyOrToken = sysRuntimeAsm.GetName().GetPublicKeyToken(),
         };
-        _module = new ModuleDefinition(assemblyName + ".dll", corLib);
+        // FacadeImportingModule rather than a plain ModuleDefinition: corLib below only declares
+        // the module's corlib, while each individual import takes its assembly identity from
+        // reflection and so lands on System.Private.CoreLib. The runtime binds either spelling,
+        // but no reference pack contains that assembly, so a C# project referencing what we emit
+        // fails with CS0012 on every signature naming a corelib type. See CorLibFacadeMap.
+        _module = new FacadeImportingModule(assemblyName + ".dll", corLib);
         var asmDef = new AssemblyDefinition(assemblyName, new Version(1, 0, 0, 0));
         asmDef.Modules.Add(_module);
 
