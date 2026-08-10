@@ -16,6 +16,13 @@ namespace ZScheme.Compiler.Ir;
 ///     (non-looped) emission. Only self tail calls become jumps — mutual/other tail calls and
 ///     non-tail self-calls stay plain <see cref="IrNode.Call" />.
 ///
+///     Self-calls are matched by name, but scope-aware: every binder on the tail spine that
+///     can rebind the function's own name — a parameter, a <c>let</c>, a <c>match</c> arm
+///     pattern — stops the walk, so a call to a local that shadows the name stays a plain
+///     call instead of being rewritten into a back-edge to the wrong function.
+///     <see cref="Types.TailRecursionAnalyzer" /> shadows identically one stage earlier, which
+///     is what keeps the drift contract (analyzer silence &lt;=&gt; <c>IsTcoLoop</c>) true.
+///
 ///     Because it runs after name resolution and the with-handlers/await hoisters, and nothing
 ///     reconstructs the tree afterward, the produced <see cref="IrNode.TcoJump" /> /
 ///     <see cref="IrNode.FuncDef.IsTcoLoop" /> reach the emitters untouched — no other pass
@@ -72,6 +79,13 @@ public sealed class TailCallLowering
     private IrNode.FuncDef RewriteFunc(IrNode.FuncDef func)
     {
         var paramNames = func.Params.Select(p => p.Name).ToList();
+
+        // A parameter named like the function rebinds the name over the whole body, so no
+        // call in it refers to the function. Mirrors TailRecursionAnalyzer's
+        // `shadowedByParams`, which keeps the drift contract's two halves in agreement.
+        if (paramNames.Contains(func.Name))
+            return func;
+
         var (body, rewrote) = RewriteTail(func.Body, func.Name, paramNames, func.IsAsync);
         return rewrote ? func with { Body = body, IsTcoLoop = true } : func;
     }
@@ -97,10 +111,9 @@ public sealed class TailCallLowering
                 // Tail self-call -> loop back-edge. The args are NOT rewritten: they are
                 // non-tail sub-expressions and are evaluated into the parameter slots.
                 //
-                // Matches by name only, exactly like the C# backend already did
-                // (v.Name == funcName). Polymorphic self-recursion (f<T> calling f<int>)
-                // would be miscompiled by a name-based jump; that limitation is shared by
-                // both backends and predates this pass.
+                // Reaching here means the name is still the function's: every binder on the
+                // tail spine that could rebind it (parameters, `let`, `match` arm patterns)
+                // has already stopped the walk, so a name match is a genuine self-call.
                 return (
                     new IrNode.TcoJump(paramNames, call.Args)
                     {
@@ -156,6 +169,12 @@ public sealed class TailCallLowering
 
             case IrNode.Let let:
             {
+                // A `let` rebinding the function's own name shadows it for the whole body,
+                // so nothing below is a self-call. The bound value is not tail position, so
+                // there is nothing left to rewrite here.
+                if (let.VarName == funcName)
+                    return (node, false);
+
                 var (body, changed) = RewriteTail(let.Body, funcName, paramNames, isAsync);
                 if (!changed)
                     return (node, false);
@@ -175,6 +194,14 @@ public sealed class TailCallLowering
                 var arms = new List<IrMatchArm>(match.Arms.Count);
                 foreach (var arm in match.Arms)
                 {
+                    // An arm whose pattern binds the function's own name shadows it for that
+                    // arm's body only, so the other arms are still walked.
+                    if (PatternBinds(arm.Pattern, funcName))
+                    {
+                        arms.Add(arm);
+                        continue;
+                    }
+
                     var (body, changed) = RewriteTail(arm.Body, funcName, paramNames, isAsync);
                     rewrote |= changed;
                     arms.Add(changed ? new IrMatchArm(arm.Pattern, body) : arm);
@@ -221,12 +248,31 @@ public sealed class TailCallLowering
     private static IrNode.Call? SelfCallUnderLets(IrNode node, string funcName)
     {
         while (node is IrNode.Let let)
+        {
+            // A hoisted binding that rebinds the function's own name shadows it for the rest
+            // of the spine, so the call at the bottom is not a self-call.
+            if (let.VarName == funcName)
+                return null;
             node = let.Body;
+        }
 
         return node is IrNode.Call { Function: IrNode.Var v } call && v.Name == funcName
             ? call
             : null;
     }
+
+    /// <summary>
+    ///     Whether <paramref name="pattern" /> binds <paramref name="name" />, which makes the
+    ///     arm's body shadow it. The IR mirror of <see cref="Ast.AstScopes.PatternBinds" />.
+    /// </summary>
+    private static bool PatternBinds(IrPattern pattern, string name) =>
+        pattern switch
+        {
+            IrPattern.Variable v => v.Name == name,
+            IrPattern.Constructor c => c.Fields.Any(f => PatternBinds(f, name)),
+            IrPattern.Tuple t => t.Elements.Any(e => PatternBinds(e, name)),
+            _ => false,
+        };
 
     /// <summary>
     ///     Rebuilds <paramref name="spine" />'s <c>let</c> bindings around

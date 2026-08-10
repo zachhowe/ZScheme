@@ -185,6 +185,102 @@ public class TailCallLoweringTests
         Assert.IsType<IrNode.Call>(result.Body);
     }
 
+    #region Shadowed self-names
+
+    [Fact]
+    public void DoesNotRewriteCallToLetThatShadowsSelfName()
+    {
+        // `(let ([f …]) (f …))` inside `f`: the callee is the local, not the function. A
+        // back-edge here jumps to the top of `f` and never calls the bound value.
+        var body = new IrNode.Let("f", Var("acc"), Call("f", Var("n"), Var("acc")), ZType.Int)
+        {
+            Type = ZType.Int,
+        };
+
+        var result = Rewrite(Func("f", body));
+
+        Assert.False(result.IsTcoLoop);
+        Assert.IsType<IrNode.Call>(Assert.IsType<IrNode.Let>(result.Body).Body);
+    }
+
+    [Fact]
+    public void DoesNotRewriteCallToMatchArmBinderThatShadowsSelfName()
+    {
+        // The arm's pattern binds `f`, so the arm body's `(f …)` is the binder. Sibling arms
+        // are unaffected, which is why the shadow check is per-arm rather than per-match.
+        var shadowing = new IrMatchArm(
+            new IrPattern.Constructor("B", [new IrPattern.Variable("f")]),
+            Call("f", Var("n"), Var("acc"))
+        );
+        var unshadowed = new IrMatchArm(
+            new IrPattern.Constructor("C", [new IrPattern.Variable("m")]),
+            Call("f", Var("n"), Var("acc"))
+        );
+        var body = new IrNode.Match(Var("n"), [shadowing, unshadowed]) { Type = ZType.Int };
+
+        var result = Rewrite(Func("f", body));
+
+        // The unshadowed arm still loops; the shadowed one stays a plain call.
+        Assert.True(result.IsTcoLoop);
+        var match = Assert.IsType<IrNode.Match>(result.Body);
+        Assert.IsType<IrNode.Call>(match.Arms[0].Body);
+        Assert.IsType<IrNode.TcoJump>(match.Arms[1].Body);
+    }
+
+    [Fact]
+    public void DoesNotRewriteCallToParameterThatShadowsSelfName()
+    {
+        // A parameter named like the function rebinds the name over the entire body.
+        var func = new IrNode.FuncDef(
+            "f",
+            [new IrParam("f", ZType.Int)],
+            ZType.Int,
+            Call("f", Var("f")),
+            true
+        )
+        {
+            Type = ZType.Int,
+        };
+
+        var result = Rewrite(func);
+
+        Assert.False(result.IsTcoLoop);
+        Assert.IsType<IrNode.Call>(result.Body);
+    }
+
+    [Fact]
+    public void DoesNotRewriteAwaitedCallUnderALetThatShadowsSelfName()
+    {
+        // The async spelling of the same bug: AwaitHoister's `let` spine can itself rebind the
+        // name, so the call at the bottom of the spine is not a self-call.
+        var body = IfBaseCase(
+            new IrNode.Await(
+                new IrNode.Let(
+                    "f",
+                    Var("acc"),
+                    new IrNode.Call(Var("f"), [Var("n"), Var("acc")])
+                    {
+                        Type = new ZType.ZNamedType("Task", [ZType.Int]),
+                    },
+                    ZType.Int
+                )
+                {
+                    Type = new ZType.ZNamedType("Task", [ZType.Int]),
+                }
+            )
+            {
+                Type = ZType.Int,
+            }
+        );
+
+        var result = Rewrite(Func("f", body, isAsync: true));
+
+        Assert.False(result.IsTcoLoop);
+        Assert.IsType<IrNode.Await>(Assert.IsType<IrNode.If>(result.Body).Else);
+    }
+
+    #endregion
+
     #region Awaited self-calls (async TCO)
 
     /// <summary>Wraps <paramref name="tail" /> as the else-branch of an `n = 0` base case.</summary>

@@ -407,9 +407,13 @@ self-calls stay plain `Call`s. Both backends then emit an `IsTcoLoop` function a
 as `while(true)` with a `continue` at each `TcoJump`, IL as a start label with a `Br` back —
 so self-recursion runs in constant stack on both, closing a divergence where deep recursion
 looped under C# but overflowed under IL. Uses of the `.tail.` prefix are deliberately avoided
-(unverifiable inside `try`/`finally`, and only a JIT hint). A known shared limitation: a
-name-based self-jump would miscompile polymorphic recursion (`f<T>` calling `f<int>`), and —
-because the match ignores scope — a call to a local that shadows the function's own name.
+(unverifiable inside `try`/`finally`, and only a JIT hint). The self-call match is by name but
+scope-aware: a parameter, a `let`, or a `match` arm pattern that rebinds the function's own
+name stops the walk, so a tail call to a shadowing local stays a plain `Call` instead of
+becoming a back-edge to the wrong function. `TailRecursionAnalyzer` shadows identically one
+stage earlier, which is what keeps the drift contract honest. (Polymorphic recursion needs no
+special handling: Hindley-Milner types the recursive occurrence monomorphically, so `f<T>`
+calling `f<int>` is either a type error or a monomorphization of the whole function.)
 
 `async` functions are rewritten too, on both backends. An async tail self-call can only be
 spelled `(await (self …))`: a bare `(self …)` has type `Task` and will not unify with its

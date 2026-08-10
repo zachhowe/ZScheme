@@ -154,12 +154,38 @@ public class TailRecursionDriftTests
     }
 
     [Fact]
-    public void ShadowedSelfName_IsNotCoveredByTheDriftContract()
+    public void ShadowedSelfName_IsNotRewrittenToABackEdge()
     {
-        // TailCallLowering matches Var.Name with no scope tracking, so it wrongly rewrites a
-        // call to a shadowing local as a back-edge. The analyzer is scope-aware and correctly
-        // stays silent. Documented here rather than "fixed" in the analyzer to match the bug.
-        const string source = "(define (f n) (let ([f 1]) (g f)))";
+        // A `let` that rebinds the function's own name: the tail call goes to the local, not
+        // to `f`, so the pass must leave it a plain Call. Rewriting it to a back-edge jumped
+        // to the top of `f` and never called the bound value — the emitted body returned 0
+        // for every input instead of 100 * (n - 1).
+        const string source = """
+            (define (f [n : Int]) : Int
+              (if (= n 0)
+                  0
+                  (let ([f (lambda ([x : Int]) : Int (* x 100))])
+                    (f (- n 1)))))
+            """;
+
+        Assert.False(IsLooped(source, "f"));
+        Assert.False(Warned(source, "f"));
+    }
+
+    [Fact]
+    public void MatchArmShadowingSelfName_IsNotRewrittenToABackEdge()
+    {
+        // Same bug through a `match` binder. This one produced a back-edge that assigned the
+        // arm's `(Int -> Int)` value into the `Box`-typed parameter slot — code that does not
+        // even compile under the C# backend.
+        const string source = """
+            (define-union Box (B [v : (Int -> Int)]))
+            (define (f [b : Box]) : Int
+              (match b
+                [(B f) (f 1)]))
+            """;
+
+        Assert.False(IsLooped(source, "f"));
         Assert.False(Warned(source, "f"));
     }
 
