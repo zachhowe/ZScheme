@@ -5,10 +5,15 @@ using ZScheme.Compiler.Package;
 namespace ZScheme.Compiler.Tests.Package;
 
 /// <summary>
-///     Tests <see cref="FrameworkResolver" /> against a fake dotnet root pointed to by
-///     DOTNET_ROOT. Every test that mutates the (process-wide) env var lives in this one class,
-///     restoring the previous value on dispose; xUnit runs tests within a class serially, so
-///     the mutation never races another test.
+///     Tests <see cref="FrameworkResolver" /> against a fake dotnet root, passed in explicitly.
+///     <para>
+///         These used to point the resolver at that root by setting <c>DOTNET_ROOT</c>. Serializing
+///         within the class is not enough: the env var is process-wide and xUnit runs
+///         <em>other</em> classes in parallel, so any test resolving a real framework in that
+///         window saw the fake root instead — which is what made
+///         <c>PackageAutoInstallerTests.FrameworkInheritedFromADependencyIsResolvedForAutoInstall</c>
+///         fail intermittently. Nothing here mutates process state now.
+///     </para>
 /// </summary>
 public class FrameworkResolverTests : IDisposable
 {
@@ -17,17 +22,13 @@ public class FrameworkResolverTests : IDisposable
         $"zs_fwres_test_{Guid.NewGuid():N}"
     );
 
-    private readonly string? _savedDotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-
     public FrameworkResolverTests()
     {
         Directory.CreateDirectory(_tempRoot);
-        Environment.SetEnvironmentVariable("DOTNET_ROOT", _tempRoot);
     }
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("DOTNET_ROOT", _savedDotnetRoot);
         if (Directory.Exists(_tempRoot))
             Directory.Delete(_tempRoot, true);
     }
@@ -44,7 +45,7 @@ public class FrameworkResolverTests : IDisposable
     public void EmptyDependencyListResolvesToEmpty()
     {
         var diag = new DiagnosticBag();
-        Assert.Empty(FrameworkResolver.Resolve([], diag));
+        Assert.Empty(FrameworkResolver.Resolve([], diag, _tempRoot));
         Assert.False(diag.HasErrors);
     }
 
@@ -54,14 +55,11 @@ public class FrameworkResolverTests : IDisposable
         AddFrameworkVersions("Microsoft.AspNetCore.App", "9.0.1", "10.0.0", "not-a-version");
         var diag = new DiagnosticBag();
 
-        var result = FrameworkResolver.Resolve([Fw("Microsoft.AspNetCore.App")], diag);
+        var result = FrameworkResolver.Resolve([Fw("Microsoft.AspNetCore.App")], diag, _tempRoot);
 
         Assert.False(diag.HasErrors);
         var path = Assert.Single(result);
-        Assert.Equal(
-            Path.Combine(_tempRoot, "shared", "Microsoft.AspNetCore.App", "10.0.0"),
-            path
-        );
+        Assert.Equal(Path.Combine(_tempRoot, "shared", "Microsoft.AspNetCore.App", "10.0.0"), path);
     }
 
     [Fact]
@@ -69,7 +67,7 @@ public class FrameworkResolverTests : IDisposable
     {
         var diag = new DiagnosticBag();
 
-        var result = FrameworkResolver.Resolve([Fw("Missing.Framework")], diag);
+        var result = FrameworkResolver.Resolve([Fw("Missing.Framework")], diag, _tempRoot);
 
         Assert.Empty(result);
         var d = Assert.Single(diag.Diagnostics);
@@ -82,7 +80,7 @@ public class FrameworkResolverTests : IDisposable
         AddFrameworkVersions("Weird.Framework", "not-a-version", "also-bad");
         var diag = new DiagnosticBag();
 
-        var result = FrameworkResolver.Resolve([Fw("Weird.Framework")], diag);
+        var result = FrameworkResolver.Resolve([Fw("Weird.Framework")], diag, _tempRoot);
 
         Assert.Empty(result);
         var d = Assert.Single(diag.Diagnostics);
@@ -96,11 +94,24 @@ public class FrameworkResolverTests : IDisposable
         AddFrameworkVersions("Fw.Two", "8.0.4");
         var diag = new DiagnosticBag();
 
-        var result = FrameworkResolver.Resolve([Fw("Fw.One"), Fw("Fw.Two")], diag);
+        var result = FrameworkResolver.Resolve([Fw("Fw.One"), Fw("Fw.Two")], diag, _tempRoot);
 
         Assert.Equal(2, result.Count);
         Assert.EndsWith(Path.Combine("Fw.One", "8.0.0"), result[0]);
         Assert.EndsWith(Path.Combine("Fw.Two", "8.0.4"), result[1]);
+    }
+
+    /// <summary>The root the production callers actually get. Asserted structurally rather than
+    ///     against a fixed path so it holds whether or not DOTNET_ROOT is set in the environment —
+    ///     setting it here is exactly what this class no longer does.</summary>
+    [Fact]
+    public void DefaultDotnetRootIsAnInstalledDotnetRoot()
+    {
+        var root = FrameworkResolver.DefaultDotnetRoot();
+
+        Assert.False(string.IsNullOrEmpty(root));
+        Assert.True(Directory.Exists(root), root);
+        Assert.True(Directory.Exists(Path.Combine(root, "shared")), root);
     }
 
     [Fact]
@@ -109,7 +120,11 @@ public class FrameworkResolverTests : IDisposable
         AddFrameworkVersions("Fw.Present", "9.0.0");
         var diag = new DiagnosticBag();
 
-        var result = FrameworkResolver.Resolve([Fw("Fw.Absent"), Fw("Fw.Present")], diag);
+        var result = FrameworkResolver.Resolve(
+            [Fw("Fw.Absent"), Fw("Fw.Present")],
+            diag,
+            _tempRoot
+        );
 
         Assert.Single(result);
         Assert.True(diag.HasErrors);

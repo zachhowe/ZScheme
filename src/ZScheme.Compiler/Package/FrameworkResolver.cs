@@ -13,24 +13,24 @@ public static class FrameworkResolver
 {
     private static readonly ILogger Log = Serilog.Log.ForContext(typeof(FrameworkResolver));
 
+    /// <param name="dotnetRoot">
+    ///     The dotnet root to resolve against, defaulting to <see cref="DefaultDotnetRoot" />.
+    ///     This exists so a test can point the resolver at a fake root without writing
+    ///     <c>DOTNET_ROOT</c>, which is process-wide: mutating it raced every other test that
+    ///     resolves a real framework — <c>PackageAutoInstallerTests</c> failed intermittently
+    ///     because its compile landed inside the window where the env var pointed at a temp
+    ///     directory, so Microsoft.AspNetCore.App resolved to nothing (or to an empty fake).
+    /// </param>
     public static IReadOnlyList<string> Resolve(
         IReadOnlyList<FrameworkDependency> frameworks,
-        DiagnosticBag diagnostics
+        DiagnosticBag diagnostics,
+        string? dotnetRoot = null
     )
     {
         if (frameworks.Count == 0)
             return [];
 
-        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-        if (string.IsNullOrEmpty(dotnetRoot))
-        {
-            // Fall back to probing the dotnet runtime directory's grandparent.
-            // RuntimeDirectory = .../shared/Microsoft.NETCore.App/<ver>/  → up 3 = dotnet root.
-            var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
-            dotnetRoot = Path.GetFullPath(Path.Combine(runtimeDir, "..", "..", ".."));
-        }
-
-        var sharedRoot = Path.Combine(dotnetRoot, "shared");
+        var sharedRoot = Path.Combine(dotnetRoot ?? DefaultDotnetRoot(), "shared");
         var result = new List<string>();
         foreach (var fw in frameworks)
         {
@@ -71,6 +71,19 @@ public static class FrameworkResolver
         }
 
         return result;
+    }
+
+    /// <summary><c>DOTNET_ROOT</c> when it is set, otherwise the dotnet runtime directory's
+    ///     grandparent: RuntimeDirectory is <c>.../shared/Microsoft.NETCore.App/&lt;ver&gt;/</c>,
+    ///     so up 3 is the root.</summary>
+    internal static string DefaultDotnetRoot()
+    {
+        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        if (!string.IsNullOrEmpty(dotnetRoot))
+            return dotnetRoot;
+
+        var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
+        return Path.GetFullPath(Path.Combine(runtimeDir, "..", "..", ".."));
     }
 
     private static Version? TryParseVersion(string s)
