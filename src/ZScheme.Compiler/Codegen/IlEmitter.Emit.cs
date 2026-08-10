@@ -2058,6 +2058,27 @@ public sealed partial class IlEmitter
                 qualifiedKey
             );
 
+            // A local, parameter or captured binding that shadows a module-level
+            // function of the same name must win the lookup, as it does in
+            // EmitLoadVar and on the C# backend. Consulting _methods first made
+            // `(shadowed x)` call the module method while `shadowed` as a value
+            // loaded the local — the same name resolving two ways in one body.
+            // Only a delegate-typed binding can be *called*, so the type guard is
+            // what keeps a same-named non-callable binding from swallowing a
+            // genuine call to the module function.
+            if (
+                TryEmitBoundDelegateCall(
+                    call,
+                    v,
+                    il,
+                    outerParams,
+                    locals,
+                    ctx,
+                    requireDelegateType: true
+                )
+            )
+                return;
+
             // Check defined methods — try qualified key first, then bare name
             if (
                 (qualifiedKey is not null && _methods.TryGetValue(qualifiedKey, out var methodDef))
@@ -2201,55 +2222,21 @@ public sealed partial class IlEmitter
                 return;
             }
 
-            // Check locals (delegate invocation)
-            if (locals.TryGetValue(v.Name, out var delegateLocal))
-            {
-                Log.Debug("EmitCall: resolved {FuncName} as local delegate invocation", v.Name);
-                il.Add(CilOpCodes.Ldloc, delegateLocal);
-                foreach (var arg in call.Args)
-                    EmitNode(arg, il, outerParams, locals, ctx);
-                EmitDelegateInvoke(call.Function.Type, il, ctx);
-                return;
-            }
-
-            // Check parameters (delegate). AsmResolver's Parameters collection
-            // excludes `this` and is always 0-indexed, so the i from outerParams
-            // maps directly without adding ctx.InstanceArgOffset.
-            for (var i = 0; i < outerParams.Count; i++)
-                if (
-                    outerParams[i].Name == v.Name
-                    && outerParams[i].Type is ZType.ZFuncType or ZType.ZDelegateType
-                )
-                {
-                    var method = il.Owner!.Owner!;
-                    il.Add(CilOpCodes.Ldarg, method.Parameters[i]);
-                    foreach (var arg in call.Args)
-                        EmitNode(arg, il, outerParams, locals, ctx);
-                    EmitDelegateInvoke(outerParams[i].Type, il, ctx);
-                    return;
-                }
-
-            // Check current class fields (delegate-typed capture). Object
-            // expressions thread captured delegate-typed outer bindings through
-            // the synthesized class as fields; without this branch a method
-            // body that invokes such a capture by name (e.g. `(f x)` where
-            // `f` came from the enclosing `define`'s parameters) falls through
-            // to the "Function not found" error since `f` is no longer in
-            // outerParams once we descend into the object's method.
+            // Same probes again, this time accepting a local whose type is not
+            // known to be a delegate: nothing global claimed the name, so an
+            // in-scope local is the only candidate left.
             if (
-                ctx.CurrentClassFields is not null
-                && ctx.CurrentClassFields.TryGetValue(v.Name, out var classFieldDelegate)
-                && call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType
+                TryEmitBoundDelegateCall(
+                    call,
+                    v,
+                    il,
+                    outerParams,
+                    locals,
+                    ctx,
+                    requireDelegateType: false
+                )
             )
-            {
-                Log.Debug("EmitCall: resolved {FuncName} as captured class field delegate", v.Name);
-                EmitLoadClassThis(il, ctx);
-                il.Add(CilOpCodes.Ldfld, classFieldDelegate);
-                foreach (var arg in call.Args)
-                    EmitNode(arg, il, outerParams, locals, ctx);
-                EmitDelegateInvoke(call.Function.Type, il, ctx);
                 return;
-            }
 
             // Check static fields
             if (_staticFields.TryGetValue(v.Name, out var staticField))
@@ -2311,6 +2298,83 @@ public sealed partial class IlEmitter
             call.Span
         );
         il.Add(CilOpCodes.Ldc_I4_0);
+    }
+
+    /// <summary>
+    /// Emits a call through a lexically bound delegate — a local, a parameter, or a
+    /// delegate-typed field captured by the enclosing synthesized class — in the same
+    /// order <see cref="EmitLoadVar"/> resolves a name. Returns false when the name is
+    /// not bound that way, leaving the caller to try the module-level lookups.
+    /// When <paramref name="requireDelegateType"/> is set, a local only matches if the
+    /// callee's type says it is callable; parameters and class fields carry that guard
+    /// unconditionally.
+    /// </summary>
+    private bool TryEmitBoundDelegateCall(
+        IrNode.Call call,
+        IrNode.Var v,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx,
+        bool requireDelegateType
+    )
+    {
+        // Check locals (delegate invocation)
+        if (
+            locals.TryGetValue(v.Name, out var delegateLocal)
+            && (
+                !requireDelegateType || call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType
+            )
+        )
+        {
+            Log.Debug("EmitCall: resolved {FuncName} as local delegate invocation", v.Name);
+            il.Add(CilOpCodes.Ldloc, delegateLocal);
+            foreach (var arg in call.Args)
+                EmitNode(arg, il, outerParams, locals, ctx);
+            EmitDelegateInvoke(call.Function.Type, il, ctx);
+            return true;
+        }
+
+        // Check parameters (delegate). AsmResolver's Parameters collection
+        // excludes `this` and is always 0-indexed, so the i from outerParams
+        // maps directly without adding ctx.InstanceArgOffset.
+        for (var i = 0; i < outerParams.Count; i++)
+            if (
+                outerParams[i].Name == v.Name
+                && outerParams[i].Type is ZType.ZFuncType or ZType.ZDelegateType
+            )
+            {
+                var method = il.Owner!.Owner!;
+                il.Add(CilOpCodes.Ldarg, method.Parameters[i]);
+                foreach (var arg in call.Args)
+                    EmitNode(arg, il, outerParams, locals, ctx);
+                EmitDelegateInvoke(outerParams[i].Type, il, ctx);
+                return true;
+            }
+
+        // Check current class fields (delegate-typed capture). Object
+        // expressions thread captured delegate-typed outer bindings through
+        // the synthesized class as fields; without this branch a method
+        // body that invokes such a capture by name (e.g. `(f x)` where
+        // `f` came from the enclosing `define`'s parameters) falls through
+        // to the "Function not found" error since `f` is no longer in
+        // outerParams once we descend into the object's method.
+        if (
+            ctx.CurrentClassFields is not null
+            && ctx.CurrentClassFields.TryGetValue(v.Name, out var classFieldDelegate)
+            && call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType
+        )
+        {
+            Log.Debug("EmitCall: resolved {FuncName} as captured class field delegate", v.Name);
+            EmitLoadClassThis(il, ctx);
+            il.Add(CilOpCodes.Ldfld, classFieldDelegate);
+            foreach (var arg in call.Args)
+                EmitNode(arg, il, outerParams, locals, ctx);
+            EmitDelegateInvoke(call.Function.Type, il, ctx);
+            return true;
+        }
+
+        return false;
     }
 
     private void EmitMatch(

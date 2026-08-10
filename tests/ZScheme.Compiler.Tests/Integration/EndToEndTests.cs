@@ -6965,6 +6965,45 @@ public class EndToEndTests
         Assert.Equal(49, CompileIlAndRunInt(source));
     }
 
+    [Fact]
+    public void EndToEnd_IlLetShadowsModuleFunction_CallsTheLocal()
+    {
+        // Regression: EmitCall consulted `_methods` before locals, so a `let` binding
+        // shadowing a module-level function name could never win the lookup — the call
+        // was emitted as a direct `Call` to the module method. `(f 3)` recursed on the
+        // module `f` down to its base case and yielded 0 instead of invoking the local
+        // lambda for 300. The non-call load path (EmitLoadVar) already checked locals
+        // first, so the same name resolved two different ways in one method body.
+        var source =
+            @"(module test)
+(define (f [n : Int]) : Int
+  (if (= n 0)
+      0
+      (let ([f (lambda ([x : Int]) : Int (* x 100))])
+        (f n))))
+(define (compute) : Int (f 3))";
+        Assert.Equal(300, CompileIlAndRunInt(source));
+        Assert.Equal(300, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void EndToEnd_IlMatchBinderShadowsModuleFunction_CallsTheBinder()
+    {
+        // Same inversion through a match-arm binder: the arm binds `g` to the union's
+        // function-typed field, but EmitCall resolved `(g 1)` to the module method `g`,
+        // passing the Int argument where a `Box` was expected — which then fell off the
+        // end of the match with "Non-exhaustive match".
+        var source =
+            @"(module test)
+(define-union Box (B [v : (Int -> Int)]))
+(define (g [b : Box]) : Int
+  (match b
+    [(B g) (g 1)]))
+(define (compute) : Int (g (B (lambda ([x : Int]) : Int (+ x 41)))))";
+        Assert.Equal(42, CompileIlAndRunInt(source));
+        Assert.Equal(42, CompileCSharpAndRunInt(source));
+    }
+
     // ---------------------------------------------------------------------
     // Constant integer `/` and `%` must throw at runtime on the .NET overflow
     // and divide-by-zero cases in BOTH backends. The IL backend always emits a

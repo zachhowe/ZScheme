@@ -132,6 +132,17 @@ The LSP went from a small feature set to broad coverage:
   the raw name, so only the emitted metadata was wrong — invalid, and invisible to a test
   that checks the computed value. Both hoisters now rebuild `Let`/`Use` with `with`, so a
   future field cannot be dropped the same way.
+- **IL backend called the module-level function when a local shadowed its name.**
+  `EmitCall` resolved a callee against `_methods` and `_precompiledMethods` *before* locals,
+  parameters and captured class fields, so a `let` binding, `match`-arm binder or parameter
+  named like a top-level `define` could never win the lookup. `EmitLoadVar` already checked
+  locals first, so the same name resolved two different ways in one method body — passing
+  `shadowed` as a value loaded the local while `(shadowed x)` called the global. A silent
+  wrong answer, and a divergence from the C# backend on ordinary source: the repro returned
+  `0` instead of `200`, and a shadowing match binder handed an `Int` to a method expecting a
+  union and died with "Non-exhaustive match". The lexically bound probes now run first, and
+  a local only claims a call when the callee's type says it is callable — the guard that
+  keeps a same-named non-callable binding from swallowing a genuine call to the function.
 - C# backend: invalid C# for shadowed local bindings; shadowed locals resolving to enclosing
   class fields; object captures resolving to a stale enclosing local; pattern variables
   colliding with enclosing binders; invalid identifiers for comparison-chain temporaries;
