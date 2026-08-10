@@ -61,27 +61,16 @@ public sealed class AwaitHoister
                     .ToList();
                 return new IrNode.WithHandlers(whBody, whHandlers) { Type = wh.Type };
 
+            // `with` rather than a positional rebuild: Let carries an EmitName assigned by
+            // EmitNameResolver (which runs well before this pass), and reconstructing the
+            // record by hand silently dropped it — the renamed module-level value then
+            // emitted its static field under the very name the rename had moved it away
+            // from. Use has no such field today, but shares the shape.
             case IrNode.Let let:
-                return new IrNode.Let(
-                    let.VarName,
-                    Rewrite(let.Value),
-                    Rewrite(let.Body),
-                    let.VarType
-                )
-                {
-                    Type = let.Type,
-                };
+                return let with { Value = Rewrite(let.Value), Body = Rewrite(let.Body) };
 
             case IrNode.Use use:
-                return new IrNode.Use(
-                    use.VarName,
-                    Rewrite(use.Value),
-                    Rewrite(use.Body),
-                    use.VarType
-                )
-                {
-                    Type = use.Type,
-                };
+                return use with { Value = Rewrite(use.Value), Body = Rewrite(use.Body) };
 
             case IrNode.If ifNode:
                 return new IrNode.If(

@@ -119,11 +119,7 @@ public class AwaitHoisterTests
     public void OriginalSpanIsRestoredOnRewrittenRoot()
     {
         var span = new SourceSpan("test.zs", 3, 7, 11);
-        var binop = new IrNode.BinOp("+", Int(1), AwaitTask("t"))
-        {
-            Type = ZType.Int,
-            Span = span,
-        };
+        var binop = new IrNode.BinOp("+", Int(1), AwaitTask("t")) { Type = ZType.Int, Span = span };
 
         var result = new AwaitHoister().Hoist(binop);
 
@@ -144,6 +140,52 @@ public class AwaitHoisterTests
 
         var rebuilt = Assert.IsType<IrNode.FuncDef>(result);
         Assert.IsType<IrNode.Let>(rebuilt.Body);
+    }
+
+    [Fact]
+    public void LetEmitNameSurvivesRewriting()
+    {
+        // EmitNameResolver runs before the hoisters and stamps EmitName on module-level
+        // `let`s whose sanitized name collided. Rebuilding the Let positionally dropped it,
+        // so the IL backend emitted the collider's static field under the name the rename
+        // had moved it away from — two same-named fields in one type.
+        var let = new IrNode.Let(
+            "this-value",
+            Int(1),
+            AwaitTask("t"),
+            ZType.Int,
+            EmitName: "ThisValue_fn"
+        )
+        {
+            Type = ZType.Int,
+        };
+
+        var result = new AwaitHoister().Hoist(let);
+
+        var rebuilt = Assert.IsType<IrNode.Let>(result);
+        Assert.Equal("ThisValue_fn", rebuilt.EmitName);
+    }
+
+    [Fact]
+    public void NestedLetEmitNameSurvivesRewriting()
+    {
+        // The module-level `let` spine: an outer binding whose body holds further
+        // bindings. Every level must keep its rename, not just the root.
+        var inner = new IrNode.Let("b", Int(2), AwaitTask("t"), ZType.Int, EmitName: "B_fn")
+        {
+            Type = ZType.Int,
+        };
+        var outer = new IrNode.Let("a", Int(1), inner, ZType.Int, EmitName: "A_fn")
+        {
+            Type = ZType.Int,
+        };
+
+        var result = new AwaitHoister().Hoist(outer);
+
+        var rebuiltOuter = Assert.IsType<IrNode.Let>(result);
+        Assert.Equal("A_fn", rebuiltOuter.EmitName);
+        var rebuiltInner = Assert.IsType<IrNode.Let>(rebuiltOuter.Body);
+        Assert.Equal("B_fn", rebuiltInner.EmitName);
     }
 
     [Fact]

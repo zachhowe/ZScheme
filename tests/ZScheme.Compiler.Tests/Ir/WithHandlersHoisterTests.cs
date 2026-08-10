@@ -12,13 +12,7 @@ public class WithHandlersHoisterTests
     private static IrNode.IntConst Int(int value) => new(value) { Type = ZType.Int };
 
     private static IrNode.WithHandlers Wh() =>
-        new(
-            Int(1),
-            [new IrHandlerClause("System.Exception", "e", Int(2))]
-        )
-        {
-            Type = ZType.Int,
-        };
+        new(Int(1), [new IrHandlerClause("System.Exception", "e", Int(2))]) { Type = ZType.Int };
 
     [Fact]
     public void ContainsWithHandlersDetectsHandlerNodes()
@@ -45,10 +39,7 @@ public class WithHandlersHoisterTests
         var inCallArg = new IrNode.Call(V("f"), [Wh()]) { Type = ZType.Int };
         Assert.True(WithHandlersHoister.ContainsWithHandlers(inCallArg));
 
-        var inMatchArm = new IrNode.Match(
-            V("x"),
-            [new IrMatchArm(new IrPattern.Wildcard(), Wh())]
-        )
+        var inMatchArm = new IrNode.Match(V("x"), [new IrMatchArm(new IrPattern.Wildcard(), Wh())])
         {
             Type = ZType.Int,
         };
@@ -95,7 +86,13 @@ public class WithHandlersHoisterTests
         // via the Let, breaking short-circuit semantics.
         var wh = new IrNode.WithHandlers(
             new IrNode.BoolConst(true) { Type = ZType.Bool },
-            [new IrHandlerClause("System.Exception", "e", new IrNode.BoolConst(false) { Type = ZType.Bool })]
+            [
+                new IrHandlerClause(
+                    "System.Exception",
+                    "e",
+                    new IrNode.BoolConst(false) { Type = ZType.Bool }
+                ),
+            ]
         )
         {
             Type = ZType.Bool,
@@ -166,6 +163,23 @@ public class WithHandlersHoisterTests
         var rebuilt = Assert.IsType<IrNode.Use>(result);
         Assert.Equal("r", rebuilt.VarName);
         Assert.IsType<IrNode.WithHandlers>(rebuilt.Value);
+    }
+
+    [Fact]
+    public void LetEmitNameSurvivesRewriting()
+    {
+        // Both hoisters run unconditionally at the IL emitter's entry, so a module-level
+        // `let` renamed by EmitNameResolver passes through here even in a program with no
+        // with-handlers at all. Rebuilding it positionally dropped the rename.
+        var let = new IrNode.Let("this-value", Int(1), Wh(), ZType.Int, EmitName: "ThisValue_fn")
+        {
+            Type = ZType.Int,
+        };
+
+        var result = new WithHandlersHoister().Hoist(let);
+
+        var rebuilt = Assert.IsType<IrNode.Let>(result);
+        Assert.Equal("ThisValue_fn", rebuilt.EmitName);
     }
 
     [Fact]

@@ -7119,6 +7119,33 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void NameCollision_TopLevelValues_EmitsDistinctIlStaticFields()
+    {
+        // The IL backend resolves a module-level value reference through _staticFields,
+        // keyed by raw name, so a dropped EmitName still *ran* correctly — but the field
+        // it emitted was named from the rename, and both hoisters (which run
+        // unconditionally at the emitter's entry) rebuilt Let positionally and discarded
+        // it. The result was two `ThisValue` static fields in one type: invalid metadata,
+        // invisible to any test that only checks the computed value.
+        var source =
+            @"(module test)
+(define this-value 10)
+(define ThisValue 7)
+(define (compute) : Int (- this-value ThisValue))";
+        var bytes = CompileToIlBytes(source);
+        var module = AsmResolver.DotNet.ModuleDefinition.FromBytes(bytes);
+
+        var fieldNames = module
+            .TopLevelTypes.SelectMany(t => t.Fields)
+            .Select(f => f.Name?.ToString())
+            .ToList();
+
+        Assert.Contains("ThisValue", fieldNames);
+        Assert.Contains("ThisValue_fn", fieldNames);
+        Assert.Equal(fieldNames.Count, fieldNames.Distinct().Count());
+    }
+
+    [Fact]
     public void NameCollision_SpecialCharSuffix_BothBackendsAgree()
     {
         // `ready?` sanitizes to `Ready_q`, colliding with a literal `ready_q`.

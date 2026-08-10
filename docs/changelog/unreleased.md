@@ -122,6 +122,16 @@ The LSP went from a small feature set to broad coverage:
 - **C# TCO-loop match leaked a pattern-variable rename across sibling arms**; TCO-loop and
   ordinary statement/match rendering were then unified in both backends.
 - **IL backend compared strings by reference** in `=` and `!=`.
+- **Both IL hoisters discarded the alpha-rename `EmitNameResolver` had assigned.**
+  `AwaitHoister` and `WithHandlersHoister` rebuilt `IrNode.Let` positionally and stopped at
+  `VarType`, so `EmitName` fell back to its `null` default. Since both run unconditionally at
+  the IL emitter's entry — not only for programs that await or handle — every module-level
+  value in the top-level `let` spine lost its rename, and a module defining two values whose
+  names sanitize alike (`this-value`/`ThisValue`) emitted *two* static fields called
+  `ThisValue`. It ran correctly, because references resolve through `_staticFields` keyed on
+  the raw name, so only the emitted metadata was wrong — invalid, and invisible to a test
+  that checks the computed value. Both hoisters now rebuild `Let`/`Use` with `with`, so a
+  future field cannot be dropped the same way.
 - C# backend: invalid C# for shadowed local bindings; shadowed locals resolving to enclosing
   class fields; object captures resolving to a stale enclosing local; pattern variables
   colliding with enclosing binders; invalid identifiers for comparison-chain temporaries;
