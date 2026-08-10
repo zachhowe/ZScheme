@@ -112,6 +112,24 @@ public class EndToEndTests
     // arithmetic that the two emitters could otherwise lower differently.
     private static int CompileCSharpAndRunInt(string source, string methodName = "Compute")
     {
+        var method = CompileCSharpToMethod(source, methodName);
+        return InvokeUnwrappingInner(method);
+    }
+
+    // As CompileCSharpAndRunInt, but for a zero-arg async method returning Task<int>.
+    // InvokeUnwrappingInner casts the return value to int and so cannot be used here.
+    private static int CompileCSharpAndAwaitInt(string source, string methodName = "Compute")
+    {
+        var method = CompileCSharpToMethod(source, methodName);
+        var task = (System.Threading.Tasks.Task<int>)method.Invoke(null, null)!;
+        return task.GetAwaiter().GetResult();
+    }
+
+    // Transpiles to C#, compiles that with Roslyn into an in-memory assembly, and returns the
+    // named zero-arg method ready to invoke. Shared by the sync and async runners above, which
+    // differ only in how they unwrap the result.
+    private static MethodInfo CompileCSharpToMethod(string source, string methodName)
+    {
         var cs = Compile(source);
 
         var tpa = (string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES");
@@ -153,13 +171,12 @@ public class EndToEndTests
         );
 
         var asm = Assembly.Load(ms.ToArray());
-        var method = asm.GetExportedTypes()
+        return asm.GetExportedTypes()
             .SelectMany(t => t.GetMethods())
             .First(m =>
                 m.Name.Equals(methodName, StringComparison.OrdinalIgnoreCase)
                 && m.GetParameters().Length == 0
             );
-        return InvokeUnwrappingInner(method);
     }
 
     // Compiles source through the IL backend importing a *precompiled* DLL package
@@ -2574,7 +2591,11 @@ public class EndToEndTests
     ///     constructor) over types resolved through the reflection-based precompiled
     ///     path. This is the path the PatternResolver change left without test cover.
     /// </summary>
-    private static (string DllPath, string ModuleName, Action Cleanup) BuildPrecompiledMatchPackage()
+    private static (
+        string DllPath,
+        string ModuleName,
+        Action Cleanup
+    ) BuildPrecompiledMatchPackage()
     {
         // Unique module name + namespace per build: these tests run in one process and each
         // Assembly.LoadFrom a fresh DLL, so a shared assembly identity would collide
@@ -7621,6 +7642,97 @@ public class EndToEndTests
     [Fact]
     public void TcoMatchArmBinderShadowsParam_SiblingArmUsesParam_CSharp() =>
         Assert.Equal(100, CompileCSharpAndRunInt(TcoMatchShadowSiblingArm));
+
+    // --- Async tail-call optimization ---
+    // An async tail self-call can only be spelled `(await (self …))` — a bare `(self …)` has
+    // type Task and will not unify with its sibling branch. TailCallLowering rewrites the whole
+    // Await to a TcoJump, which the IL backend consumes inside MoveNext (a Stloc into the
+    // parameter locals plus a backward Br to a label placed after the field->local reload) and
+    // the C# backend as `continue`. Before this, no async self-recursion looped on either
+    // backend: each level allocated its own state machine, builder and Task and the program
+    // overflowed the stack.
+
+    private const string TcoAsyncAwaitedIfLoop =
+        @"(module test)
+(define-async (loop [n : Int] [acc : Int]) : (Task Int)
+  (if (= n 0) acc (await (loop (- n 1) (+ acc 1)))))
+(define-async (Compute) : (Task Int) (await (loop 1000000 0)))";
+
+    [Fact]
+    public void TcoAsyncAwaitedTailCall_Il() =>
+        Assert.Equal(1000000, CompileIlAndAwaitInt(TcoAsyncAwaitedIfLoop));
+
+    [Fact]
+    public void TcoAsyncAwaitedTailCall_CSharp() =>
+        Assert.Equal(1000000, CompileCSharpAndAwaitInt(TcoAsyncAwaitedIfLoop));
+
+    // The load-bearing one, and the shape ZWorld's `merchant-restock-loop` has: the body awaits
+    // a genuinely incomplete Task on every iteration, so MoveNext really suspends, flushes every
+    // local to its state-machine field, resumes through the dispatch switch, and only *then*
+    // takes the back-edge. Asserting the accumulator pins that the parameter locals survive that
+    // round trip — which is exactly what the start label's placement after the field->local
+    // reload is about. Depth is lower than the loops above because each iteration schedules.
+    private const string TcoAsyncLoopWithSuspension =
+        @"(module test)
+(import-clr
+  [task-delay System.Threading.Tasks.Task/Delay : (Int -> System.Threading.Tasks.Task)])
+(define-async (step [x : Int]) : (Task Int)
+  (begin
+    (await (task-delay 1))
+    (+ x 1)))
+(define-async (loop [n : Int] [acc : Int]) : (Task Int)
+  (if (= n 0)
+      acc
+      (let ([a (await (step acc))])
+        (await (loop (- n 1) a)))))
+(define-async (Compute) : (Task Int) (await (loop 200 0)))";
+
+    [Fact]
+    public void TcoAsyncLoopWithRealSuspension_Il() =>
+        Assert.Equal(200, CompileIlAndAwaitInt(TcoAsyncLoopWithSuspension));
+
+    [Fact]
+    public void TcoAsyncLoopWithRealSuspension_CSharp() =>
+        Assert.Equal(200, CompileCSharpAndAwaitInt(TcoAsyncLoopWithSuspension));
+
+    // TCO removed this loop's *only* await, so ContainsAwait is now false and no state machine
+    // is warranted — but the signature still promises a Task, so every leaf of the synchronous
+    // loop has to wrap its value (Task.CompletedTask here). Returns Unit, covering the
+    // IsVoidReturn side of the leaf terminator too.
+    private const string TcoAsyncLoopNoRemainingAwait =
+        @"(module test)
+(define-async (loop [n : Int]) : Task
+  (if (= n 0) () (await (loop (- n 1)))))
+(define-async (Compute) : (Task Int)
+  (begin
+    (await (loop 1000000))
+    42))";
+
+    [Fact]
+    public void TcoAsyncLoopRemovingTheOnlyAwait_Il() =>
+        Assert.Equal(42, CompileIlAndAwaitInt(TcoAsyncLoopNoRemainingAwait));
+
+    [Fact]
+    public void TcoAsyncLoopRemovingTheOnlyAwait_CSharp() =>
+        Assert.Equal(42, CompileCSharpAndAwaitInt(TcoAsyncLoopNoRemainingAwait));
+
+    // A back-edge from inside a match arm: the only thing that drives EmitLoopMatch through a
+    // MoveNext body, and the shape ZWorld's FSM dispatch has.
+    private const string TcoAsyncMatchLoop =
+        @"(module test)
+(define-async (loop [n : Int] [acc : Int]) : (Task Int)
+  (match n
+    [0 acc]
+    [m (await (loop (- m 1) (+ acc 1)))]))
+(define-async (Compute) : (Task Int) (await (loop 1000000 0)))";
+
+    [Fact]
+    public void TcoAsyncLoopInMatchArm_Il() =>
+        Assert.Equal(1000000, CompileIlAndAwaitInt(TcoAsyncMatchLoop));
+
+    [Fact]
+    public void TcoAsyncLoopInMatchArm_CSharp() =>
+        Assert.Equal(1000000, CompileCSharpAndAwaitInt(TcoAsyncMatchLoop));
 
     // Regression: a multi-expression implicit body (define / lambda / define-async)
     // must run ALL of its statements in order, not silently drop one. The bug had

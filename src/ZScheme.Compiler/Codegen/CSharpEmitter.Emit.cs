@@ -23,17 +23,18 @@ public sealed partial class CSharpEmitter
         );
         _sb.Clear();
         // Lower tail self-calls to TcoJump back-edges (marking their functions IsTcoLoop) so
-        // self-recursion emits as a `while(true)` loop. The C# loop emitter handles `await`, so
-        // async self-recursive functions are included (includeAsync: true), preserving the
-        // pre-existing async-TCO behavior. Unlike the IL backend the C# emitter does not hoist,
-        // so this simply runs first, before any walk of the tree.
+        // self-recursion emits as a `while(true)` loop. Async functions included: the loop
+        // emitter handles `await`. Unlike the IL backend the C# emitter does not hoist, so this
+        // simply runs first, before any walk of the tree — which also means an awaited tail
+        // self-call arrives here un-A-normalized, the shape TailCallLowering's `let` peel exists
+        // to keep matching across both backends.
         //
         // Inlined source modules are lowered alongside the main IR, not by the callers that
         // assemble them: a package library emits with an empty main IR and every function
         // arriving as an imported module, so lowering only `node` would leave the whole library
         // recursive. The construction-time maps built from `importedModules` key off names and
         // signatures, which this rewrite does not touch.
-        var tco = new TailCallLowering(includeAsync: true);
+        var tco = new TailCallLowering();
         node = tco.Rewrite(node);
         importedModules = tco.RewriteModules(importedModules);
         // Register the current module's collision-renamed type names before any emission so
@@ -319,7 +320,7 @@ public sealed partial class CSharpEmitter
             // its body contains no `await` at all — so the sync walker used here can never
             // bury an `await` inside a non-async lambda (CS4034). EmitInstanceMethodBody
             // makes the same call for method bodies.
-            EmitStatementsBody(func.Body, func.ReturnType, inLoop: false);
+            EmitStatementsBody(func.Body, func.ReturnType, inLoop: false, isAsync: false);
         else if (
             func.Body is IrNode.Throw
             || (func.IsAsync && func.ReturnType == ZType.Unit)
@@ -531,7 +532,7 @@ public sealed partial class CSharpEmitter
         EmitLine("{");
         _indent++;
 
-        EmitStatementsBody(func.Body, func.ReturnType, inLoop: true);
+        EmitStatementsBody(func.Body, func.ReturnType, inLoop: true, isAsync: func.IsAsync);
 
         _indent--;
         EmitLine("}");
@@ -547,11 +548,11 @@ public sealed partial class CSharpEmitter
     /// else is a <c>case</c>. Each arm is emitted into its own <c>{ }</c> block, so pattern
     /// bindings are scoped per arm via <see cref="PushLocal" />/<see cref="PopLocals" /> — a
     /// binder renamed to dodge a collision must not leak into a sibling arm.
-    private void EmitTcoLoopMatch(IrNode.Match match, ZType returnType)
+    private void EmitTcoLoopMatch(IrNode.Match match, ZType returnType, bool isAsync)
     {
         EmitMatchStmt(
             match,
-            armBody => EmitStatementsBody(armBody, returnType, inLoop: true),
+            armBody => EmitStatementsBody(armBody, returnType, inLoop: true, isAsync),
             armsTerminate: true
         );
     }
@@ -2203,7 +2204,15 @@ public sealed partial class CSharpEmitter
     /// <c>Seq</c>, and <c>Match</c> only arise on the loop spine, so those cases are gated on
     /// <paramref name="inLoop"/>. No tail-position analysis happens here — the
     /// <see cref="IrNode.TcoJump"/> nodes were produced by <see cref="TailCallLowering"/>.
-    private void EmitStatementsBody(IrNode body, ZType funcReturnType, bool inLoop)
+    ///
+    /// <paramref name="isAsync"/> says the enclosing method is <c>async</c>, which is reachable
+    /// only in loop mode: an awaiting non-loop body is claimed by
+    /// <see cref="EmitAsyncStatementsBody"/> before this walker is reached. It selects the
+    /// statement-form <c>let</c>-value rules (see <see cref="EmitLetStmt"/>) and keeps
+    /// <c>use</c>/<c>with-handlers</c> leaves out of expression position, both of which would
+    /// otherwise wrap an <c>await</c> in a non-async lambda (CS4034), and it recognises a bare
+    /// <c>Task</c> return as void so a leaf does not emit <c>return expr;</c> (CS1997).
+    private void EmitStatementsBody(IrNode body, ZType funcReturnType, bool inLoop, bool isAsync)
     {
         switch (body)
         {
@@ -2219,53 +2228,62 @@ public sealed partial class CSharpEmitter
                 break;
             case IrNode.Let let:
             {
-                var binding = EmitLetStmt(let, isAsync: false);
-                EmitStatementsBody(let.Body, funcReturnType, inLoop);
+                var binding = EmitLetStmt(let, isAsync);
+                EmitStatementsBody(let.Body, funcReturnType, inLoop, isAsync);
                 if (binding is not null)
                     PopLocal(binding.Value);
                 break;
             }
             // Use/WithHandlers are tail barriers (TailCallLowering never puts a TcoJump inside
             // one), so they only ever appear as a leaf on the loop spine; the ordinary path
-            // reaches them here directly. In loop mode they fall through to the base case below
-            // and emit as an expression, preserving the pre-merge loop output.
-            case IrNode.Use use when !inLoop:
-                EmitUseStmt(use, b => EmitStatementsBody(b, funcReturnType, inLoop));
+            // reaches them here directly. In *synchronous* loop mode they fall through to the
+            // base case below and emit as an expression, preserving the pre-merge loop output —
+            // but an async loop must not do that: an awaiting body inside the immediately-invoked
+            // lambda EmitUseExpr/EmitWithHandlers introduces is CS4034. A `return`/`continue`
+            // emitted inside the resulting `using`/`try` is legal C# and still disposes.
+            case IrNode.Use use when !inLoop || isAsync:
+                EmitUseStmt(use, b => EmitStatementsBody(b, funcReturnType, inLoop, isAsync));
                 break;
             case IrNode.If @if when inLoop || WantsStatementForm(@if):
                 EmitLine($"if ({EmitExpr(@if.Condition)})");
                 EmitLine("{");
                 _indent++;
-                EmitStatementsBody(@if.Then, funcReturnType, inLoop);
+                EmitStatementsBody(@if.Then, funcReturnType, inLoop, isAsync);
                 _indent--;
                 EmitLine("}");
                 EmitLine("else");
                 EmitLine("{");
                 _indent++;
-                EmitStatementsBody(@if.Else, funcReturnType, inLoop);
+                EmitStatementsBody(@if.Else, funcReturnType, inLoop, isAsync);
                 _indent--;
                 EmitLine("}");
                 break;
-            case IrNode.WithHandlers wh when !inLoop:
-                EmitWithHandlersStmt(wh, b => EmitStatementsBody(b, funcReturnType, inLoop));
+            case IrNode.WithHandlers wh when !inLoop || isAsync:
+                EmitWithHandlersStmt(
+                    wh,
+                    b => EmitStatementsBody(b, funcReturnType, inLoop, isAsync)
+                );
                 break;
             case IrNode.Seq seq when inLoop && seq.Nodes.Count > 0:
                 // All but the last node run for effect; the last is in tail position.
                 for (var i = 0; i < seq.Nodes.Count - 1; i++)
                     EmitUnitStatement(seq.Nodes[i]);
-                EmitStatementsBody(seq.Nodes[^1], funcReturnType, inLoop);
+                EmitStatementsBody(seq.Nodes[^1], funcReturnType, inLoop, isAsync);
                 break;
             case IrNode.Match match when inLoop:
-                EmitTcoLoopMatch(match, funcReturnType);
+                EmitTcoLoopMatch(match, funcReturnType, isAsync);
                 break;
             case IrNode.Throw:
                 EmitLine($"{EmitExpr(body)};");
                 break;
             default:
-                // Base case: produce the value and terminate. A Unit-returning function emits
-                // the expression for effect; in a loop it then needs a bare `return;` to exit
-                // the `while (true)` (a non-loop body simply falls off the method end).
-                if (funcReturnType == ZType.Unit)
+                // Base case: produce the value and terminate. A void-returning function emits the
+                // expression for effect; in a loop it then needs a bare `return;` to exit the
+                // `while (true)` (a non-loop body simply falls off the method end).
+                //
+                // "Void" here is Unit, or — in an async method — a bare `Task`, whose declared
+                // return type is not Unit but whose body still must not `return expr;` (CS1997).
+                if (funcReturnType == ZType.Unit || (isAsync && IsAsyncVoidReturn(funcReturnType)))
                 {
                     EmitUnitStatement(body);
                     if (inLoop)
@@ -2314,7 +2332,10 @@ public sealed partial class CSharpEmitter
             if (isAsync && ContainsAwait(body))
                 EmitAsyncStatementsBody(body, IsAsyncVoidReturn(returnType));
             else if (WantsStatementForm(body))
-                EmitStatementsBody(body, returnType, inLoop: false);
+                // Only reached when the body contains no `await` at all (the branch above claims
+                // it otherwise), so the synchronous walker can never bury one in a non-async
+                // lambda — same reasoning as the EmitFuncDef call site.
+                EmitStatementsBody(body, returnType, inLoop: false, isAsync: false);
             else if (returnType == ZType.Unit)
                 // Through EmitUnitStatement, not a bare `{expr};`: not every expression is a
                 // legal C# statement. A `match` emits a switch *expression*, which CS0201

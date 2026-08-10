@@ -81,24 +81,67 @@ public class TailRecursionDriftTests
                     """,
                 false
             },
+            // --- async: an awaited tail self-call is a back-edge, same as a sync one ---
+            {
+                """
+                    (define-async (f [n : Int]) : Task
+                      (if (= n 0) (begin ()) (await (f (- n 1)))))
+                    """,
+                true
+            },
+            {
+                """
+                    (define-union Nat (Zero) (Succ [n : Nat]))
+                    (define-async (f [x : Nat] [acc : Int]) : (Task Int)
+                      (match x [(Zero) acc] [(Succ n) (await (f n (+ acc 1)))]))
+                    """,
+                true
+            },
+            // ...but only a *direct* self-call under the await: the awaited result here is
+            // consumed by the `+`, so the frame has to survive.
+            {
+                """
+                    (define-async (f [n : Int]) : (Task Int)
+                      (if (= n 0) 0 (+ 1 (await (f (- n 1))))))
+                    """,
+                false
+            },
+            // async, barred by an enclosing frame
+            {
+                """
+                    (define-async (f [n : Int]) : Task
+                      (with-handlers ([System.Exception e] ())
+                        (if (= n 0) (begin ()) (await (f (- n 1))))))
+                    """,
+                false
+            },
+            // async, not a top-level define
+            {
+                """
+                    (define-async (outer [x : Int]) : Task
+                      (define-async (f [n : Int]) : Task
+                        (if (= n 0) (begin ()) (await (f (- n 1)))))
+                      (await (f x)))
+                    """,
+                false
+            },
         };
 
     [Theory]
     [MemberData(nameof(Corpus))]
     public void AnalyzerSilence_MatchesTcoLoop(string source, bool expectedLooped)
     {
-        Assert.Equal(expectedLooped, IsLooped(source, "f", includeAsync: true));
+        Assert.Equal(expectedLooped, IsLooped(source, "f"));
         Assert.Equal(expectedLooped, !Warned(source, "f"));
     }
 
     [Fact]
     public void AsyncTailSelfCall_DoesNotTypeCheck()
     {
-        // Why the analyzer's `async` reason has no drift row: an async body's type is the
-        // unwrapped result, so a bare tail `(f ...)` yields Task and will not unify with the
-        // other branch. Async self-recursion therefore always goes through `await`, which is
-        // not a tail position on either backend. If this ever compiles, the `async` reason
-        // becomes reachable and needs a drift row of its own.
+        // Why `(await (self ...))` is the whole story for async TCO, and why TailCallLowering
+        // needs an Await case rather than relying on its plain Call case: an async body's type
+        // is the unwrapped result, so a bare tail `(f ...)` yields Task and will not unify with
+        // the other branch. The awaited spelling is the only one valid source can produce.
         var compilation = new Compilation(
             new CompilerOptions { AllowsImplicitModuleName = true, StopAfterTypeInference = true }
         );
@@ -108,18 +151,6 @@ public class TailRecursionDriftTests
         );
 
         Assert.True(compilation.GetDiagnostics().HasErrors);
-    }
-
-    [Fact]
-    public void AwaitedAsyncSelfCall_IsReportedAsNotTail()
-    {
-        const string source = """
-            (define-async (f [n : Int]) : Task
-              (if (= n 0) (begin ()) (await (f (- n 1)))))
-            """;
-
-        Assert.False(IsLooped(source, "f", includeAsync: true));
-        Assert.True(Warned(source, "f"));
     }
 
     [Fact]
@@ -150,7 +181,7 @@ public class TailRecursionDriftTests
     }
 
     /// <summary>TailCallLowering's view: lower to IR, then run the real pass.</summary>
-    private static bool IsLooped(string source, string funcName, bool includeAsync)
+    private static bool IsLooped(string source, string funcName)
     {
         var diag = new DiagnosticBag();
         var tokens = new Lexer(source, "drift.zs", diag).Tokenize();
@@ -169,7 +200,7 @@ public class TailRecursionDriftTests
             canonicalizer: inferer.Canonicalizer
         );
         var ir = lowering.Lower(program);
-        var rewritten = new TailCallLowering(includeAsync).Rewrite(ir);
+        var rewritten = new TailCallLowering().Rewrite(ir);
 
         return FindFunc(rewritten, funcName)?.IsTcoLoop ?? false;
     }

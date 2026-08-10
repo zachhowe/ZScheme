@@ -8,9 +8,8 @@ namespace ZScheme.Compiler.Types;
 ///     Flags self-recursive functions that <see cref="Ir.TailCallLowering" /> will not turn
 ///     into a loop, as <see cref="DiagnosticCodes.NonLoopedSelfRecursion" /> warnings. The
 ///     message names the reason, because that is what makes it actionable: the recursive call
-///     is not in tail position, it is behind a <c>with-handlers</c>/<c>use</c> frame, the
-///     function is not a top-level <c>define</c>, or it is <c>async</c> (which the IL backend
-///     does not loop).
+///     is not in tail position, it is behind a <c>with-handlers</c>/<c>use</c> frame, or the
+///     function is not a top-level <c>define</c>.
 ///
 ///     This mirrors <see cref="Ir.TailCallLowering" />'s rules on the AST, one stage earlier,
 ///     so the warning reaches the language server. The AST tail spine — <c>if</c> branches,
@@ -48,7 +47,6 @@ public sealed class TailRecursionAnalyzer(
     private const string ReasonNotTail = "not-tail";
     private const string ReasonBarrier = "barrier";
     private const string ReasonNotTopLevel = "not-top-level";
-    private const string ReasonAsync = "async";
 
     public void Analyze(AstNode.Program program)
     {
@@ -83,17 +81,13 @@ public sealed class TailRecursionAnalyzer(
         // `(define f (lambda ...))` is not a candidate: the value form is non-recursive, so a
         // self-reference in the lambda body fails inference as an undefined variable long
         // before this runs.
-        var (name, nameSpan, body, isAsync, isMarked) = form switch
+        // `async` is not part of the tuple: an awaited tail self-call loops on both backends, so
+        // whether the definition is async no longer changes the verdict.
+        var (name, nameSpan, body, isMarked) = form switch
         {
-            AstNode.Define d => (d.FnName, d.NameSpan, d.Body, false, d.AllowsUnloopedRecursion),
-            AstNode.DefineAsync d => (
-                d.FnName,
-                d.NameSpan,
-                d.Body,
-                true,
-                d.AllowsUnloopedRecursion
-            ),
-            _ => (null, default(SourceSpan), null, false, false),
+            AstNode.Define d => (d.FnName, d.NameSpan, d.Body, d.AllowsUnloopedRecursion),
+            AstNode.DefineAsync d => (d.FnName, d.NameSpan, d.Body, d.AllowsUnloopedRecursion),
+            _ => (null, default(SourceSpan), null, false),
         };
 
         if (name is null || body is null)
@@ -126,10 +120,11 @@ public sealed class TailRecursionAnalyzer(
         if (!hasCleanTailCall && ContainsUnprovenIife(body))
             return;
 
-        if (isTopLevel && hasCleanTailCall && !isAsync)
+        // No async exclusion: TailCallLowering loops an awaited tail self-call on both backends.
+        if (isTopLevel && hasCleanTailCall)
             return;
 
-        var (reason, explanation) = Diagnose(sites, isTopLevel, isAsync);
+        var (reason, explanation) = Diagnose(sites, isTopLevel);
         diagnostics.Warning(
             $"Self-recursive function '{name}' is not compiled as a loop: {explanation}",
             nameSpan,
@@ -139,28 +134,10 @@ public sealed class TailRecursionAnalyzer(
     }
 
     /// <summary>Picks the most actionable reason, most-fixable first.</summary>
-    private static (string Reason, string Explanation) Diagnose(
-        List<Site> sites,
-        bool isTopLevel,
-        bool isAsync
-    )
+    private static (string Reason, string Explanation) Diagnose(List<Site> sites, bool isTopLevel)
     {
         if (!isTopLevel)
             return (ReasonNotTopLevel, "only top-level 'define' forms become loops");
-
-        // Currently unreachable from valid source: an async body's type is the unwrapped
-        // result, so a bare tail `(f …)` yields Task and fails to unify with the other branch
-        // ("Type mismatch: 'Unit' vs 'Task'"). Async self-recursion therefore always goes
-        // through `await` and lands on ReasonNotTail below. Kept because the backend asymmetry
-        // it names is real in TailCallLowering, and would surface the moment the type rules
-        // admit the shape.
-        var hasCleanTailCall = sites.Any(s => s is { IsTail: true, Barrier: Barrier.None });
-        if (hasCleanTailCall && isAsync)
-            return (
-                ReasonAsync,
-                "the IL backend does not compile async self-recursion as a loop "
-                    + "(the C# backend does)"
-            );
 
         var tailBarrier = sites.FirstOrDefault(s => s.IsTail)?.Barrier;
         if (tailBarrier is Barrier.Use or Barrier.WithHandlers)
@@ -268,6 +245,24 @@ public sealed class TailRecursionAnalyzer(
                     );
                 return;
 
+            // `(await (f …))` in tail position is a loop back-edge: TailCallLowering rewrites
+            // the whole Await node to a TcoJump, dropping the await at the recursion boundary.
+            // Only a *direct* self-call inherits tail-ness, because that is all the pass matches
+            // — an `(await (if … (f …) …))` must stay non-tail here to keep the drift
+            // biconditional (analyzer silence <=> IsTcoLoop) true.
+            case AstNode.Await await:
+                Walk(
+                    await.Expr,
+                    name,
+                    sites,
+                    tail
+                        && await.Expr is AstNode.Apply { Function: AstNode.Name awaitedCallee }
+                        && awaitedCallee.Value == name,
+                    barrier,
+                    false
+                );
+                return;
+
             // Separate function bodies: a call to `name` in here is not a back-edge for the
             // enclosing definition. Its own recursion is checked when it comes up as a
             // candidate in its own right.
@@ -308,7 +303,7 @@ public sealed class TailRecursionAnalyzer(
                 Walk(defineValue.Value, name, sites, false, barrier, false);
                 return;
 
-            // Await, BinOp-shaped applies, tuples, `with`, `raise`, object/class bodies, ...
+            // BinOp-shaped applies, tuples, `with`, `raise`, object/class bodies, ...
             default:
                 foreach (var child in Children(node))
                     Walk(child, name, sites, false, barrier, false);

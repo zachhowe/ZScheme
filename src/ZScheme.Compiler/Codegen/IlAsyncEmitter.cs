@@ -451,21 +451,80 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         var exitLabel = new CilInstructionLabel();
         moveNextCtx.ExitLabel = exitLabel;
 
+        // Declared here rather than after the body because a TCO loop's leaves each Leave to it;
+        // its Instruction is still assigned once, after the catch block.
+        var afterTryLabel = new CilInstructionLabel();
+
         // Emit the body using regular EmitNode (outerParams is empty; params come from locals dict)
         var bodyLocals = new Dictionary<string, CilLocalVariable>(paramLocals);
-        _host.EmitNode(func.Body, il, [], bodyLocals, moveNextBodyCtx);
 
-        // Store the result
-        if (!info.IsVoidReturn)
-            il.Add(CilOpCodes.Stloc, resultLocal!);
-        else if (
-            func.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-        )
-            il.Add(CilOpCodes.Pop);
+        if (func.IsTcoLoop)
+        {
+            // TailCallLowering turned this function's awaited tail self-calls into TcoJump
+            // back-edges, so the body is a loop rather than a single value expression.
+            //
+            // The start label sits *after* the field->local parameter reload above, so a
+            // back-edge does not re-clobber the parameters the jump just assigned with the
+            // values a previous suspension flushed to the fields. Only initial entry and
+            // resume-from-suspend read those fields, and both reach the body from above this
+            // label — so a back-edge needs only Stloc; a Stfld would be a dead store, because
+            // EmitMoveNextAwait flushes every local to its field before it suspends.
+            //
+            // The Br is backward to a label inside the same protected region (legal CIL) and is
+            // reached at stack depth 0, since EmitLoopBody stages the jump arguments into temps.
+            // Re-entering a statically-numbered await point on a later iteration is exactly what
+            // Roslyn emits for `while` + `await`: the awaiter field is only live between one
+            // suspend and its resume.
+            //
+            // Every leaf terminates itself here, so the straight-line store-result/Leave in the
+            // else branch is not emitted — control never falls out of the loop body.
+            var startLabel = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };
+            _host.EmitLoopBody(
+                func.Body,
+                il,
+                [],
+                bodyLocals,
+                moveNextBodyCtx,
+                startLabel,
+                new IlEmitter.LoopExit(
+                    ParamSlotType: i => paramLocals[func.Params[i].Name].VariableType,
+                    StoreParam: (i, tmp) =>
+                    {
+                        il.Add(CilOpCodes.Ldloc, tmp);
+                        il.Add(CilOpCodes.Stloc, paramLocals[func.Params[i].Name]);
+                    },
+                    EmitLeaf: leaf =>
+                    {
+                        _host.EmitNode(leaf, il, [], bodyLocals, moveNextBodyCtx);
+                        if (!info.IsVoidReturn)
+                            il.Add(CilOpCodes.Stloc, resultLocal!);
+                        else if (
+                            leaf.Type
+                            is not null
+                                and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                        )
+                            il.Add(CilOpCodes.Pop);
 
-        // Leave try block
-        var afterTryLabel = new CilInstructionLabel();
-        il.Add(CilOpCodes.Leave, afterTryLabel);
+                        il.Add(CilOpCodes.Leave, afterTryLabel);
+                    }
+                )
+            );
+        }
+        else
+        {
+            _host.EmitNode(func.Body, il, [], bodyLocals, moveNextBodyCtx);
+
+            // Store the result
+            if (!info.IsVoidReturn)
+                il.Add(CilOpCodes.Stloc, resultLocal!);
+            else if (
+                func.Body.Type is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+            )
+                il.Add(CilOpCodes.Pop);
+
+            // Leave try block
+            il.Add(CilOpCodes.Leave, afterTryLabel);
+        }
 
         // --- Catch block ---
         var catchStartLabel = new CilInstructionLabel { Instruction = il.Add(CilOpCodes.Nop) };

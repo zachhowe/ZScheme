@@ -121,7 +121,10 @@ public abstract record IrNode
         ///     Set by TailCallLowering when this function's tail self-calls have been
         ///     rewritten into <see cref="TcoJump" /> nodes. Both backends then emit the
         ///     body as a loop (C# <c>while(true)</c>, IL a branch back to a start label)
-        ///     instead of a self-recursive method.
+        ///     instead of a self-recursive method. An async function that still awaits
+        ///     loops inside its state machine's <c>MoveNext</c>; one whose last await was
+        ///     the recursive call needs no state machine and loops as a plain method whose
+        ///     leaves wrap their value back into a Task.
         /// </summary>
         public bool IsTcoLoop { get; init; }
     }
@@ -225,8 +228,11 @@ public abstract record IrNode
     ) : IrNode;
 
     // TCO back-edge: reassign the enclosing loop's parameters to NewArgs and jump
-    // back to the top. Produced by TailCallLowering from a tail self-call; consumed
-    // by both backends (C# `continue`, IL `Br` to the start label).
+    // back to the top. Produced by TailCallLowering from a tail self-call — or, in an
+    // async function, from the `(await (self …))` that wraps one. Consumed by both
+    // backends (C# `continue`, IL `Br` to the start label); inside an async state
+    // machine's MoveNext the parameters are locals, so the reassignment is `Stloc`
+    // rather than the `Starg` a synchronous method body uses.
     public sealed record TcoJump(IReadOnlyList<string> ParamNames, IReadOnlyList<IrNode> NewArgs)
         : IrNode;
 

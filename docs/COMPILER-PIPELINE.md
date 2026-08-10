@@ -324,15 +324,15 @@ Warns (`ZS0005`) when a self-recursive function will *not* be turned into a loop
 [`TailCallLowering`](../src/ZScheme.Compiler/Ir/TailCallLowering.cs) (Stage 6), so the
 recursion consumes stack. The message names the reason, carried in `Diagnostic.Data[1]`:
 `not-tail` (the recursive call isn't in tail position), `barrier` (a syntactically tail
-call inside a `with-handlers`/`use` body, whose frame outlives the body),
-`not-top-level` (only top-level `define` forms become loops), or `async` (the IL
-backend doesn't loop async self-recursion — currently unreachable from valid source,
-since an async body must `await` its self-call and `await` is never a tail position).
+call inside a `with-handlers`/`use` body, whose frame outlives the body), or
+`not-top-level` (only top-level `define` forms become loops).
 
 The analyzer mirrors `TailCallLowering`'s rules one stage earlier, on the AST, so the
 warning reaches the language server. That mapping is near 1:1 — the AST tail spine
 (`if` branches, a `let` body, `match` arm bodies) is the IR spine the pass walks, and
-`cond`/`when`/`begin`/multi-body have all desugared into it by now.
+`cond`/`when`/`begin`/multi-body have all desugared into it by now. An `await` whose
+operand is a *direct* self-call joins that spine, matching the pass's `Await` case;
+anything else under an `await` (e.g. `(await (if … (f …) …))`) does not.
 [`TailRecursionDriftTests`](../tests/ZScheme.Compiler.Tests/Pipeline/TailRecursionDriftTests.cs)
 pins the two together: silence here must mean `FuncDef.IsTcoLoop` there.
 
@@ -403,15 +403,33 @@ needs to know about the nodes it introduces. For each top-level function it repl
 tail *self*-call with an `IrNode.TcoJump` back-edge (carrying the parameter names and the new
 argument values) and marks the `FuncDef` with `IsTcoLoop`. Only self-calls in tail position
 through `if`/`let`/`match`/`begin` spines are rewritten; mutual/other tail calls and non-tail
-self-calls stay plain `Call`s. The IL backend passes `includeAsync: false` (its async
-state-machine emitter cannot consume a `TcoJump`); the C# backend passes `includeAsync: true`.
-Both backends then emit an `IsTcoLoop` function as a loop — C# as `while(true)` with a
-`continue` at each `TcoJump`, IL as a start label with a `Br` back — so self-recursion runs in
-constant stack on both, closing a divergence where deep recursion looped under C# but
-overflowed under IL. Uses the `.tail.` prefix are deliberately avoided (unverifiable inside
-`try`/`finally`, and only a JIT hint). A known shared limitation: a name-based self-jump would
-miscompile polymorphic recursion (`f<T>` calling `f<int>`), and — because the match ignores
-scope — a call to a local that shadows the function's own name.
+self-calls stay plain `Call`s. Both backends then emit an `IsTcoLoop` function as a loop — C#
+as `while(true)` with a `continue` at each `TcoJump`, IL as a start label with a `Br` back —
+so self-recursion runs in constant stack on both, closing a divergence where deep recursion
+looped under C# but overflowed under IL. Uses of the `.tail.` prefix are deliberately avoided
+(unverifiable inside `try`/`finally`, and only a JIT hint). A known shared limitation: a
+name-based self-jump would miscompile polymorphic recursion (`f<T>` calling `f<int>`), and —
+because the match ignores scope — a call to a local that shadows the function's own name.
+
+`async` functions are rewritten too, on both backends. An async tail self-call can only be
+spelled `(await (self …))`: a bare `(self …)` has type `Task` and will not unify with its
+sibling branch, so without an `Await` case no async self-recursion would loop at all — and
+since ZScheme has no `while`/`do`/named-`let`, self-recursion is the only iteration the
+language offers. The pass therefore matches the whole `Await` node when its operand is a
+direct self-call and replaces it with the back-edge, dropping the await at the recursion
+boundary. That is observationally safe: awaiting a Task the loop is about to produce itself
+adds a suspension point that always completes synchronously, while every genuine `await`
+*inside* the body is untouched — the set of points at which the function can suspend is
+unchanged, only the number of state machines wrapping them. The operand may also be a `let`
+spine ending in the self-call, which is how `AwaitHoister` A-normalizes a self-call whose own
+arguments await; the C# backend does not hoist, so peeling that spine is what keeps the two
+backends agreeing on the same source. In the IL backend the state machine gets a loop mode:
+`EmitMoveNextMethod` places the start label *after* the field→local parameter reload, so a
+back-edge is a `Stloc` into the parameter locals plus a backward `Br` inside the protected
+region, and each leaf stores the result and `Leave`s instead of the `Ret` a synchronous loop
+body would emit (`ret` inside a protected region is invalid, and `MoveNext()` has no argument
+slots to `Starg`). When TCO removes a function's *last* `await`, no state machine is emitted
+at all and each leaf of the resulting synchronous loop wraps its value back into a `Task`.
 
 Each emitter lowers **both** the main IR and its `importedModules` (via
 `RewriteModules`), rather than trusting whoever assembled that list to have done it. The

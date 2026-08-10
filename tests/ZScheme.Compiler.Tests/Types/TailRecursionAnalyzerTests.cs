@@ -236,22 +236,61 @@ public class TailRecursionAnalyzerTests
         Assert.Equal(["inner", "not-top-level"], warning.Data);
     }
 
-    // ---- Warns: async ------------------------------------------------------------------
+    // ---- Async: an awaited tail self-call is a back-edge --------------------------------
 
     [Fact]
-    public void AsyncTailSelfCall_Warns_AboutTheIlBackend()
+    public void AsyncAwaitedSelfCall_IsSilent()
     {
-        var warning = Single("(define-async (poll n) (if (= n 0) 0 (poll (- n 1))))");
-        Assert.Equal(["poll", "async"], warning.Data);
-        Assert.Contains("IL backend", warning.Message);
+        // TailCallLowering rewrites the whole Await to a TcoJump on both backends, so this
+        // loops. It is also the only spelling valid source can produce: a bare tail `(poll …)`
+        // has type Task and will not unify with the sibling branch.
+        AssertSilent("(define-async (poll n) (if (= n 0) 0 (await (poll (- n 1)))))");
     }
 
     [Fact]
-    public void AsyncAwaitedSelfCall_IsNotTail()
+    public void AsyncAwaitedSelfCall_InMatchArm_IsSilent()
     {
-        // `await` is not a tail position on either backend, so this is the ordinary
-        // non-tail case rather than the backend-asymmetry one.
-        var warning = Single("(define-async (poll n) (if (= n 0) 0 (await (poll (- n 1)))))");
+        AssertSilent(
+            """
+            (define-union Nat (Zero) (Succ [n : Nat]))
+            (define-async (count x acc)
+              (match x [(Zero) acc] [(Succ n) (await (count n (+ acc 1)))]))
+            """
+        );
+    }
+
+    [Fact]
+    public void AsyncAwaitOfNonSelfCall_Warns_NotTail()
+    {
+        // Only a *direct* self-call under the await inherits tail-ness, mirroring the pass —
+        // here the awaited result feeds the `+`, so the frame must survive.
+        var warning = Single("(define-async (poll n) (if (= n 0) 0 (+ 1 (await (poll (- n 1))))))");
         Assert.Equal(["poll", "not-tail"], warning.Data);
+    }
+
+    [Fact]
+    public void AsyncAwaitedSelfCall_UnderWithHandlers_Warns_Barrier()
+    {
+        var warning = Single(
+            """
+            (define-async (poll n)
+              (with-handlers ([System.Exception e] 0)
+                (if (= n 0) 0 (await (poll (- n 1))))))
+            """
+        );
+        Assert.Equal(["poll", "barrier"], warning.Data);
+    }
+
+    [Fact]
+    public void NestedAsyncAwaitedSelfCall_Warns_NotTopLevel()
+    {
+        var warning = Single(
+            """
+            (define-async (outer x)
+              (define-async (poll n) (if (= n 0) 0 (await (poll (- n 1)))))
+              (await (poll x)))
+            """
+        );
+        Assert.Equal(["poll", "not-top-level"], warning.Data);
     }
 }

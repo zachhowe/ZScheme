@@ -6,13 +6,23 @@ namespace ZScheme.Compiler.Tests.Ir;
 
 public class TailCallLoweringTests
 {
-    private static IrNode.FuncDef Rewrite(IrNode.FuncDef func, bool includeAsync = true) =>
-        (IrNode.FuncDef)new TailCallLowering(includeAsync).Rewrite(func);
+    private static IrNode.FuncDef Rewrite(IrNode.FuncDef func) =>
+        (IrNode.FuncDef)new TailCallLowering().Rewrite(func);
 
     private static IrNode.Var Var(string name) => new(name) { Type = ZType.Int };
 
     private static IrNode.Call Call(string name, params IrNode[] args) =>
         new(Var(name), args) { Type = ZType.Int };
+
+    /// <summary>
+    ///     `(await (f …))` — the awaited-self-call shape, whose Await carries the *unwrapped*
+    ///     result type while the inner Call carries the Task type.
+    /// </summary>
+    private static IrNode.Await AwaitCall(string name, params IrNode[] args) =>
+        new(new IrNode.Call(Var(name), args) { Type = new ZType.ZNamedType("Task", [ZType.Int]) })
+        {
+            Type = ZType.Int,
+        };
 
     private static IrNode.FuncDef Func(string name, IrNode body, bool isAsync = false) =>
         new(
@@ -175,29 +185,142 @@ public class TailCallLoweringTests
         Assert.IsType<IrNode.Call>(result.Body);
     }
 
-    [Fact]
-    public void ExcludesAsyncFunction_WhenIncludeAsyncFalse()
-    {
-        var body = new IrNode.If(
+    #region Awaited self-calls (async TCO)
+
+    /// <summary>Wraps <paramref name="tail" /> as the else-branch of an `n = 0` base case.</summary>
+    private static IrNode.If IfBaseCase(IrNode tail) =>
+        new(
             new IrNode.BinOp("=", Var("n"), new IrNode.IntConst(0) { Type = ZType.Int })
             {
                 Type = ZType.Bool,
             },
             Var("acc"),
-            Call("f", Var("n"), Var("acc"))
+            tail
         )
         {
             Type = ZType.Int,
         };
 
-        // IL backend (includeAsync: false): async self-recursion is left as a plain call.
-        var il = Rewrite(Func("f", body, isAsync: true), includeAsync: false);
-        Assert.False(il.IsTcoLoop);
+    [Fact]
+    public void RewritesAwaitedTailSelfCall_InIfElse()
+    {
+        // The only shape async self-recursion can take: a bare tail `(f …)` has type Task and
+        // will not unify with the sibling branch, so it always goes through `await`.
+        var result = Rewrite(
+            Func("f", IfBaseCase(AwaitCall("f", Var("n"), Var("acc"))), isAsync: true)
+        );
 
-        // C# backend (includeAsync: true): it is rewritten to a loop.
-        var cs = Rewrite(Func("f", body, isAsync: true), includeAsync: true);
-        Assert.True(cs.IsTcoLoop);
+        Assert.True(result.IsTcoLoop);
+        var jump = Assert.IsType<IrNode.TcoJump>(Assert.IsType<IrNode.If>(result.Body).Else);
+        Assert.Equal(["n", "acc"], jump.ParamNames);
+        Assert.Equal(2, jump.NewArgs.Count);
     }
+
+    [Fact]
+    public void AwaitedTailSelfCall_CarriesTheAwaitsUnwrappedType()
+    {
+        // The node stands in for the value the *await* produced (the function's unwrapped
+        // return type), not the Task the Call produced.
+        var result = Rewrite(
+            Func("f", IfBaseCase(AwaitCall("f", Var("n"), Var("acc"))), isAsync: true)
+        );
+
+        var jump = Assert.IsType<IrNode.TcoJump>(Assert.IsType<IrNode.If>(result.Body).Else);
+        Assert.Equal(ZType.Int, jump.Type);
+    }
+
+    [Fact]
+    public void PeelsHoistedLetSpine_UnderAwait()
+    {
+        // AwaitHoister A-normalizes a self-call whose own arguments await, so on the IL backend
+        // the tail arrives as `Await(Let(h0, <await>, Call(self, [h0])))`. The C# backend does
+        // not hoist, so without this peel the same source would loop under C# and not under IL.
+        var hoisted = new IrNode.Let(
+            "h0",
+            new IrNode.Await(
+                new IrNode.Call(Var("g"), []) { Type = new ZType.ZNamedType("Task", [ZType.Int]) }
+            )
+            {
+                Type = ZType.Int,
+            },
+            new IrNode.Call(Var("f"), [Var("h0"), Var("acc")])
+            {
+                Type = new ZType.ZNamedType("Task", [ZType.Int]),
+            },
+            ZType.Int
+        )
+        {
+            Type = new ZType.ZNamedType("Task", [ZType.Int]),
+        };
+        var body = IfBaseCase(new IrNode.Await(hoisted) { Type = ZType.Int });
+
+        var result = Rewrite(Func("f", body, isAsync: true));
+
+        Assert.True(result.IsTcoLoop);
+        var let = Assert.IsType<IrNode.Let>(Assert.IsType<IrNode.If>(result.Body).Else);
+        Assert.Equal("h0", let.VarName);
+        Assert.IsType<IrNode.TcoJump>(let.Body);
+    }
+
+    [Fact]
+    public void AwaitedNonTailSelfCall_IsNotRewritten()
+    {
+        // `(+ 1 (await (f …)))` — the awaited result is consumed, so the frame must survive.
+        var body = new IrNode.BinOp(
+            "+",
+            new IrNode.IntConst(1) { Type = ZType.Int },
+            AwaitCall("f", Var("n"), Var("acc"))
+        )
+        {
+            Type = ZType.Int,
+        };
+
+        Assert.False(Rewrite(Func("f", body, isAsync: true)).IsTcoLoop);
+    }
+
+    [Fact]
+    public void AwaitOfNonSelfCall_IsNotRewritten()
+    {
+        var body = IfBaseCase(AwaitCall("other", Var("n"), Var("acc")));
+
+        Assert.False(Rewrite(Func("f", body, isAsync: true)).IsTcoLoop);
+    }
+
+    [Fact]
+    public void AwaitedSelfCall_InSyncFunction_IsNotRewritten()
+    {
+        // Unreachable from valid source (`await` outside an async context is a type error), but
+        // the isAsync gate documents the intent and protects hand-built IR and the fuzzer.
+        var body = IfBaseCase(AwaitCall("f", Var("n"), Var("acc")));
+
+        Assert.False(Rewrite(Func("f", body)).IsTcoLoop);
+    }
+
+    [Fact]
+    public void AwaitOfIfContainingSelfCall_IsNotRewritten()
+    {
+        // Only a *direct* self-call under the await is a back-edge. TailRecursionAnalyzer
+        // mirrors this exclusion, so the drift biconditional depends on it.
+        var inner = new IrNode.If(
+            new IrNode.BinOp("=", Var("n"), new IrNode.IntConst(0) { Type = ZType.Int })
+            {
+                Type = ZType.Bool,
+            },
+            new IrNode.Call(Var("f"), [Var("n"), Var("acc")])
+            {
+                Type = new ZType.ZNamedType("Task", [ZType.Int]),
+            },
+            new IrNode.Call(Var("g"), []) { Type = new ZType.ZNamedType("Task", [ZType.Int]) }
+        )
+        {
+            Type = new ZType.ZNamedType("Task", [ZType.Int]),
+        };
+        var body = IfBaseCase(new IrNode.Await(inner) { Type = ZType.Int });
+
+        Assert.False(Rewrite(Func("f", body, isAsync: true)).IsTcoLoop);
+    }
+
+    #endregion
 
     #region RewriteModules
 
@@ -243,7 +366,7 @@ public class TailCallLoweringTests
             ("AlphaModule", (IReadOnlyList<IrNode>)[TailRecursiveLoop("alpha/loop")]),
         };
 
-        var rewritten = new TailCallLowering(includeAsync: true).RewriteModules(modules);
+        var rewritten = new TailCallLowering().RewriteModules(modules);
 
         var func = SingleFunc(rewritten);
         Assert.True(func.IsTcoLoop);
@@ -259,7 +382,7 @@ public class TailCallLoweringTests
         };
         var modules = new[] { ("M", (IReadOnlyList<IrNode>)[Func("f", body)]) };
 
-        var rewritten = new TailCallLowering(includeAsync: true).RewriteModules(modules);
+        var rewritten = new TailCallLowering().RewriteModules(modules);
 
         Assert.False(SingleFunc(rewritten).IsTcoLoop);
     }
@@ -271,7 +394,7 @@ public class TailCallLoweringTests
         // lowers them itself. Nothing stops a caller from lowering first, so a second pass over
         // an already-lowered tree must find TcoJump, change nothing, and keep IsTcoLoop set.
         var modules = new[] { ("M", (IReadOnlyList<IrNode>)[TailRecursiveLoop("f")]) };
-        var lowering = new TailCallLowering(includeAsync: true);
+        var lowering = new TailCallLowering();
 
         var once = lowering.RewriteModules(modules);
         var twice = lowering.RewriteModules(once);
@@ -284,7 +407,7 @@ public class TailCallLoweringTests
     [Fact]
     public void RewriteModules_PassesThroughNullAndEmpty()
     {
-        var lowering = new TailCallLowering(includeAsync: true);
+        var lowering = new TailCallLowering();
 
         Assert.Null(lowering.RewriteModules(null));
         Assert.Empty(lowering.RewriteModules([])!);

@@ -33,8 +33,8 @@ public sealed partial class IlEmitter
         // Lower tail self-calls to TcoJump back-edges (and mark their functions IsTcoLoop)
         // so self-recursion is emitted as a loop instead of a recursive call. Runs last, after
         // hoisting, so every tail self-call is already a plain Call with clean args and nothing
-        // downstream needs to know about TcoJump. Async functions are excluded here: the async
-        // state-machine emitter cannot consume a TcoJump, so they keep plain recursion.
+        // downstream needs to know about TcoJump. Async functions included: EmitMoveNextMethod
+        // has a loop mode that consumes a TcoJump inside the state machine.
         //
         // Inlined source modules are lowered alongside the main IR, not by the callers that
         // assemble them: a package library emits with an empty main IR and every function
@@ -42,7 +42,7 @@ public sealed partial class IlEmitter
         // recursive. Compilation.CompileEmit hoists those modules before handing them over, so
         // the hoist-then-lower order holds there as it does for `node` above; a package build
         // has nothing to hoist.
-        var tco = new TailCallLowering(includeAsync: false);
+        var tco = new TailCallLowering();
         node = tco.Rewrite(node);
         importedModules = tco.RewriteModules(importedModules);
 
@@ -813,16 +813,21 @@ public sealed partial class IlEmitter
             };
         }
 
+        var usesStateMachine = func.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(func.Body);
         Log.Debug(
             "IlEmitter: function {FuncName} emission path: {Path}",
             func.Name,
-            func.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(func.Body)
-                ? "async-state-machine"
-                : "synchronous"
+            (usesStateMachine, func.IsTcoLoop) switch
+            {
+                (true, true) => "async-state-machine-tco-loop",
+                (true, false) => "async-state-machine",
+                (false, true) => "synchronous-tco-loop",
+                (false, false) => "synchronous",
+            }
         );
 
         var funcBodyCtx = bodyCtx with { InstanceArgOffset = 0 };
-        if (func.IsAsync && AsyncStateMachineAnalyzer.ContainsAwait(func.Body))
+        if (usesStateMachine)
         {
             Async.EmitAsyncFuncDef(func, methodDef, typeDefinition, funcBodyCtx);
         }
@@ -843,8 +848,14 @@ public sealed partial class IlEmitter
                 // Self-recursion lowered to a loop by TailCallLowering: place a start label and
                 // emit the body so every leaf terminates itself — a value expression Ret's, a
                 // TcoJump reassigns the parameter slots and branches back here. No trailing Ret;
-                // the walker emits them. (TailCallLowering never marks async functions here, so
-                // this path is always synchronous.)
+                // the walker emits them.
+                //
+                // An async function reaches this path only when TCO removed its *last* await:
+                // `(if (= n 0) () (await (f (- n 1))))` lowers to `If(cond, Unit, TcoJump)`, so
+                // ContainsAwait is false and no state machine is warranted — but the signature
+                // still promises a Task, so each leaf wraps its value. An async function that
+                // still awaits goes through the state machine, which has its own loop mode.
+                var sig = methodDef.Signature!;
                 var startLabel = new CilInstructionLabel();
                 startLabel.Instruction = il.Add(CilOpCodes.Nop);
                 EmitLoopBody(
@@ -853,8 +864,23 @@ public sealed partial class IlEmitter
                     func.Params,
                     locals,
                     funcBodyCtx,
-                    methodDef,
-                    startLabel
+                    startLabel,
+                    new LoopExit(
+                        ParamSlotType: i =>
+                            i < sig.ParameterTypes.Count ? sig.ParameterTypes[i] : null,
+                        StoreParam: (i, tmp) =>
+                        {
+                            il.Add(CilOpCodes.Ldloc, tmp);
+                            il.Add(CilOpCodes.Starg, methodDef.Parameters[i]);
+                        },
+                        EmitLeaf: leaf =>
+                        {
+                            EmitNode(leaf, il, func.Params, locals, funcBodyCtx);
+                            if (func.IsAsync)
+                                EmitAsyncTaskWrap(func, leaf.Type, il);
+                            il.Add(CilOpCodes.Ret);
+                        }
+                    )
                 );
                 return;
             }
@@ -862,89 +888,112 @@ public sealed partial class IlEmitter
             EmitNode(func.Body, il, func.Params, locals, funcBodyCtx);
 
             if (func.IsAsync)
-            {
-                // For async funcs without awaits we still need to wrap the body into a Task.
-                // Three cases: (a) Unit return, (b) non-generic Task return (treat like Unit
-                // wrapped in CompletedTask), (c) Task<T> return — extract T and FromResult<T>.
-                var isUnit = func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
-                var isVoidTask =
-                    func.ReturnType is ZType.ZNamedType { TypeArgs: [] } voidTask
-                    && _typeAliases.IsTaskName(voidTask.Name);
-
-                if (isUnit || isVoidTask)
-                {
-                    if (
-                        func.Body.Type
-                        is not null
-                            and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-                    )
-                        il.Add(CilOpCodes.Pop);
-                    var completedTaskGetter = typeof(Task)
-                        .GetProperty("CompletedTask")!
-                        .GetGetMethod()!;
-                    il.Add(
-                        CilOpCodes.Call,
-                        _module.DefaultImporter.ImportMethod(completedTaskGetter)
-                    );
-                }
-                else
-                {
-                    var inner =
-                        func.ReturnType is ZType.ZNamedType { TypeArgs: [var t] } taskNt
-                        && _typeAliases.IsTaskName(taskNt.Name)
-                            ? t
-                            : func.ReturnType;
-                    var fromResult = typeof(Task)
-                        .GetMethod("FromResult")!
-                        .MakeGenericMethod(MapToReflectionClr(inner));
-                    il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(fromResult));
-                }
-            }
+                EmitAsyncTaskWrap(func, func.Body.Type, il);
 
             il.Add(CilOpCodes.Ret);
         }
     }
 
+    /// Wraps the value already on the evaluation stack into the Task <paramref name="func" />'s
+    /// signature promises. Three cases: (a) Unit return, (b) a non-generic <c>Task</c> return
+    /// (like Unit, wrapped in <c>CompletedTask</c>), (c) <c>Task&lt;T&gt;</c> — extract T and
+    /// <c>FromResult&lt;T&gt;</c>.
+    ///
+    /// <paramref name="valueType" /> is the type of the expression that just ran, which decides
+    /// whether a discarded non-Unit value has to be popped first. It is the whole body on the
+    /// straight-line path but an individual leaf in a TCO loop, which is why it is a parameter
+    /// rather than <c>func.Body.Type</c>.
+    private void EmitAsyncTaskWrap(
+        IrNode.FuncDef func,
+        ZType? valueType,
+        CilInstructionCollection il
+    )
+    {
+        var isUnit = func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+        var isVoidTask =
+            func.ReturnType is ZType.ZNamedType { TypeArgs: [] } voidTask
+            && _typeAliases.IsTaskName(voidTask.Name);
+
+        if (isUnit || isVoidTask)
+        {
+            if (valueType is not null and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                il.Add(CilOpCodes.Pop);
+            var completedTaskGetter = typeof(Task).GetProperty("CompletedTask")!.GetGetMethod()!;
+            il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(completedTaskGetter));
+        }
+        else
+        {
+            var inner =
+                func.ReturnType is ZType.ZNamedType { TypeArgs: [var t] } taskNt
+                && _typeAliases.IsTaskName(taskNt.Name)
+                    ? t
+                    : func.ReturnType;
+            var fromResult = typeof(Task)
+                .GetMethod("FromResult")!
+                .MakeGenericMethod(MapToReflectionClr(inner));
+            il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(fromResult));
+        }
+    }
+
+    /// How a TCO loop body terminates — the only thing that differs between the two method
+    /// shapes that can host one, which is why <see cref="EmitLoopBody" /> is shared rather than
+    /// duplicated per shape.
+    ///
+    /// A synchronous method body owns its frame: a leaf <c>Ret</c>s its value and a back-edge
+    /// writes the new arguments straight into the IL argument slots (<c>Starg</c>). A MoveNext
+    /// body can do neither — <c>ret</c> is illegal inside the state machine's protected region,
+    /// and <c>MoveNext()</c> is a nullary instance method with no argument slots to write. There
+    /// the parameters live as locals (flushed to state-machine fields at every suspension by
+    /// <c>EmitMoveNextAwait</c>), so a back-edge is a <c>Stloc</c> and a leaf stores into the
+    /// builder's result local and <c>Leave</c>s the try to the SetResult block.
+    internal sealed record LoopExit(
+        /// The declared type of parameter slot <c>i</c>, or null when the jump has more
+        /// arguments than the method has parameters (the argument's own type is used then).
+        Func<int, TypeSignature?> ParamSlotType,
+        /// Moves the already-staged temp for argument <c>i</c> into parameter slot <c>i</c>.
+        Action<int, CilLocalVariable> StoreParam,
+        /// Emits the leaf expression and terminates the method.
+        Action<IrNode> EmitLeaf
+    );
+
     /// Emits <paramref name="body" /> as the body of a TCO loop (the IL counterpart of the C#
-    /// backend's statement-body walker in loop mode). Every leaf terminates the method: a value
-    /// expression is emitted
-    /// and returned (<c>Ret</c>); a <see cref="IrNode.TcoJump" /> reassigns the parameter slots
-    /// and branches back to <paramref name="startLabel" />. Control flows through
-    /// if/let/begin/match spines. No tail-position analysis happens here — the TcoJump nodes
-    /// were produced by <see cref="Ir.TailCallLowering" />, so this only renders control flow.
-    private void EmitLoopBody(
+    /// backend's statement-body walker in loop mode). Every leaf terminates the method and a
+    /// <see cref="IrNode.TcoJump" /> reassigns the parameter slots and branches back to
+    /// <paramref name="startLabel" />; how each of those is spelled comes from
+    /// <paramref name="exit" />. Control flows through if/let/begin/match spines. No
+    /// tail-position analysis happens here — the TcoJump nodes were produced by
+    /// <see cref="Ir.TailCallLowering" />, so this only renders control flow.
+    internal void EmitLoopBody(
         IrNode body,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals,
         EmitContext ctx,
-        MethodDefinition methodDef,
-        CilInstructionLabel startLabel
+        CilInstructionLabel startLabel,
+        LoopExit exit
     )
     {
         switch (body)
         {
             case IrNode.TcoJump jump:
             {
-                var sig = methodDef.Signature!;
                 var temps = new CilLocalVariable[jump.NewArgs.Count];
                 // Evaluate every new argument into a temp first — reading the current parameter
                 // values — so a later argument still sees a parameter an earlier one overwrites
-                // (e.g. `(loop (g b) a)`).
+                // (e.g. `(loop (g b) a)`). It also leaves the evaluation stack empty around each
+                // argument, so an argument that suspends does so at stack depth 0.
                 for (var i = 0; i < jump.NewArgs.Count; i++)
                 {
                     EmitNode(jump.NewArgs[i], il, outerParams, locals, ctx);
-                    var slotType =
-                        i < sig.ParameterTypes.Count
-                            ? sig.ParameterTypes[i]
-                            : MapToClr(jump.NewArgs[i].Type, ctx);
+                    var declaredSlotType = exit.ParamSlotType(i);
+                    var slotType = declaredSlotType ?? MapToClr(jump.NewArgs[i].Type, ctx);
                     // Box a value-type argument going into a reference-type parameter slot,
                     // matching the normal call path (EmitCall). Without it the IL leaves a raw
                     // value where a reference is expected — unverifiable.
-                    if (i < sig.ParameterTypes.Count)
+                    if (declaredSlotType is not null)
                     {
                         var argClrType = MapToReflectionClr(jump.NewArgs[i].Type);
-                        if (argClrType.IsValueType && !sig.ParameterTypes[i].IsValueType)
+                        if (argClrType.IsValueType && !declaredSlotType.IsValueType)
                             il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argClrType));
                     }
 
@@ -955,10 +1004,7 @@ public sealed partial class IlEmitter
                 }
 
                 for (var i = 0; i < jump.NewArgs.Count; i++)
-                {
-                    il.Add(CilOpCodes.Ldloc, temps[i]);
-                    il.Add(CilOpCodes.Starg, methodDef.Parameters[i]);
-                }
+                    exit.StoreParam(i, temps[i]);
 
                 il.Add(CilOpCodes.Br, startLabel);
                 break;
@@ -971,13 +1017,13 @@ public sealed partial class IlEmitter
                 il.Add(CilOpCodes.Brfalse, elseLabel);
                 if (CoverageEnabled)
                     EmitCoverageProbe(@if.Span, CoverageKind.Branch, 0, il);
-                EmitLoopBody(@if.Then, il, outerParams, locals, ctx, methodDef, startLabel);
-                // Then self-terminates (Ret or Br), so control never falls into the else; no
-                // shared end label and no stack reconciliation are needed.
+                EmitLoopBody(@if.Then, il, outerParams, locals, ctx, startLabel, exit);
+                // Then self-terminates (a leaf terminator or a Br), so control never falls into
+                // the else; no shared end label and no stack reconciliation are needed.
                 elseLabel.Instruction = il.Add(CilOpCodes.Nop);
                 if (CoverageEnabled)
                     EmitCoverageProbe(@if.Span, CoverageKind.Branch, 1, il);
-                EmitLoopBody(@if.Else, il, outerParams, locals, ctx, methodDef, startLabel);
+                EmitLoopBody(@if.Else, il, outerParams, locals, ctx, startLabel, exit);
                 break;
             }
 
@@ -988,8 +1034,7 @@ public sealed partial class IlEmitter
                     outerParams,
                     locals,
                     ctx,
-                    () =>
-                        EmitLoopBody(let.Body, il, outerParams, locals, ctx, methodDef, startLabel)
+                    () => EmitLoopBody(let.Body, il, outerParams, locals, ctx, startLabel, exit)
                 );
                 break;
 
@@ -1002,36 +1047,36 @@ public sealed partial class IlEmitter
                         il.Add(CilOpCodes.Pop);
                 }
 
-                EmitLoopBody(seq.Nodes[^1], il, outerParams, locals, ctx, methodDef, startLabel);
+                EmitLoopBody(seq.Nodes[^1], il, outerParams, locals, ctx, startLabel, exit);
                 break;
 
             case IrNode.Match match:
-                EmitLoopMatch(match, il, outerParams, locals, ctx, methodDef, startLabel);
+                EmitLoopMatch(match, il, outerParams, locals, ctx, startLabel, exit);
                 break;
 
             default:
                 // Value leaf (also Throw, Use, WithHandlers, or a non-self tail call): emit the
                 // expression and return it, exiting the loop.
-                EmitNode(body, il, outerParams, locals, ctx);
-                il.Add(CilOpCodes.Ret);
+                exit.EmitLeaf(body);
                 break;
         }
     }
 
     /// Emits a <c>match</c> in TCO-loop position via the shared <see cref="EmitMatchArms"/>
     /// skeleton, rendering each arm body with <see cref="EmitLoopBody"/>. Because a loop arm
-    /// body self-terminates (a leaf <c>Ret</c>s, a <see cref="IrNode.TcoJump"/> branches back to
-    /// <paramref name="startLabel"/>), there is no shared end label, no <c>Br</c> to it, and no
-    /// stack reconciliation — that is the only difference from the expression form
-    /// (<see cref="EmitMatch"/>). The non-exhaustive fall-through still throws.
+    /// body self-terminates (a leaf via <see cref="LoopExit.EmitLeaf"/>, a
+    /// <see cref="IrNode.TcoJump"/> by branching back to <paramref name="startLabel"/>), there is
+    /// no shared end label, no <c>Br</c> to it, and no stack reconciliation — that is the only
+    /// difference from the expression form (<see cref="EmitMatch"/>). The non-exhaustive
+    /// fall-through still throws.
     private void EmitLoopMatch(
         IrNode.Match match,
         CilInstructionCollection il,
         IReadOnlyList<IrParam> outerParams,
         Dictionary<string, CilLocalVariable> locals,
         EmitContext ctx,
-        MethodDefinition methodDef,
-        CilInstructionLabel startLabel
+        CilInstructionLabel startLabel,
+        LoopExit exit
     ) =>
         EmitMatchArms(
             match,
@@ -1039,7 +1084,7 @@ public sealed partial class IlEmitter
             outerParams,
             locals,
             ctx,
-            arm => EmitLoopBody(arm.Body, il, outerParams, locals, ctx, methodDef, startLabel)
+            arm => EmitLoopBody(arm.Body, il, outerParams, locals, ctx, startLabel, exit)
         );
 
     internal void EmitNode(
@@ -1387,9 +1432,10 @@ public sealed partial class IlEmitter
     /// A let binding is only in scope for its body. If the name shadows an outer binding
     /// (a same-named `let`, or the synthetic `__p0` params that `partial` lowering reuses), the
     /// outer slot is restored afterwards; otherwise reads of the outer name following the inner
-    /// let's body would resolve to the inner local. The state-machine field save is a no-op
-    /// outside a MoveNext context — the loop path is always synchronous — so both callers share
-    /// it safely.
+    /// let's body would resolve to the inner local. The state-machine field save below is why
+    /// both callers share this: a TCO loop may itself be a MoveNext body, and a let-bound local
+    /// on the loop spine has to survive a suspension inside the body just as one on the
+    /// straight-line path does. It is a no-op outside a MoveNext context.
     private void EmitLetBinding(
         IrNode.Let let,
         CilInstructionCollection il,

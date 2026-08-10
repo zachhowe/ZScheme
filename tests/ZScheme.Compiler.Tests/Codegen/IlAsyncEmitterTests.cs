@@ -176,7 +176,10 @@ public class IlAsyncEmitterTests
             ZType.Int,
             new IrNode.Await(
                 new IrNode.Call(
-                    new IrNode.Var("add-async") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                    new IrNode.Var("add-async")
+                    {
+                        Type = new ZType.ZFuncType([ZType.Int], TaskInt),
+                    },
                     [new IrNode.Var("x") { Type = ZType.Int }]
                 )
                 {
@@ -202,14 +205,166 @@ public class IlAsyncEmitterTests
         // A suspension point hoists a TaskAwaiter<T> into a state-machine field.
         Assert.Contains(
             outerSm.Fields,
-            f => f.Signature!.FieldType.FullName.StartsWith(
-                "System.Runtime.CompilerServices.TaskAwaiter"
-            )
+            f =>
+                f.Signature!.FieldType.FullName.StartsWith(
+                    "System.Runtime.CompilerServices.TaskAwaiter"
+                )
         );
         var moveNext = Assert.Single(outerSm.Methods, m => m.Name == "MoveNext");
         Assert.NotNull(moveNext.CilMethodBody);
         Assert.True(moveNext.CilMethodBody.Instructions.Count > 10);
     }
+
+    #region TCO loop mode
+
+    /// <summary>
+    ///     `(define-async (f [n : Int]) : (Task Int) (if (= n 0) n (await (g (await (f n))))))`
+    ///     — an awaited tail self-call (which TailCallLowering turns into a TcoJump, making the
+    ///     function a loop) plus a second, non-tail await so the body still needs a real state
+    ///     machine. That combination is the whole point of MoveNext's loop mode.
+    /// </summary>
+    private static IrNode.FuncDef AsyncTailRecursive(string name)
+    {
+        var selfCall = new IrNode.Call(
+            new IrNode.Var(name) { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+            [new IrNode.Var("n") { Type = ZType.Int }]
+        )
+        {
+            Type = TaskInt,
+        };
+
+        var body = new IrNode.If(
+            new IrNode.BinOp(
+                "=",
+                new IrNode.Var("n") { Type = ZType.Int },
+                new IrNode.IntConst(0) { Type = ZType.Int }
+            )
+            {
+                Type = ZType.Bool,
+            },
+            new IrNode.Var("n") { Type = ZType.Int },
+            // A non-tail await keeps ContainsAwait true, so the state machine survives TCO.
+            new IrNode.Let(
+                "hoisted",
+                new IrNode.Await(
+                    new IrNode.Call(
+                        new IrNode.Var("add-async")
+                        {
+                            Type = new ZType.ZFuncType([ZType.Int], TaskInt),
+                        },
+                        [new IrNode.Var("n") { Type = ZType.Int }]
+                    )
+                    {
+                        Type = TaskInt,
+                    }
+                )
+                {
+                    Type = ZType.Int,
+                },
+                new IrNode.Await(selfCall) { Type = ZType.Int },
+                ZType.Int
+            )
+            {
+                Type = ZType.Int,
+            }
+        )
+        {
+            Type = ZType.Int,
+        };
+
+        return new IrNode.FuncDef(
+            name,
+            [new IrParam("n", ZType.Int)],
+            ZType.Int,
+            body,
+            IsSelfRecursive: true,
+            IsAsync: true
+        )
+        {
+            Type = new ZType.ZFuncType([ZType.Int], TaskInt),
+        };
+    }
+
+    private static MethodDefinition TcoLoopMoveNext()
+    {
+        var bytes = Emit(AsyncAddOne("add-async"), AsyncTailRecursive("tco-async"));
+        var sm = Assert.Single(StateMachineTypes(bytes), t => t.Name!.Value.Contains("TcoAsync"));
+        return Assert.Single(sm.Methods, m => m.Name == "MoveNext");
+    }
+
+    [Fact]
+    public void TcoLoopAsyncFuncDefStillProducesOneStateMachine()
+    {
+        // Looping does not change the emission strategy: a body that still awaits keeps exactly
+        // one state machine, which is the point — N nested machines collapse into this one.
+        var bytes = Emit(AsyncAddOne("add-async"), AsyncTailRecursive("tco-async"));
+
+        var sm = Assert.Single(StateMachineTypes(bytes), t => t.Name!.Value.Contains("TcoAsync"));
+        Assert.Contains(
+            sm.Interfaces,
+            i => i.Interface?.FullName == "System.Runtime.CompilerServices.IAsyncStateMachine"
+        );
+    }
+
+    [Fact]
+    public void TcoLoopMoveNextHasNoRetInsideTheTryRegion()
+    {
+        // `ret` inside a protected region is invalid metadata that AsmResolver will happily
+        // write and only ilverify/the JIT rejects, so the sync loop walker's `Ret` leaf must
+        // never reach MoveNext — a leaf there stores the result and `Leave`s instead.
+        var moveNext = TcoLoopMoveNext();
+        var body = moveNext.CilMethodBody!;
+        var handler = Assert.Single(body.ExceptionHandlers);
+
+        var tryStart = handler.TryStart!.Offset;
+        var handlerEnd = handler.HandlerEnd!.Offset;
+        Assert.DoesNotContain(
+            body.Instructions,
+            i =>
+                i.OpCode.Code == AsmResolver.PE.DotNet.Cil.CilCode.Ret
+                && i.Offset >= tryStart
+                && i.Offset < handlerEnd
+        );
+    }
+
+    [Fact]
+    public void TcoLoopMoveNextBranchesBackwards()
+    {
+        // The back-edge itself: a Br to an earlier offset. Without it the "loop" would just be
+        // straight-line code that fell out of the body.
+        var moveNext = TcoLoopMoveNext();
+        var body = moveNext.CilMethodBody!;
+        var handler = Assert.Single(body.ExceptionHandlers);
+
+        Assert.Contains(
+            body.Instructions,
+            i =>
+                i.OpCode.Code
+                    is AsmResolver.PE.DotNet.Cil.CilCode.Br
+                        or AsmResolver.PE.DotNet.Cil.CilCode.Br_S
+                && i.Operand is AsmResolver.PE.DotNet.Cil.ICilLabel target
+                && target.Offset < i.Offset
+                && i.Offset >= handler.TryStart!.Offset
+                && i.Offset < handler.TryEnd!.Offset
+        );
+    }
+
+    [Fact]
+    public void TcoLoopMoveNextDoesNotStarg()
+    {
+        // MoveNext() is a nullary instance method: it has no argument slots, so the synchronous
+        // back-edge's `Starg` is not merely wrong here but unencodable. Parameters live as
+        // locals, and the jump writes them with Stloc.
+        Assert.DoesNotContain(
+            TcoLoopMoveNext().CilMethodBody!.Instructions,
+            i =>
+                i.OpCode.Code
+                    is AsmResolver.PE.DotNet.Cil.CilCode.Starg
+                        or AsmResolver.PE.DotNet.Cil.CilCode.Starg_S
+        );
+    }
+
+    #endregion
 
     [Fact]
     public async Task EmittedStateMachineActuallyRuns()
@@ -220,7 +375,10 @@ public class IlAsyncEmitterTests
             ZType.Int,
             new IrNode.Await(
                 new IrNode.Call(
-                    new IrNode.Var("add-async") { Type = new ZType.ZFuncType([ZType.Int], TaskInt) },
+                    new IrNode.Var("add-async")
+                    {
+                        Type = new ZType.ZFuncType([ZType.Int], TaskInt),
+                    },
                     [new IrNode.Var("x") { Type = ZType.Int }]
                 )
                 {

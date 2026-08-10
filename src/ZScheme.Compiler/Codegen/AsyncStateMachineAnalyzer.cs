@@ -22,6 +22,12 @@ public static class AsyncStateMachineAnalyzer
             IrNode.Match match => ContainsAwait(match.Scrutinee)
                 || match.Arms.Any(a => ContainsAwait(a.Body)),
             IrNode.Call call => ContainsAwait(call.Function) || call.Args.Any(ContainsAwait),
+            // A TCO back-edge's arguments are ordinary non-tail expressions. On the IL path
+            // AwaitHoister has already let-bound any await out of them, so this is unreachable
+            // there; the case exists so the answer stays right for un-hoisted IR (the C#
+            // backend, hand-built test IR, the fuzzer) rather than silently reporting "no
+            // awaits" and routing the function down the synchronous emission path.
+            IrNode.TcoJump jump => jump.NewArgs.Any(ContainsAwait),
             IrNode.BinOp binOp => ContainsAwait(binOp.Left) || ContainsAwait(binOp.Right),
             IrNode.UnaryOp unaryOp => ContainsAwait(unaryOp.Operand),
             IrNode.Seq seq => seq.Nodes.Any(ContainsAwait),
@@ -240,6 +246,22 @@ public static class AsyncStateMachineAnalyzer
                     typeAliases
                 );
                 foreach (var arg in call.Args)
+                    CollectInfo(
+                        arg,
+                        awaitPoints,
+                        hoistedLocals,
+                        seenLocals,
+                        tryBodyStack,
+                        typeAliases
+                    );
+                break;
+
+            case IrNode.TcoJump jump:
+                // Same reasoning as the TcoJump case in ContainsAwait, but this one allocates:
+                // an await point missed here gets no state number and no awaiter field, and
+                // EmitMoveNextAwait would then index AwaiterFields for a state that was never
+                // created. Unreachable after AwaitHoister; cheap to keep honest.
+                foreach (var arg in jump.NewArgs)
                     CollectInfo(
                         arg,
                         awaitPoints,

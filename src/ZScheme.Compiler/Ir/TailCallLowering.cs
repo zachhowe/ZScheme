@@ -1,3 +1,5 @@
+using ZScheme.Compiler.Diagnostics;
+
 namespace ZScheme.Compiler.Ir;
 
 /// <summary>
@@ -19,13 +21,13 @@ namespace ZScheme.Compiler.Ir;
 ///     <see cref="IrNode.FuncDef.IsTcoLoop" /> reach the emitters untouched — no other pass
 ///     needs to know about them.
 ///
-///     <paramref name="includeAsync" /> controls whether self-recursive <c>async</c> functions
-///     are rewritten. The C# backend passes <c>true</c> (its loop emitter handles <c>await</c>,
-///     preserving the pre-existing async-TCO behavior); the IL backend passes <c>false</c>
-///     because its async state-machine emitter cannot consume a <see cref="IrNode.TcoJump" /> —
-///     those functions keep their plain recursive emission there.
+///     <c>async</c> functions are rewritten too, on both backends. An async tail self-call can
+///     only ever be spelled <c>(await (self …))</c> — a bare <c>(self …)</c> has type Task and
+///     will not unify with its sibling branch — so without the <see cref="IrNode.Await" /> case
+///     below no async self-recursion would ever loop, and since ZScheme has no <c>while</c>/
+///     <c>do</c>/named-<c>let</c>, self-recursion is the only iteration the language offers.
 /// </summary>
-public sealed class TailCallLowering(bool includeAsync)
+public sealed class TailCallLowering
 {
     /// <summary>
     ///     Rewrites every definition of every inlined source module, the same way
@@ -69,11 +71,8 @@ public sealed class TailCallLowering(bool includeAsync)
 
     private IrNode.FuncDef RewriteFunc(IrNode.FuncDef func)
     {
-        if (func.IsAsync && !includeAsync)
-            return func;
-
         var paramNames = func.Params.Select(p => p.Name).ToList();
-        var (body, rewrote) = RewriteTail(func.Body, func.Name, paramNames);
+        var (body, rewrote) = RewriteTail(func.Body, func.Name, paramNames, func.IsAsync);
         return rewrote ? func with { Body = body, IsTcoLoop = true } : func;
     }
 
@@ -81,11 +80,15 @@ public sealed class TailCallLowering(bool includeAsync)
     ///     Rewrites tail self-calls along the tail spine of <paramref name="node" />. Only
     ///     the spine is reconstructed (and only when something changed); non-tail
     ///     sub-expressions are left untouched by reference.
+    ///
+    ///     <paramref name="isAsync" /> gates the <see cref="IrNode.Await" /> case, which is the
+    ///     only shape an async tail self-call can take.
     /// </summary>
     private (IrNode Node, bool Rewrote) RewriteTail(
         IrNode node,
         string funcName,
-        IReadOnlyList<string> paramNames
+        IReadOnlyList<string> paramNames,
+        bool isAsync
     )
     {
         switch (node)
@@ -107,10 +110,38 @@ public sealed class TailCallLowering(bool includeAsync)
                     true
                 );
 
+            // `(await (self …))` in tail position. Awaiting a Task the loop is about to produce
+            // itself is pure overhead: dropping the await keeps the state machine, its builder
+            // and its Task, and collapses N nested MoveNext frames into one. Every genuine
+            // suspension point *inside* the body is untouched, so the set of points at which the
+            // function can suspend is unchanged — only the number of machines wrapping them.
+            //
+            // The `let` peel handles the IL backend's hoisted spelling: AwaitHoister
+            // A-normalizes a self-call whose own arguments await into
+            // `Await(Let(h0, <await>, Call(self, …)))`. The C# backend does not hoist, so
+            // without the peel the same source would loop under C# and not under IL. Peeling is
+            // sound because a let value is evaluated before the call either way; the let simply
+            // joins the tail spine, which both loop emitters already walk.
+            case IrNode.Await await
+                when isAsync && SelfCallUnderLets(await.Expr, funcName) is { } selfCall:
+                return (
+                    RebuildLets(
+                        await.Expr,
+                        new IrNode.TcoJump(paramNames, selfCall.Args)
+                        {
+                            // The value this node stands in for is the *awaited* result — the
+                            // function's unwrapped return type — not the Task the Call produced.
+                            Type = await.Type,
+                            Span = await.Span == SourceSpan.None ? selfCall.Span : await.Span,
+                        }
+                    ),
+                    true
+                );
+
             case IrNode.If ifNode:
             {
-                var (then, a) = RewriteTail(ifNode.Then, funcName, paramNames);
-                var (els, b) = RewriteTail(ifNode.Else, funcName, paramNames);
+                var (then, a) = RewriteTail(ifNode.Then, funcName, paramNames, isAsync);
+                var (els, b) = RewriteTail(ifNode.Else, funcName, paramNames, isAsync);
                 if (!a && !b)
                     return (node, false);
                 return (
@@ -125,7 +156,7 @@ public sealed class TailCallLowering(bool includeAsync)
 
             case IrNode.Let let:
             {
-                var (body, changed) = RewriteTail(let.Body, funcName, paramNames);
+                var (body, changed) = RewriteTail(let.Body, funcName, paramNames, isAsync);
                 if (!changed)
                     return (node, false);
                 return (
@@ -144,7 +175,7 @@ public sealed class TailCallLowering(bool includeAsync)
                 var arms = new List<IrMatchArm>(match.Arms.Count);
                 foreach (var arm in match.Arms)
                 {
-                    var (body, changed) = RewriteTail(arm.Body, funcName, paramNames);
+                    var (body, changed) = RewriteTail(arm.Body, funcName, paramNames, isAsync);
                     rewrote |= changed;
                     arms.Add(changed ? new IrMatchArm(arm.Pattern, body) : arm);
                 }
@@ -165,7 +196,7 @@ public sealed class TailCallLowering(bool includeAsync)
             {
                 if (seq.Nodes.Count == 0)
                     return (node, false);
-                var (last, changed) = RewriteTail(seq.Nodes[^1], funcName, paramNames);
+                var (last, changed) = RewriteTail(seq.Nodes[^1], funcName, paramNames, isAsync);
                 if (!changed)
                     return (node, false);
                 var nodes = seq.Nodes.ToList();
@@ -180,4 +211,40 @@ public sealed class TailCallLowering(bool includeAsync)
                 return (node, false);
         }
     }
+
+    /// <summary>
+    ///     The self-call at the bottom of a (possibly empty) <c>let</c> spine, or null when the
+    ///     spine bottoms out in anything else. Only a <em>direct</em> self-call qualifies: an
+    ///     <c>(await (if … (f …) …))</c> is deliberately not a back-edge, and
+    ///     <see cref="Types.TailRecursionAnalyzer" /> mirrors that exclusion.
+    /// </summary>
+    private static IrNode.Call? SelfCallUnderLets(IrNode node, string funcName)
+    {
+        while (node is IrNode.Let let)
+            node = let.Body;
+
+        return node is IrNode.Call { Function: IrNode.Var v } call && v.Name == funcName
+            ? call
+            : null;
+    }
+
+    /// <summary>
+    ///     Rebuilds <paramref name="spine" />'s <c>let</c> bindings around
+    ///     <paramref name="leaf" />, replacing the self-call at the bottom. Only the spine is
+    ///     reconstructed; each bound value is shared by reference.
+    /// </summary>
+    private static IrNode RebuildLets(IrNode spine, IrNode leaf) =>
+        spine is IrNode.Let let
+            ? new IrNode.Let(
+                let.VarName,
+                let.Value,
+                RebuildLets(let.Body, leaf),
+                let.VarType,
+                let.EmitName
+            )
+            {
+                Type = leaf.Type,
+                Span = let.Span,
+            }
+            : leaf;
 }

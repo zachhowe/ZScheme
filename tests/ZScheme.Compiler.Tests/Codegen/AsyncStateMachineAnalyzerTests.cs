@@ -24,6 +24,48 @@ public class AsyncStateMachineAnalyzerTests
     }
 
     [Fact]
+    public void ContainsAwait_LooksInsideTcoJumpArguments()
+    {
+        // A TCO back-edge's arguments are ordinary expressions. Reporting "no awaits" for them
+        // would route the whole function down the synchronous emission path. AwaitHoister
+        // let-binds awaits out of call arguments before TailCallLowering runs, so this is
+        // unreachable on the IL path — the case keeps the answer right for un-hoisted IR.
+        var awaited = new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt })
+        {
+            Type = ZType.Int,
+        };
+        var jump = new IrNode.TcoJump(["n"], [awaited]) { Type = ZType.Int };
+
+        Assert.True(AsyncStateMachineAnalyzer.ContainsAwait(jump));
+    }
+
+    [Fact]
+    public void Analyze_CountsAwaitPointsInsideTcoJumpArguments()
+    {
+        // The allocating half of the same guard: an await missed here gets no state number and
+        // no awaiter field, and EmitMoveNextAwait would index a state that was never created.
+        var awaited = new IrNode.Await(new IrNode.IntConst(1) { Type = TaskInt })
+        {
+            Type = ZType.Int,
+        };
+        var func = new IrNode.FuncDef(
+            "f",
+            [new IrParam("n", ZType.Int)],
+            ZType.Int,
+            new IrNode.TcoJump(["n"], [awaited]) { Type = ZType.Int },
+            IsSelfRecursive: true,
+            IsAsync: true
+        )
+        {
+            Type = new ZType.ZFuncType([ZType.Int], TaskInt),
+        };
+
+        var info = AsyncStateMachineAnalyzer.Analyze(func, new TypeAliasRegistry());
+
+        Assert.Single(info.AwaitPoints);
+    }
+
+    [Fact]
     public void ContainsAwait_FindsAwaitInsideLet()
     {
         var node = new IrNode.Let(

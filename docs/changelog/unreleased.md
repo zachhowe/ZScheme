@@ -87,6 +87,31 @@ The LSP went from a small feature set to broad coverage:
 
 - **Multi-expression `define` / `lambda` / `define-async` bodies were silently dropping
   statements** — the most serious bug in this cycle; documented, then fixed.
+- **Async self-recursion was never compiled as a loop, on either backend.** An async tail
+  self-call can only be spelled `(await (self …))` — a bare `(self …)` has type `Task` and
+  will not unify with its sibling branch — and `TailCallLowering` matched only a bare `Call`
+  on the tail spine, so the `await` wrapper made every async loop invisible to it. On top of
+  that the IL backend excluded async functions outright. Since ZScheme has no `while`/`do`/
+  named-`let`, self-recursion is the only iteration the language has, so async iteration
+  allocated one state machine, builder and `Task` per element and consumed stack in
+  proportion. The pass now rewrites a tail `(await (self …))` — including the `let`-spine
+  form `AwaitHoister` produces — into a back-edge on both backends, and `IlAsyncEmitter` has
+  a loop mode inside `MoveNext` (start label after the field→local parameter reload, `Stloc`
+  + backward `Br` for the jump, store-result + `Leave` at each leaf). A function whose last
+  await *was* the recursive call now needs no state machine at all.
+  - Observationally safe: awaiting a Task the loop is about to produce itself is a suspension
+    point that always completes synchronously, and every `await` inside the body is untouched
+    — the set of points at which the function can suspend is unchanged. Stack traces lose the
+    N nested `MoveNext` frames, and allocations drop from O(N) to O(1).
+  - One genuine semantic change, currently unobservable: an `AsyncLocal<T>` written in the
+    loop body now persists into the next iteration, where each recursive call previously had
+    its own ExecutionContext frame. ZScheme exposes no `AsyncLocal` binding.
+  - `#:recursive` only silences `ZS0005`; it does not disable `TailCallLowering`. A
+    definition marked `#:recursive` whose tail self-call is awaited is now looped anyway —
+    pre-existing behaviour for the synchronous case, newly reachable for async.
+  - `ZS0005`'s `async` reason is gone: it existed only to name the backend asymmetry this
+    removes, and was unreachable from valid source. Async definitions still report
+    `not-tail`, `barrier` and `not-top-level` as before.
 - **Tail-call optimization never reached module code.** Both emitters lowered only the main
   IR, so an inlined source module stayed recursive under the C# backend, and a package
   library — which emits with an empty main IR and every function arriving as an imported
