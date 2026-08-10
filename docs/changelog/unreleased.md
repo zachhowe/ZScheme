@@ -59,9 +59,10 @@ The LSP went from a small feature set to broad coverage:
   why: the call isn't in tail position, it sits behind a `with-handlers`/`use` frame, or the
   function isn't a top-level `define`. A new stage-4.8 analyzer mirrors `TailCallLowering`'s
   rules on the AST — a drift test pins silence to `FuncDef.IsTcoLoop` — so the language server
-  sees it too. Imported modules don't leak their warnings into an importer's build.
-  `--no-warn-unlooped-recursion` and `(build (main (warn-unlooped-recursion "false")))` opt out
-  wholesale.
+  sees it too. Package builds analyse each of their own modules, against that module's own
+  file and span; imported and installed dependencies don't leak their warnings into a
+  consumer's build. `--no-warn-unlooped-recursion` and
+  `(build (main (warn-unlooped-recursion "false")))` opt out wholesale.
 
 ## Changed
 
@@ -119,6 +120,23 @@ The LSP went from a small feature set to broad coverage:
   recursion, silently: `ZS0005` is correctly quiet about a tail self-call, on the assumption
   the pass would loop it. Each emitter now lowers its imported modules too, so the fix covers
   every route module code takes to codegen rather than only the two that were patched.
+- **`ZS0005` never reached package code, the code that needs it most.** Stage 4.8 was wired
+  into `Compilation.Compile` alone, and a package build routes every one of its modules
+  through `CompileAsModule` instead — so no function in any package was ever analysed, and a
+  package whose source contained an obviously un-loopable self-recursion built completely
+  silently while the same function in a single file warned. The diagnostic twin of the
+  module-reach bug above, and the same divergence: there, the pass didn't run on package
+  code; here, the warning that would have told you so didn't either. Two further layers of
+  silence sat behind it — `LibraryCompiler` merged a sub-compilation's diagnostic bag only
+  when the module *failed*, and `zs build` printed diagnostics only when the build failed —
+  so even a warning that was raised had nowhere to go. All three are fixed: the module path
+  runs the analyzer for the module it was invoked on (dependencies stay quiet; each gets its
+  own turn, and an installed dependency never does), warnings are carried out of a successful
+  module compile, and `zs build` prints them like `zs compile` does. The manifest's
+  `(warn-unlooped-recursion "false")` now reaches the sub-compilations it was meant to
+  govern. The feared stdlib backlog turned out to be empty — every package builds with zero
+  `ZS0005` — but `http` now reports three exports that name nothing, which was true all along
+  and had been swallowed by the same dropped bag.
 - **C# TCO-loop match leaked a pattern-variable rename across sibling arms**; TCO-loop and
   ordinary statement/match rendering were then unified in both backends.
 - **IL backend compared strings by reference** in `=` and `!=`.

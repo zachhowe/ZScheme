@@ -599,6 +599,10 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 // defaults and the option looked ignored.
                 DisablePrelude = options.DisablePrelude,
                 PreludeModules = options.PreludeModules,
+                // Same reason: the module path now runs the ZS0005 analyzer, so the manifest's
+                // (warn-unlooped-recursion "false") has to reach the sub-compilation to mean
+                // anything.
+                WarnUnloopedRecursion = options.WarnUnloopedRecursion,
             };
             var compilation = new Compilation(subOptions);
 
@@ -634,11 +638,12 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 moduleSw.ElapsedMilliseconds,
                 compResult is not null
             );
+            // Carry the sub-compilation's diagnostics out on success too, not just on failure:
+            // a module that compiles cleanly can still have produced warnings (ZS0005, an export
+            // that names nothing), and dropping them is what made package builds silent.
+            diagnostics.AddRange(compilation.GetDiagnostics());
             if (compResult is null)
-            {
-                diagnostics.AddRange(compilation.GetDiagnostics());
                 return Fail();
-            }
 
             return compResult;
         }

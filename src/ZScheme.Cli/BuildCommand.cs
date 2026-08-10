@@ -109,6 +109,12 @@ internal static class BuildCommand
             return 1;
         }
 
+        // Successful builds can still carry warnings (ZS0005, an export that names nothing),
+        // and a package build is exactly where they matter most. Mirrors `zs compile`.
+        foreach (var diag in result.Diagnostics.Diagnostics)
+            if (!diag.IsError)
+                Console.Error.WriteLine(diag);
+
         var outputPath = overrides.OutputPath != "output" ? overrides.OutputPath : "output";
         var backend = overrides.OutputMode;
 

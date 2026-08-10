@@ -10,12 +10,23 @@ namespace ZScheme.Compiler.Pipeline;
 
 public sealed partial class Compilation
 {
+    /// <summary>
+    ///     The module <see cref="CompileAsModule" /> was invoked on — the one this compilation
+    ///     exists to compile, as opposed to the dependencies it pulls in along the way. Gates the
+    ///     module path's ZS0005 analysis so each module is analysed exactly once, against its own
+    ///     source, by the compilation that owns it.
+    /// </summary>
+    private string? _analyzedModuleName;
+
     private CompiledModule? CompileModule(
         string moduleName,
         ModuleResolver resolver,
         SourceSpan importSpan
     )
     {
+        // Compared against the spelling CompileAsModule was handed, before aliasing rewrites it.
+        var isAnalyzedModule = moduleName == _analyzedModuleName;
+
         // Canonicalize through the package alias table (e.g. "http" → "http/http") before anything
         // keys off the name. A module reached under both its alias and its target would otherwise
         // compile twice — once per spelling — and every function it exports would join the overload
@@ -206,6 +217,18 @@ public sealed partial class Compilation
                 CopyDiagnostics(modDiag);
                 return Fail();
             }
+
+            // Self-recursion that TailCallLowering will not compile as a loop (ZS0005) —
+            // stage 4.8's counterpart for the module path, which every package module reaches
+            // through CompileAsModule. Only the module this compilation was asked to compile is
+            // analysed: its dependencies get their own turn as the primary of their own
+            // sub-compilation, and an *installed* dependency never does, which is right — a
+            // warning about somebody else's shipped package is not actionable. Reported into
+            // _diagnostics rather than modDiag, which is copied out only when it has errors.
+            if (isAnalyzedModule)
+                new TailRecursionAnalyzer(_diagnostics, _options.WarnUnloopedRecursion).Analyze(
+                    program
+                );
 
             // Lower to IR — inject transitive CLR bindings
             var lowering = new IrLowering(
@@ -499,6 +522,8 @@ public sealed partial class Compilation
             );
             return null;
         }
+
+        _analyzedModuleName = moduleName;
 
         var resolver = CreateModuleResolver(filePath);
         resolver.InjectSource(moduleName, filePath, source);

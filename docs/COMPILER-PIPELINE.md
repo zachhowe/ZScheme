@@ -349,9 +349,15 @@ A single definition opts out with the `#:recursive` marker
 never leaves the AST. The whole compilation opts out via
 `CompilerOptions.WarnUnloopedRecursion`.
 
-Note that `CompileModule` (dependency modules) runs only the Stage 4.6 validator, and
-merges its diagnostic bag on failure paths only — so a dependency's `ZS0003`/`ZS0005`
-warnings never reach the importer's build.
+`CompileModule` (the module path) runs the Stage 4.6 validator for every module, and this
+stage for the one module the compilation was invoked on via `CompileAsModule` — which is
+how a package build reaches every module under `(sources (main ...))`, one sub-compilation
+each. Modules pulled in as *dependencies* of that one are skipped: each gets its own turn
+as the primary of its own sub-compilation, and an installed dependency never does, since a
+warning about somebody else's shipped package isn't actionable. The warning is raised
+against the module's own file and span, and `LibraryCompiler` merges each sub-compilation's
+bag on success as well as on failure — without that, a package build stayed silent no
+matter what the analyzer found. Stage 4.7 (`ZS0003`) still does not run in the module path.
 
 If `CompilerOptions.StopAfterTypeInference` is set (LSP analysis mode),
 compilation returns a `TypeAnalysisResult` after this step, without lowering or
