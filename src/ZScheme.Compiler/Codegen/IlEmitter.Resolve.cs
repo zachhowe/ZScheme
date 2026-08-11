@@ -26,7 +26,11 @@ public sealed partial class IlEmitter
     }
 
     /// <summary>
-    ///     Resolves a ZType to a CLR System.Type, checking user-defined types first.
+    ///     Resolves a ZType to a CLR System.Type, checking user-defined types first. Every caller
+    ///     uses the result to look a member up (overload resolution, a receiver's methods and
+    ///     properties), never to name a type in emitted metadata, so it maps through
+    ///     <see cref="MapToReflectionClrForLookup" />: a record or union this module is defining
+    ///     has no loaded <see cref="Type" /> and legitimately arrives here as <c>object</c>.
     /// </summary>
     private Type ResolveClrType(ZType type)
     {
@@ -40,7 +44,7 @@ public sealed partial class IlEmitter
             }
 
             if (type is not ZType.ZNamedType named)
-                return MapToReflectionClr(type);
+                return MapToReflectionClrForLookup(type);
             if (_userTypes.TryGetValue(named.Name, out var typeRef))
             {
                 var resolved = ResolveClrTypeForTypeRef(typeRef);
@@ -50,7 +54,7 @@ public sealed partial class IlEmitter
 
             // Try resolving as a CLR type for fully-qualified names
             if (!named.Name.Contains('.'))
-                return MapToReflectionClr(type);
+                return MapToReflectionClrForLookup(type);
 
             // A parameterized name must prefer the arity-suffixed generic definition — a
             // same-named non-generic companion (e.g. the static System.Nullable class
@@ -58,13 +62,12 @@ public sealed partial class IlEmitter
             // struct-receiver call emission (callvirt on a struct value is invalid IL).
             if (
                 named.TypeArgs.Count > 0
-                && _clrInterop.FindType($"{named.Name}`{named.TypeArgs.Count}")
-                    is { } openGeneric
+                && _clrInterop.FindType($"{named.Name}`{named.TypeArgs.Count}") is { } openGeneric
             )
                 try
                 {
                     return openGeneric.MakeGenericType(
-                        named.TypeArgs.Select(MapToReflectionClr).ToArray()
+                        named.TypeArgs.Select(MapToReflectionClrForLookup).ToArray()
                     );
                 }
                 catch
@@ -74,7 +77,7 @@ public sealed partial class IlEmitter
                 }
 
             var clrType = _clrInterop.FindType(named.Name);
-            return clrType ?? MapToReflectionClr(type);
+            return clrType ?? MapToReflectionClrForLookup(type);
         }
     }
 

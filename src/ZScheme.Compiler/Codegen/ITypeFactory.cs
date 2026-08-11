@@ -46,4 +46,12 @@ internal interface ITypeFactory<T>
 
     /// <summary>Reports a non-fatal mapping fallback (routes to diagnostics on the reflection backend).</summary>
     void Warn(string message);
+
+    /// <summary>
+    ///     The traversal ran out of ways to resolve <paramref name="type" /> and is falling back to
+    ///     <see cref="Object" />. Whether that deserves a diagnostic is the factory's call: erasing a
+    ///     type that ends up naming something in emitted metadata is a defect, while erasing one the
+    ///     caller only wants to look a member up on is by design.
+    /// </summary>
+    T Unmappable(ZType type);
 }

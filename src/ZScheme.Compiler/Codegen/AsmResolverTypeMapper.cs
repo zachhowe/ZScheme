@@ -137,6 +137,12 @@ internal sealed class AsmResolverTypeFactory(ModuleDefinition module, TypeSignat
         // No diagnostics surface on the IL backend; the reflection backend reports these.
     }
 
+    public TypeSignature Unmappable(ZType type)
+    {
+        Warn($"TypeMapper: Cannot map type '{type}' to CLR type, falling back to object");
+        return Object;
+    }
+
     /// <summary>
     ///     Imports a CLR type, routing corlib types (Func, Action, Task, etc.) through the module's
     ///     configured corlib scope instead of System.Private.CoreLib.

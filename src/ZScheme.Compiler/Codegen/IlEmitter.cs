@@ -106,6 +106,28 @@ public sealed partial class IlEmitter(
         );
     }
 
+    /// <summary>
+    ///     <see cref="MapToReflectionClr" /> for the call sites that only need a
+    ///     <see cref="Type" /> to look a member up on — a delegate's <c>Invoke</c>, a constructor,
+    ///     the argument types feeding an overload resolution. There a type this module is still
+    ///     defining has no loaded <see cref="Type" /> by construction, and erasing it to
+    ///     <c>object</c> changes nothing, because the emitted token is rebuilt from the AsmResolver
+    ///     signature afterwards. Only the diagnostic differs: this entry point stays quiet, so the
+    ///     unmappable-type warning keeps meaning "a type reached emitted metadata erased" rather
+    ///     than firing several times on every correct compile that declares a record.
+    /// </summary>
+    internal Type MapToReflectionClrForLookup(ZType type)
+    {
+        return IlTypeMapper.MapToClr(
+            type,
+            _userReflectionTypes,
+            diagnostics: diagnostics,
+            typeAliases: _typeAliases,
+            clrInterop: _clrInterop,
+            objectFallbackExpected: true
+        );
+    }
+
     internal TypeSignature MapToClr(
         ZType type,
         EmitContext ctx,
@@ -1351,7 +1373,7 @@ public sealed partial class IlEmitter(
     /// </summary>
     private IMethodDefOrRef ImportDelegateConstructor(ZType funcType, EmitContext ctx)
     {
-        var clrDelegateType = MapToReflectionClr(funcType);
+        var clrDelegateType = MapToReflectionClrForLookup(funcType);
         var ctorInfo = clrDelegateType.GetConstructors()[0];
         var asmDelegateType = MapToClr(funcType, ctx);
         if (asmDelegateType is GenericInstanceTypeSignature git)

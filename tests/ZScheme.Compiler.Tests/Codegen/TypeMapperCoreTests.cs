@@ -40,6 +40,12 @@ public class TypeMapperCoreTests
             $"{openMapped}<{string.Join(",", args)}>";
 
         public void Warn(string message) => Warnings.Add(message);
+
+        public string Unmappable(ZType type)
+        {
+            Warn($"TypeMapper: Cannot map type '{type}' to CLR type, falling back to object");
+            return Object;
+        }
     }
 
     private static string Map(
@@ -66,7 +72,14 @@ public class TypeMapperCoreTests
     {
         var reg = new TypeAliasRegistry();
         reg.RegisterBuiltIn(
-            new TypeAliasInfo("Mutable-Vector", ["^a"], "", null, TypeAliasKind.SzArray, SourceSpan.None)
+            new TypeAliasInfo(
+                "Mutable-Vector",
+                ["^a"],
+                "",
+                null,
+                TypeAliasKind.SzArray,
+                SourceSpan.None
+            )
         );
         return reg;
     }

@@ -467,6 +467,57 @@ public class IlTypeMapperTests
         Assert.Contains("Cannot map type", warning.Message);
     }
 
+    /// A member lookup asking about a type this module is still emitting still gets object —
+    /// it just does not report it, because there is nothing the user could do about a record
+    /// that has no loaded reflection Type by construction.
+    [Fact]
+    public void MapToClr_ObjectFallbackExpected_FallsBackToObjectWithoutWarning()
+    {
+        var diagnostics = new DiagnosticBag();
+
+        Assert.Equal(
+            typeof(object),
+            IlTypeMapper.MapToClr(
+                new ZType.ZNamedType("SomeUserType", []),
+                new Dictionary<string, Type>(),
+                diagnostics: diagnostics,
+                objectFallbackExpected: true
+            )
+        );
+        Assert.Equal(
+            typeof(object),
+            IlTypeMapper.MapToClr(
+                new ZType.ZTypeVar(0),
+                new Dictionary<string, Type>(),
+                diagnostics: diagnostics,
+                objectFallbackExpected: true
+            )
+        );
+
+        Assert.Empty(diagnostics.Diagnostics);
+    }
+
+    /// The same lookup-only entry point must not swallow a fallback that is a genuine defect:
+    /// an unresolvable delegate type is reported either way.
+    [Fact]
+    public void MapToClr_ObjectFallbackExpected_StillWarnsOnUnresolvableDelegate()
+    {
+        var diagnostics = new DiagnosticBag();
+
+        Assert.Equal(
+            typeof(object),
+            IlTypeMapper.MapToClr(
+                new ZType.ZDelegateType("Nonexistent.Delegate.Type"),
+                new Dictionary<string, Type>(),
+                diagnostics: diagnostics,
+                objectFallbackExpected: true
+            )
+        );
+
+        var warning = Assert.Single(diagnostics.Diagnostics);
+        Assert.Contains("Cannot resolve delegate type", warning.Message);
+    }
+
     // ─── Fully-Qualified Task Types ───────────────────────────
 
     [Fact]

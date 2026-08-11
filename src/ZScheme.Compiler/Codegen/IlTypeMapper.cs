@@ -35,12 +35,13 @@ public static class IlTypeMapper
         IReadOnlyDictionary<int, Type>? typeVarMap = null,
         DiagnosticBag? diagnostics = null,
         TypeAliasRegistry? typeAliases = null,
-        ClrInterop? clrInterop = null
+        ClrInterop? clrInterop = null,
+        bool objectFallbackExpected = false
     )
     {
         return TypeMapperCore.Map(
             type,
-            new ReflectionTypeFactory(diagnostics),
+            new ReflectionTypeFactory(diagnostics, objectFallbackExpected),
             userTypes,
             typeParamMap,
             typeVarMap,
@@ -55,7 +56,17 @@ public static class IlTypeMapper
 ///     The <c>corLibAware</c> flag is irrelevant for reflection (there is no module scope to route
 ///     through), so it is ignored.
 /// </summary>
-internal sealed class ReflectionTypeFactory(DiagnosticBag? diagnostics) : ITypeFactory<Type>
+/// <param name="objectFallbackExpected">
+///     Set by callers that only want something to look a member up on, where a type this module is
+///     still defining legitimately has no loaded <see cref="Type" /> and <c>object</c> stands in
+///     harmlessly. It suppresses the unmappable-type diagnostic, which otherwise fires once per
+///     erasure site on compiles that are entirely correct. Left false everywhere else, so the
+///     diagnostic stays loud at any site whose result reaches emitted metadata.
+/// </param>
+internal sealed class ReflectionTypeFactory(
+    DiagnosticBag? diagnostics,
+    bool objectFallbackExpected = false
+) : ITypeFactory<Type>
 {
     public Type Object => typeof(object);
 
@@ -110,5 +121,12 @@ internal sealed class ReflectionTypeFactory(DiagnosticBag? diagnostics) : ITypeF
     public void Warn(string message)
     {
         diagnostics?.Warning(message, SourceSpan.None);
+    }
+
+    public Type Unmappable(ZType type)
+    {
+        if (!objectFallbackExpected)
+            Warn($"TypeMapper: Cannot map type '{type}' to CLR type, falling back to object");
+        return Object;
     }
 }

@@ -1010,16 +1010,17 @@ public sealed partial class IlEmitter
                 {
                     EmitNode(jump.NewArgs[i], il, outerParams, locals, ctx);
                     var declaredSlotType = exit.ParamSlotType(i);
-                    var slotType = declaredSlotType ?? MapToClr(jump.NewArgs[i].Type, ctx);
+                    var argSig = MapToClr(jump.NewArgs[i].Type, ctx);
+                    var slotType = declaredSlotType ?? argSig;
                     // Box a value-type argument going into a reference-type parameter slot,
                     // matching the normal call path (EmitCall). Without it the IL leaves a raw
                     // value where a reference is expected — unverifiable.
-                    if (declaredSlotType is not null)
-                    {
-                        var argClrType = MapToReflectionClr(jump.NewArgs[i].Type);
-                        if (argClrType.IsValueType && !declaredSlotType.IsValueType)
-                            il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argClrType));
-                    }
+                    if (
+                        declaredSlotType is not null
+                        && argSig.IsValueType
+                        && !declaredSlotType.IsValueType
+                    )
+                        il.Add(CilOpCodes.Box, argSig.ToTypeDefOrRef());
 
                     var tmp = new CilLocalVariable(slotType);
                     il.Owner.LocalVariables.Add(tmp);
@@ -2160,12 +2161,9 @@ public sealed partial class IlEmitter
                             // Resolve generic parameter signatures to concrete types,
                             // including nested generics like SList<!0>
                             var resolvedParam = ResolveGenericParam(paramSig, typeArgs);
-                            var argClrType = MapToReflectionClr(call.Args[i].Type);
-                            if (argClrType.IsValueType && !resolvedParam.IsValueType)
-                                il.Add(
-                                    CilOpCodes.Box,
-                                    _module.DefaultImporter.ImportType(argClrType)
-                                );
+                            var argSig = MapToClr(call.Args[i].Type, ctx);
+                            if (argSig.IsValueType && !resolvedParam.IsValueType)
+                                il.Add(CilOpCodes.Box, argSig.ToTypeDefOrRef());
                         }
                     }
 
@@ -2184,9 +2182,9 @@ public sealed partial class IlEmitter
                         EmitNode(call.Args[i], il, outerParams, locals, ctx);
                         if (i >= sig.ParameterTypes.Count)
                             continue;
-                        var argClrType = MapToReflectionClr(call.Args[i].Type);
-                        if (argClrType.IsValueType && !sig.ParameterTypes[i].IsValueType)
-                            il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argClrType));
+                        var argSig = MapToClr(call.Args[i].Type, ctx);
+                        if (argSig.IsValueType && !sig.ParameterTypes[i].IsValueType)
+                            il.Add(CilOpCodes.Box, argSig.ToTypeDefOrRef());
                     }
 
                     il.Add(CilOpCodes.Call, methodDef);
@@ -2257,9 +2255,9 @@ public sealed partial class IlEmitter
                         EmitNode(call.Args[i], il, outerParams, locals, ctx);
                         if (preParams is null || i >= preParams.Length)
                             continue;
-                        var argClrType = MapToReflectionClr(call.Args[i].Type);
-                        if (argClrType.IsValueType && !preParams[i].ParameterType.IsValueType)
-                            il.Add(CilOpCodes.Box, _module.DefaultImporter.ImportType(argClrType));
+                        var argSig = MapToClr(call.Args[i].Type, ctx);
+                        if (argSig.IsValueType && !preParams[i].ParameterType.IsValueType)
+                            il.Add(CilOpCodes.Box, argSig.ToTypeDefOrRef());
                     }
 
                     il.Add(CilOpCodes.Call, (IMethodDefOrRef)precompiledMethod);
@@ -3675,18 +3673,12 @@ public sealed partial class IlEmitter
         var paramNames = funcDef.Params.Select(p => p.Name).ToHashSet();
         var freeVars = FindFreeVars(funcDef.Body, paramNames);
 
-        var captures = new List<(string Name, TypeSignature SigType, Type ClrType)>();
+        var captures = new List<(string Name, TypeSignature SigType)>();
         var capturedNames = new HashSet<string>();
         foreach (var fv in freeVars)
             if (locals.TryGetValue(fv, out var loc))
             {
-                captures.Add(
-                    (
-                        fv,
-                        loc.VariableType,
-                        MapToReflectionClr(GetVarType(fv, outerParams, locals) ?? ZType.Unit)
-                    )
-                );
+                captures.Add((fv, loc.VariableType));
                 capturedNames.Add(fv);
             }
             else
@@ -3694,7 +3686,7 @@ public sealed partial class IlEmitter
                 foreach (var t in outerParams)
                     if (t.Name == fv)
                     {
-                        captures.Add((fv, MapToClr(t.Type, ctx), MapToReflectionClr(t.Type)));
+                        captures.Add((fv, MapToClr(t.Type, ctx)));
                         capturedNames.Add(fv);
                         break;
                     }
@@ -3741,7 +3733,7 @@ public sealed partial class IlEmitter
         if (needsThisCapture)
         {
             var thisSig = ctx.CurrentTypeDefinition!.ToTypeSignature();
-            captures.Add((thisCaptureName, thisSig, typeof(object)));
+            captures.Add((thisCaptureName, thisSig));
         }
 
         if (captures.Count == 0)
@@ -3862,7 +3854,7 @@ public sealed partial class IlEmitter
                 closureType.GenericParameters.Add(new GenericParameter(tp));
 
             var captureFields = new List<FieldDefinition>();
-            foreach (var (name, sigType, _) in captures)
+            foreach (var (name, sigType) in captures)
             {
                 var fieldSig = closureIsGeneric ? MethodGpToTypeGp(sigType) : sigType;
                 var fb = new FieldDefinition(
@@ -5392,7 +5384,7 @@ public sealed partial class IlEmitter
     /// </summary>
     private void EmitDelegateInvoke(ZType funcType, CilInstructionCollection il, EmitContext ctx)
     {
-        var clrDelegateType = MapToReflectionClr(funcType);
+        var clrDelegateType = MapToReflectionClrForLookup(funcType);
         var invokeMethod = clrDelegateType.GetMethod("Invoke");
         if (invokeMethod is null)
         {

@@ -165,13 +165,11 @@ internal static class TypeMapperCore
                 );
                 if (resolved is not null)
                     return resolved;
-                f.Warn($"TypeMapper: Cannot map type '{type}' to CLR type, falling back to object");
-                return f.Object;
+                return f.Unmappable(type);
             }
 
             default:
-                f.Warn($"TypeMapper: Cannot map type '{type}' to CLR type, falling back to object");
-                return f.Object;
+                return f.Unmappable(type);
         }
     }
 
