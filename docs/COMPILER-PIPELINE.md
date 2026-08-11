@@ -430,10 +430,23 @@ sub-passes over the whole program, in order:
   Unconditional (a lowering, not an optimization: no backend can emit a recursive group directly),
   and run before every other pass so none of them needs an `IrNode.LetRec` case — which matters
   because most passes' switches fall through silently rather than failing on an unknown node. Runs
-  after `ObjectLifter` so every instance context is already an `IrNode.ClassDecl`. Two shapes are
-  reported as errors rather than lifted unsoundly: a group that reads a class field (the lifted
-  static has no `this`), and a member whose type mentions type variables used as a *value*
-  (`IrNode.Closure` has nowhere to carry the type arguments a generic method needs).
+  after `ObjectLifter` so every instance context is already an `IrNode.ClassDecl`.
+  A group written inside a class or `object` method may use the instance, by one of two routes.
+  A field that cannot change after construction (not `#:mutable`, not `init`) joins the capture
+  set like any enclosing local: the site reads it, and the site is inside the method where the
+  bare name already resolves to `this.Field`, so nothing downstream can tell it from any other
+  capture. Anything else that needs a `this` — a `#:mutable` field, a sibling method call, a
+  `super/` call — makes the group's members private methods of that class
+  (`IrObjectMethod.IsSynthesizedHelper`) instead of top-level statics; there too the call sites
+  need no rewriting, because a bare name in a method body is already `this.M` on both backends.
+  A `set!` and a `super/` call name their target implicitly, so neither appears in the
+  free-variable set and a dedicated scan finds them. Three shapes are still reported as errors:
+  a group that needs the instance where there is none to host it on (in a constructor, whose
+  scope binds only its own parameters and whose emission has no class-method map live), a
+  member used in *value* position when it is either generic or hosted on the class
+  (`IrNode.Closure` names a top-level static, with nowhere to carry type arguments and no
+  receiver slot), and a group that needs the instance *and* is generic, since `IrObjectMethod`
+  cannot declare type parameters.
 - [`IiffeBetaReducer`](../src/ZScheme.Compiler/Ir/IiffeBetaReducer.cs) — beta-reduces
   immediately-invoked lambdas (`((lambda (x) ...) a)`) into `let` spines, so they are
   never needlessly treated as first-class closures.
@@ -480,12 +493,15 @@ Tail-call optimization is a separate shared rewrite,
 **not** part of `IrLowering`. It runs just before code generation — at each emitter's entry,
 after the with-handlers/await hoisters — so that by then every tail self-call is a plain
 `Call` with already-hoisted arguments and no other pass (name resolution, the hoisters)
-needs to know about the nodes it introduces. For each top-level function — and each method of
-a **sealed** class — it replaces every tail *self*-call with an `IrNode.TcoJump` back-edge
-(carrying the parameter names and the new argument values) and marks the `FuncDef` /
-`IrObjectMethod` with `IsTcoLoop`. An `#:open` class's methods are left alone: they emit
-`virtual`/`override`, so `this.M(…)` dispatches to whatever a subclass overrides and a
-back-edge would silently run the base body instead. Only self-calls in tail position
+needs to know about the nodes it introduces. For each top-level function — and each method
+whose self-call binds statically — it replaces every tail *self*-call with an `IrNode.TcoJump`
+back-edge (carrying the parameter names and the new argument values) and marks the `FuncDef` /
+`IrObjectMethod` with `IsTcoLoop`. Every method of a sealed class qualifies. On an `#:open`
+class the methods the source wrote do not: they emit `virtual`/`override`, so `this.M(…)`
+dispatches to whatever a subclass overrides and a back-edge would silently run the base body
+instead. Its `IsSynthesizedHelper` methods — the ones `LetrecLifter` adds to host a group that
+uses the instance — do qualify, because they emit `private` and non-virtual, so nothing can
+override one and no source name can reach it. Only self-calls in tail position
 through `if`/`let`/`match`/`begin` spines are rewritten; mutual/other tail calls and non-tail
 self-calls stay plain `Call`s. Both backends then emit an `IsTcoLoop` function as a loop — C#
 as `while(true)` with a `continue` at each `TcoJump`, IL as a start label with a `Br` back —

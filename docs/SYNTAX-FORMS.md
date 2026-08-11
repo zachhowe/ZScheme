@@ -74,14 +74,14 @@ restriction:
   backends. One that recurses off the tail spine warns (`ZS0005`) exactly as a top-level
   definition would, and takes the same `#:recursive` opt-out.
 - It may be generic, including in the enclosing function's type parameters.
-- It may not read a class field, because the lifted function has no `this` (see the `letrec`
-  limitation below). Pass the field in as a parameter.
+- Inside a class or `object` method it may use the instance — read a field, write a `#:mutable`
+  one, call a sibling method — and still compiles to a loop. See the `letrec` limitation below
+  for the two shapes that remain out of reach.
 
 Only `define` nests. `define-async` and the type-declaration forms (`define-record`,
 `define-struct`, `define-union`, `define-class`, `define-interface`, `define-type-alias`) are
 top-level only. A `:where` clause is not allowed on a nested definition — the enclosing function's
-constraints already apply to its type parameters. A class or `object` method body is a single
-expression, so a nested definition there needs a `let` or `begin` wrapper.
+constraints already apply to its type parameters.
 
 ### `define-async` — Define an async function
 
@@ -179,11 +179,20 @@ backends.
 A group inside a generic function is fine: the lifted functions become generic over the type
 variables their own signatures mention, and both backends instantiate the call sites explicitly.
 
-**Limitation:** a `letrec` group is lifted to top-level static functions, which have no `this`, so a
-binding whose value reads a class field is rejected — pass the field in as a parameter instead. And
-because a generic lifted function cannot be turned into a delegate, a group member whose type
-mentions type variables may only be *called*, not used as a value; move it to a top-level `define`
-if you need to pass it around.
+A group written inside a class or `object` method may use the instance. A field that cannot change
+after construction is captured by value, like any enclosing local. Anything else that needs a
+`this` — reading or writing a `#:mutable` field, calling a sibling method, calling `super/` — makes
+the group a private method of that class instead of a top-level function. Either way it still
+compiles to a loop, including on an `#:open` class, where the synthesized method is private and so
+cannot be overridden.
+
+**Limitation:** a group member may only be *called*, not used as a value, when it is generic (a
+generic lifted function cannot be turned into a delegate) or when it reaches the instance (a
+private method has no delegate form either). Move it to a top-level `define` if you need to pass
+it around. A group in a *constructor* cannot use the instance at all: fields are not in scope
+there, and the instance is not complete until the constructor returns. A group that reaches the
+instance also cannot be generic, since the method hosting it has nowhere to declare type
+parameters — annotate its parameter and return types.
 
 ### `lambda` — Anonymous function
 

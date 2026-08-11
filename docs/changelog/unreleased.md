@@ -42,6 +42,31 @@ In development since 2026-08-11.
   - Redefining a name in a later group of the same body is legal but almost always a mistake, so
     it warns and points at both definitions — skipped for bindings with no `NameSpan` or a `_`
     prefix, matching `UnusedBindingAnalyzer`.
+- **A nested definition inside a class or `object` method may use the instance.** A loop helper
+  serving one method is the natural way to write an accumulator loop without widening the
+  method's signature, and it was refused outright the moment it named a field. Two routes now
+  carry it, chosen by what the group actually needs. A field that cannot change after
+  construction joins the capture set like any enclosing local — the site reads it, and the site
+  is inside the method, where the bare name already resolves to `this.Field` — which costs no
+  new IR node, emitter path or traversal, and reads the field once per call rather than once per
+  iteration. Every field of a class lifted from an `(object …)` stands for a captured local and
+  so takes this route. Anything else that needs a real `this` — a `#:mutable` field, a sibling
+  method call, a `super/` call — makes the group's members private methods of the class instead
+  of top-level statics, where the call sites again need no rewriting because a bare name in a
+  method body is already `this.M` on both backends.
+  - They loop under TCO like anything else, including on an `#:open` class: `TailCallLowering`
+    used to skip an open class wholesale, which was exact for the methods the source wrote
+    (virtual, so a self-call may reach a subclass override) but not for a synthesized helper
+    (private and non-virtual, so nothing can override it or name it). The test is now per
+    method rather than per class.
+  - Still refused: a group needing the instance from a *constructor*, whose scope binds only its
+    own parameters and whose emission has no class-method map live; a member used as a *value*
+    when it is generic or hosted on the class, since `IrNode.Closure` names a top-level static
+    and has neither a type-argument nor a receiver slot; and a group that needs the instance and
+    is generic, since a method has nowhere to declare type parameters.
+- **A class or `object` method body is sequenced like every other body.** It was a single
+  expression, so a nested definition there needed a `let` wrapper no other body asks for, and
+  trailing forms were dropped. All bodies now share `BuildExprSequence`.
 - `examples/letrec.zs`, and `letrec` added to all four editor grammars (IntelliJ, Sublime,
   VS Code, Zed).
 
