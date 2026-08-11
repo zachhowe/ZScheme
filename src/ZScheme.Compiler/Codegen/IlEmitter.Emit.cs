@@ -4092,13 +4092,15 @@ public sealed partial class IlEmitter
     }
 
     /// <summary>
-    ///     Emits an <see cref="IrNode.Closure" /> produced by <see cref="ClosureConverter" />: the
-    ///     capturing lambda has already been lifted to a top-level static method whose signature is
-    ///     <c>(captures..., original params...) -> return</c>. Here we synthesize a small
-    ///     forwarding display class — one field per captured value, a default ctor, and an
-    ///     <c>Invoke(originalParams...)</c> that loads the capture fields then its own arguments and
-    ///     <c>call</c>s the lifted static method — then build the delegate from a new display
-    ///     instance whose fields hold the captured values.
+    ///     Emits an <see cref="IrNode.Closure" /> produced by <see cref="ClosureConverter" /> or
+    ///     <see cref="LetrecLifter" />: the capturing lambda has already been lifted to a top-level
+    ///     static method whose signature is <c>(captures..., original params...) -> return</c>.
+    ///     Behind it stands a small forwarding display class — one field per captured value, a
+    ///     default ctor, and an <c>Invoke(originalParams...)</c> that loads the capture fields then
+    ///     its own arguments and <c>call</c>s the lifted static method. That class is synthesized
+    ///     once per lifted function by <see cref="GetOrCreateClosureDisplayType" /> and shared; what
+    ///     is emitted here is the per-site construction, building the delegate from a new display
+    ///     instance whose fields hold this site's captured values.
     ///
     ///     Unlike <see cref="EmitLambda" />, this never needs generic propagation or
     ///     <c>&lt;&gt;this</c> capture: <see cref="ClosureConverter" /> only lifts lambdas that
@@ -4137,21 +4139,94 @@ public sealed partial class IlEmitter
             return;
         }
 
-        var liftedSig = liftedMethod.Signature!;
         var captureCount = closure.CapturedValues.Count;
+        var display = GetOrCreateClosureDisplayType(closure, liftedMethod, captureCount, ctx);
+        if (display is null)
+        {
+            il.Add(CilOpCodes.Ldnull);
+            return;
+        }
+
+        // Construction site: new display instance, fill capture fields, delegate over Invoke.
+        il.Add(CilOpCodes.Newobj, display.Ctor);
+        for (var i = 0; i < captureCount; i++)
+        {
+            il.Add(CilOpCodes.Dup);
+            EmitNode(closure.CapturedValues[i], il, outerParams, locals, ctx);
+            il.Add(CilOpCodes.Stfld, display.CaptureFields[i]);
+        }
+
+        il.Add(CilOpCodes.Ldftn, display.Invoke);
+        il.Add(CilOpCodes.Newobj, ImportDelegateConstructor(closure.Type, ctx));
+    }
+
+    /// <summary>
+    ///     The reusable parts of a lifted closure's display class: its default ctor, its
+    ///     <c>Invoke</c> forwarder, and its capture fields in the lifted method's parameter order.
+    /// </summary>
+    private sealed record ClosureDisplay(
+        MethodDefinition Ctor,
+        MethodDefinition Invoke,
+        IReadOnlyList<FieldDefinition> CaptureFields
+    );
+
+    /// <summary>
+    ///     Returns the display class for <paramref name="closure" />'s lifted function under the
+    ///     type currently being emitted, building it on first use.
+    ///
+    ///     One type per (enclosing type, lifted function) rather than per <see cref="IrNode.Closure" />
+    ///     node: <see cref="LetrecLifter" /> emits a fresh <c>Closure</c> for every value-position
+    ///     use of a group member, all naming the same lifted function, and the display type's name
+    ///     is a pure function of that name — so emitting one per site put N identically named
+    ///     nested types on one parent and tripped the duplicate-member guard at write time.
+    ///
+    ///     Sharing is safe because the shape belongs to the lifted function, not the use site: the
+    ///     capture fields are typed from the lifted method's leading parameters, and the captured
+    ///     *values* are pushed at each construction site into a fresh instance. The capture count
+    ///     is checked rather than assumed, since a mismatch would silently emit fields of the wrong
+    ///     type.
+    ///
+    ///     Returns null after reporting a diagnostic if that check fails.
+    /// </summary>
+    private ClosureDisplay? GetOrCreateClosureDisplayType(
+        IrNode.Closure closure,
+        MethodDefinition liftedMethod,
+        int captureCount,
+        EmitContext ctx
+    )
+    {
+        var parent = ctx.CurrentTypeDefinition!;
+        var typeName = $"<>c__{Sanitize(closure.LiftedFuncName)}";
+        var cacheKey = $"{parent.FullName}/{typeName}";
+
+        if (_closureDisplayTypes.TryGetValue(cacheKey, out var cached))
+        {
+            if (cached.CaptureFields.Count == captureCount)
+                return cached;
+
+            diagnostics.Error(
+                $"Lifted closure '{closure.LiftedFuncName}' captures {captureCount} value(s) here "
+                    + $"but {cached.CaptureFields.Count} at an earlier use; its display class cannot "
+                    + "be shared",
+                closure.Span
+            );
+            return null;
+        }
+
+        var liftedSig = liftedMethod.Signature!;
 
         var displayType = new TypeDefinition(
             "",
-            $"<>c__{Sanitize(closure.LiftedFuncName)}",
+            typeName,
             TypeAttributes.NestedPrivate | TypeAttributes.Sealed | TypeAttributes.Class
         )
         {
             BaseType = _module.CorLibTypeFactory.Object.ToTypeDefOrRef(),
         };
-        ctx.CurrentTypeDefinition!.NestedTypes.Add(displayType);
+        parent.NestedTypes.Add(displayType);
 
         // One capture field per captured value, typed by the lifted method's leading (capture)
-        // parameters so the values pushed at the call below match its signature exactly.
+        // parameters so the values pushed at each construction site match its signature exactly.
         var captureFields = new List<FieldDefinition>(captureCount);
         for (var i = 0; i < captureCount; i++)
         {
@@ -4204,17 +4279,9 @@ public sealed partial class IlEmitter
         invokeIl.Add(CilOpCodes.Call, liftedMethod);
         invokeIl.Add(CilOpCodes.Ret);
 
-        // Construction site: new display instance, fill capture fields, delegate over Invoke.
-        il.Add(CilOpCodes.Newobj, ctor);
-        for (var i = 0; i < captureCount; i++)
-        {
-            il.Add(CilOpCodes.Dup);
-            EmitNode(closure.CapturedValues[i], il, outerParams, locals, ctx);
-            il.Add(CilOpCodes.Stfld, captureFields[i]);
-        }
-
-        il.Add(CilOpCodes.Ldftn, invoke);
-        il.Add(CilOpCodes.Newobj, ImportDelegateConstructor(closure.Type, ctx));
+        var display = new ClosureDisplay(ctor, invoke, captureFields);
+        _closureDisplayTypes[cacheKey] = display;
+        return display;
     }
 
     /// <summary>

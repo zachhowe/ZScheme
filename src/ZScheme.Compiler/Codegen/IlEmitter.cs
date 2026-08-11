@@ -51,6 +51,12 @@ public sealed partial class IlEmitter(
     // fills each one in.
     private readonly Dictionary<string, TypeDefinition> _declaredClassTypes = new();
     private readonly Dictionary<string, ZType.ZFuncType> _genericMethodTypes = new();
+
+    // Display classes synthesized for lifted closures, keyed by "<enclosing type>/<display type
+    // name>" — see GetOrCreateClosureDisplayType. The enclosing type is part of the key because
+    // the display type is nested and private, so it may only be shared within one parent.
+    private readonly Dictionary<string, ClosureDisplay> _closureDisplayTypes = new();
+
     private readonly string _ilNamespace = ilNamespace ?? assemblyName;
 
     private readonly Dictionary<string, MethodDefinition> _methods = new();

@@ -187,6 +187,42 @@ public class LetrecTests
     public void FunctionInValuePosition_Il() =>
         Assert.Equal(4, CompileIlAndRunInt(ValuePositionSource));
 
+    // Two value-position uses of one member produce two IrNode.Closure nodes naming the same
+    // lifted function. The IL backend names its display class after that function, so a type per
+    // Closure node put two identically named nested types on one parent and the emitter refused to
+    // write the metadata; the display class is now shared per enclosing type. `base` is captured so
+    // the shared shape has a field to get wrong. step(k) = base + k, so with base = 10 this is
+    // (10+2) + (10+3) = 25.
+    private const string ValuePositionTwiceSource =
+        @"(module test)
+(define (apply-to [g : (Int -> Int)] [n : Int]) : Int
+  (g n))
+(define (from [base : Int]) : Int
+  (letrec ([step (lambda ([k : Int]) : Int (if (= k 0) base (+ 1 (step (- k 1)))))])
+    (+ (apply-to step 2) (apply-to step 3))))
+(define (compute) : Int
+  (from 10))";
+
+    [Fact]
+    public void FunctionInValuePositionTwice_CSharp() =>
+        Assert.Equal(25, CompileCSharpAndRunInt(ValuePositionTwiceSource));
+
+    [Fact]
+    public void FunctionInValuePositionTwice_Il() =>
+        Assert.Equal(25, CompileIlAndRunInt(ValuePositionTwiceSource));
+
+    // The captured value differs per call, so a shared display *type* must still mean a fresh
+    // display *instance* per construction site. from(10) = 25 and from(100) = 205.
+    [Fact]
+    public void FunctionInValuePositionTwice_CapturesPerInstance_Il()
+    {
+        var source = ValuePositionTwiceSource.Replace(
+            "(from 10))",
+            "(+ (from 10) (* 1000 (from 100))))"
+        );
+        Assert.Equal(205025, CompileIlAndRunInt(source));
+    }
+
     // --- A mixed group ---
 
     // `base` is a plain value, `f` captures it, and `result` calls `f`. The site has to bind
@@ -285,6 +321,57 @@ public class LetrecTests
 
     [Fact]
     public void LetrecInClassMethod_Il() => Assert.Equal(60, CompileIlAndRunInt(ClassMethodSource));
+
+    // --- Inside an (object ...) constructor's super args ---
+
+    // ObjectLifter decides which enclosing locals become fields of the synthesized class from the
+    // object body's free variables, so a local that only a group reads has to be visible to that
+    // scan — including in a super arg, which is emitted before `this` exists. When it was not, the
+    // capture dangled and the IL backend failed with "Variable 'x' not found". Both shapes below
+    // read `x`: the first group has no function bindings at all (it is only rewritten into a `let`
+    // spine, nothing is lifted), the second has one.
+    private const string LetrecInSuperArgsSource =
+        @"(module test)
+(define-class #:open Base
+  [b : Int]
+  (define (Get) : Int b))
+(define (make [x : Int]) : Int
+  (let ([o (object : Base
+             (constructor (super (letrec ([v x]) v)))
+             (define (M) : Int 1))])
+    (Base/Get o)))
+(define (compute) : Int (make 7))";
+
+    [Fact]
+    public void LetrecValueBindingInSuperArgs_CSharp() =>
+        Assert.Equal(7, CompileCSharpAndRunInt(LetrecInSuperArgsSource));
+
+    [Fact]
+    public void LetrecValueBindingInSuperArgs_Il() =>
+        Assert.Equal(7, CompileIlAndRunInt(LetrecInSuperArgsSource));
+
+    // go(3) counts down to `x`, so 7 + 3 = 10.
+    private const string LetrecFunctionInSuperArgsSource =
+        @"(module test)
+(define-class #:open Base
+  [b : Int]
+  (define (Get) : Int b))
+(define (make [x : Int]) : Int
+  (let ([o (object : Base
+             (constructor (super (letrec ([go (lambda ([k : Int]) : Int
+                                                (if (= k 0) x (+ 1 (go (- k 1)))))])
+                                   (go 3))))
+             (define (M) : Int 1))])
+    (Base/Get o)))
+(define (compute) : Int (make 7))";
+
+    [Fact]
+    public void LetrecFunctionBindingInSuperArgs_CSharp() =>
+        Assert.Equal(10, CompileCSharpAndRunInt(LetrecFunctionInSuperArgsSource));
+
+    [Fact]
+    public void LetrecFunctionBindingInSuperArgs_Il() =>
+        Assert.Equal(10, CompileIlAndRunInt(LetrecFunctionInSuperArgsSource));
 
     // --- Tail call optimization ---
 
