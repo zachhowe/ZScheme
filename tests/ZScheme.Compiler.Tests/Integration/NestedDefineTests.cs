@@ -367,28 +367,46 @@ public class NestedDefineTests
     [Fact]
     public void InsideAClassMethod_Il() => Assert.Equal(60, CompileIlAndRunInt(ClassMethodSource));
 
+    // A method body goes through the same sequencing builder as every other body, so a nested
+    // define needs no wrapper here. It was a single expression until this cycle, which made a
+    // method the one place in the language where a definition had to be parenthesized into a
+    // `let` first.
+    private const string MethodBodyDefineSource =
+        @"(module test)
+(define-class Counter
+  [start : Int]
+  (define (Run [n : Int]) : Int
+    (define (go [k : Int] [acc : Int]) : Int
+      (if (= k 0) acc (go (- k 1) (+ acc k))))
+    (go n 0)))
+(define (compute) : Int (Counter/Run (new Counter 5) 10))";
+
     [Fact]
-    public void DirectlyInAMethodBody_ReportsError()
+    public void DirectlyInAMethodBody_CSharp() =>
+        Assert.Equal(55, CompileCSharpAndRunInt(MethodBodyDefineSource));
+
+    [Fact]
+    public void DirectlyInAMethodBody_Il() =>
+        Assert.Equal(55, CompileIlAndRunInt(MethodBodyDefineSource));
+
+    [Fact]
+    public void MultiExpressionMethodBody_KeepsEveryForm()
     {
-        // A method body is a single expression, so a nested define there needs a wrapper. Without
-        // the diagnostic the trailing forms were dropped and the failure surfaced as a type error
-        // on the method's return type.
-        var result = CompileWith(
+        // The forms after the first used to be dropped outright — later reported, but never
+        // run. Sequencing them means the earlier ones take effect and the last one is the
+        // method's value.
+        const string source =
             @"(module test)
 (define-class Counter
   [start : Int]
   (define (Run [n : Int]) : Int
-    (define (go [k : Int]) : Int k)
-    (go n)))
-(define (compute) : Int (Counter/Run (new Counter 5) 10))",
-            OutputMode.CSharp
-        );
+    (let ([a (+ n 1)]) a)
+    (let ([b (+ n 2)]) b)
+    (+ n 3)))
+(define (compute) : Int (Counter/Run (new Counter 5) 10))";
 
-        Assert.False(result.Success);
-        Assert.Contains(
-            result.Diagnostics.Diagnostics,
-            d => d.Message.Contains("has more than one body expression")
-        );
+        Assert.Equal(13, CompileCSharpAndRunInt(source));
+        Assert.Equal(13, CompileIlAndRunInt(source));
     }
 
     [Fact]

@@ -2023,18 +2023,14 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 return null;
             }
 
-            // A method body is a single expression. Extra forms used to be dropped without a
-            // word, which turns a nested `define` here into a confusing type error on the
-            // method's return type instead of a statement about what is unsupported.
-            if (bodyStart < methodList.Items.Count - 1)
-                diagnostics.Error(
-                    $"'{keyword}' method '{methodName}' has more than one body expression, which "
-                        + "is not supported. Wrap the body in '(begin ...)' — or in a 'let' if it "
-                        + "needs a nested 'define'",
-                    methodList.Items[bodyStart + 1].Span
-                );
-
-            var body = Build(methodList.Items[bodyStart]);
+            // A method body is sequenced by the same builder as every other body in the
+            // language, so it may hold several expressions and open with a run of nested
+            // `define`s. It was a single expression for a long time, which meant a nested
+            // definition in a method needed a `let` wrapper no other body asks for.
+            var body = BuildExprSequence(
+                methodList.Items.Skip(bodyStart).ToList(),
+                methodList.Span
+            );
             return new ObjectMethod(
                 methodName,
                 parms,
