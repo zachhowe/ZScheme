@@ -1228,8 +1228,14 @@ public sealed partial class CSharpEmitter
         if (_funcToModuleClass.TryGetValue(n.Name, out var modClass))
             return $"{modClass}.{SanitizeFunc(n.EmitName, n.Name)}";
 
+        // Inside a nested class the bare name would bind to that class's own member when
+        // one shares the name — a field of a different type, say, which Roslyn then rejects
+        // (CS0120 for an instance field reached from a static context). Qualifying with the
+        // module class is unambiguous. Constructors need this as much as methods do: fields
+        // are not even in scope there (TypeInferer.InferClassDecl binds only the ctor's
+        // params), so a bare name that collides with a field is always the module function.
         if (_currentModuleNames.Contains(n.Name))
-            return _currentClassFields is not null
+            return _inNestedClassBody
                 ? $"{className}.{SanitizeFunc(n.EmitName, n.Name)}"
                 : SanitizeFunc(n.EmitName, n.Name);
 
@@ -2488,6 +2494,8 @@ public sealed partial class CSharpEmitter
         EmitLine($"public {sealedModifier}class {typeName}{typeParams}{inheritance}{whereClause}");
         EmitLine("{");
         _indent++;
+        var savedInNestedClassBody = _inNestedClassBody;
+        _inNestedClassBody = true;
 
         // Collect inherited fields and method names for override detection
         var inheritedFields = GetEmittedInheritedFields(classDecl.BaseClassName);
@@ -2518,6 +2526,21 @@ public sealed partial class CSharpEmitter
             // binder inside a base argument (a match arm's pattern variable, say) that
             // reuses a parameter's name is CS0136 otherwise.
             var savedCtorSpace = BeginDeclarationSpace(ctor.Params);
+            // The parameters are local bindings too, not merely occupied identifiers: they
+            // shadow any same-named module function during reference resolution, exactly as
+            // EmitInstanceMethodBody arranges for a method's. Without this an object-lifted
+            // class's capture parameter that collides with a module function (`f0` threaded
+            // in beside `(define (f0 ...))`) resolved to the module name instead, and the
+            // synthesized `this.F0 = <capture>` assigned the class's own property back to
+            // itself. Whatever locals surround this emit are not in scope here — an object
+            // class is emitted after its enclosing function — so they are cleared, and
+            // restored on the way out.
+            var savedCtorLocals = new HashSet<string>(_localBindings);
+            var savedCtorRenames = new Dictionary<string, string>(_localRenames);
+            _localBindings.Clear();
+            _localRenames.Clear();
+            foreach (var p in ctor.Params)
+                _localBindings.Add(p.Name);
             var baseCall = ctor.SuperArgs is not null
                 ? $" : base({string.Join(", ", ctor.SuperArgs.Select(EmitExpr))})"
                 : "";
@@ -2529,6 +2552,11 @@ public sealed partial class CSharpEmitter
             foreach (var (fieldName, value) in ctor.FieldSets)
                 EmitLine($"this.{Sanitize(fieldName)} = {EmitExpr(value)};");
             EndDeclarationSpace(savedCtorSpace);
+            _localBindings.Clear();
+            _localBindings.UnionWith(savedCtorLocals);
+            _localRenames.Clear();
+            foreach (var (k, v) in savedCtorRenames)
+                _localRenames[k] = v;
             _indent--;
             EmitLine("}");
         }
@@ -2612,6 +2640,7 @@ public sealed partial class CSharpEmitter
 
         _currentClassFields = null;
         _currentClassMethods = null;
+        _inNestedClassBody = savedInNestedClassBody;
 
         _indent--;
         EmitLine("}");

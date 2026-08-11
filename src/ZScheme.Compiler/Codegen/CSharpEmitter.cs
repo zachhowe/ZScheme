@@ -218,6 +218,15 @@ public sealed partial class CSharpEmitter(
 
     private HashSet<string>? _currentClassFields;
     private HashSet<string>? _currentClassMethods;
+
+    /// <summary>
+    ///     True while emitting anything inside a class nested in the module class — its
+    ///     constructor included, unlike <see cref="_currentClassFields" />, which is only
+    ///     populated for the methods loop. A module-level function referenced from here has
+    ///     to be spelled <c>{className}.Func</c>: the bare name would bind to a same-named
+    ///     member of the nested class instead.
+    /// </summary>
+    private bool _inNestedClassBody;
     private Dictionary<int, string>? _currentFuncTypeVarMap;
     private HashSet<string>? _currentTypeParams;
     private int _indent;

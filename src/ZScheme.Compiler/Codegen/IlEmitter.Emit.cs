@@ -5180,9 +5180,27 @@ public sealed partial class IlEmitter
                 return;
             }
 
+        var sanitizedName = Emitted(emitName, name);
+
+        // The field has to hold what the use site actually needs. A class field colliding
+        // with a module-level function (`[f0 : Int]` beside `(define (f0 …))`, with the map
+        // carrying inherited fields too) otherwise swallows every bare reference to the
+        // function. Constructors are where that bites: fields are not in scope there at all
+        // (TypeInferer.InferClassDecl binds only the ctor's params), so `(super (apply1 f0 5))`
+        // means the function, and `ldfld int32` where a Func is expected is unverifiable IL.
+        // Falling through to _methods below materializes the delegate instead. Same guard as
+        // TryEmitBoundDelegateCall's class-field branch, in value position rather than call
+        // position — and, like it, only diverging when there is a module function to fall
+        // through to, so a delegate-typed capture whose mapped signature is imprecise still
+        // resolves to the field.
         if (
             ctx.CurrentClassFields is not null
             && ctx.CurrentClassFields.TryGetValue(name, out var classField)
+            && (
+                varType is not ZType.ZFuncType
+                || !_methods.ContainsKey(sanitizedName)
+                || TypeSigComparer.Equals(classField.Signature!.FieldType, MapToClr(varType, ctx))
+            )
         )
         {
             EmitLoadClassThis(il, ctx);
@@ -5197,7 +5215,6 @@ public sealed partial class IlEmitter
         }
 
         // Check if the name is a function in _methods (for main module function values)
-        var sanitizedName = Emitted(emitName, name);
         Log.Debug(
             "EmitLoadVar: trying to load '{Name}', sanitizedName={Sanitized}, inStaticFields={InStatic}, inMethods={InMethods}",
             name,

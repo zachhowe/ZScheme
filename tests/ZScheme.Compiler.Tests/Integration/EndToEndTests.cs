@@ -7,6 +7,7 @@ using ZScheme.Compiler.Cache;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Package;
 using ZScheme.Compiler.Pipeline;
+using ZScheme.Compiler.Tests.Codegen;
 
 namespace ZScheme.Compiler.Tests.Integration;
 
@@ -1983,6 +1984,98 @@ public class EndToEndTests
                 && m.GetParameters().Length == 0
             );
         Assert.Equal(3, compute.Invoke(null, null));
+    }
+
+    /// <summary>
+    ///     The source both backends miscompiled when a module-level function was passed
+    ///     <em>by name</em> from a constructor whose class has a field of the same name.
+    ///     The value-position sibling of the two call-position tests above.
+    /// </summary>
+    private const string CtorPassesModuleFunctionSharingFieldNameSource =
+        @"(namespace Repro)
+(module test)
+(define-class #:open Base
+  [b0 : Int #:mutable]
+  (define (M) : Int b0))
+
+(define (f0 [a : Int] [b : Int]) : Int (+ a b))
+
+(define (apply1 [g : (Int Int -> Int)] [x : Int]) : Int (g x x))
+
+(define-class Derived : Base
+  [f0 : Int #:mutable]
+  (constructor [p : Int]
+    (super (apply1 f0 5))
+    (set! f0 p))
+  (define (M) : Int f0)
+  (define (N) : Int b0))
+
+(define (compute) : Int
+  (let ([d (new Derived 3)])
+    (+ (Derived/M d) (Derived/N d))))";
+
+    [Fact]
+    public void ClassCtor_PassesModuleFunctionSharingAnOwnFieldNameByValue_RunsCorrectlyIl()
+    {
+        // Regression: the value-position form of the collision above. `f0` handed to
+        // `apply1` as a function value cannot be the `Int` field — fields are not in
+        // scope in a constructor at all — but EmitLoadVar's class-field branch had no
+        // type guard whatsoever, so it emitted `ldarg.0; ldfld int32 Derived::F0` where
+        // a `Func`3` was required: ilverify StackUnexpected, InvalidProgramException at
+        // run time. `(set! f0 p)` on the next line does mean the field, so the map has
+        // to stay and the load has to discriminate on type.
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(CtorPassesModuleFunctionSharingFieldNameSource);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+        // `M` reads the field (3, from `(set! f0 p)`); `N` reads the inherited b0 the
+        // super call filled with (apply1 f0 5) = (f0 5 5) = 10.
+        Assert.Equal(13, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void ClassCtor_PassesModuleFunctionSharingAnOwnFieldNameByValue_CompilesCSharp()
+    {
+        // The C# half of the same bug, and a distinct defect: `_currentClassFields` is
+        // only populated for the methods loop, so the module-qualifying branch of
+        // EmitVarRef was unreachable from a constructor and the initializer got a bare
+        // `Apply1(F0, 5)` — which Roslyn binds to the class's own instance property and
+        // rejects with CS0120. The reference has to be `{className}.F0`.
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.CSharp,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(CtorPassesModuleFunctionSharingFieldNameSource);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var csResult = (CompilationResult.CSharpOutputResult)result;
+        Assert.Contains("base(TestModule.Apply1(TestModule.F0, 5))", csResult.CsOutput);
+        RoslynCompileVerifier.AssertCompiles(csResult.CsOutput, csResult.PrecompiledAssemblyPaths);
     }
 
     [Fact]

@@ -1335,6 +1335,13 @@ public class CSharpEmitterTests
         // it back through the captured backing field.
         Assert.Contains("new __Object_0(this.F0)", cs);
         Assert.Contains("public int F0 { get; }", cs);
+        // The synthesized constructor stores its capture *parameter*. Constructor
+        // params were only seeded into the declaration space, not into
+        // _localBindings, so `f0` fell through to the module-function branch and
+        // the assignment became `this.F0 = F0` — the get-only property read back
+        // before it was ever assigned, silently storing 0 while the IL backend
+        // (which checks the constructor's params first) stored the capture.
+        Assert.Contains("this.F0 = f0;", cs);
         // The inner Get() body must NOT emit a bare `F0` — that would
         // resolve to the module-level function and bring back CS0428.
         Assert.Contains("return this.F0;", cs);
