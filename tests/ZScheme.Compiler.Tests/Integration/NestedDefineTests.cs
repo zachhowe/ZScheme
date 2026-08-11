@@ -409,28 +409,108 @@ public class NestedDefineTests
         Assert.Equal(13, CompileIlAndRunInt(source));
     }
 
-    [Fact]
-    public void InsideAClassMethod_ReadingAFieldDirectly_ReportsError()
-    {
-        // The lifted static has no instance, so the field has to be passed in. This is the
-        // existing letrec restriction surfacing through the new syntax.
-        var result = CompileWith(
-            @"(module test)
+    // A field that cannot change after construction is captured by value: the site reads it
+    // through `this` like any other bare name in the method, and the lifted function takes it
+    // as a leading parameter. `start` is 5 and the loop adds it 4 times.
+    private const string FieldReadingLoopSource =
+        @"(module test)
 (define-class Counter
   [start : Int]
   (define (Run [n : Int]) : Int
-    (let ([seed 0])
-      (define (go [k : Int] [acc : Int]) : Int
-        (if (= k 0) (+ acc start) (go (- k 1) (+ acc k))))
-      (go n seed))))
-(define (compute) : Int (Counter/Run (new Counter 5) 10))",
+    (define (go [k : Int] [acc : Int]) : Int
+      (if (= k 0) acc (go (- k 1) (+ acc start))))
+    (go n 0)))
+(define (compute) : Int (Counter/Run (new Counter 5) 4))";
+
+    [Fact]
+    public void InsideAClassMethod_ReadingAField_CSharp() =>
+        Assert.Equal(20, CompileCSharpAndRunInt(FieldReadingLoopSource));
+
+    [Fact]
+    public void InsideAClassMethod_ReadingAField_Il() =>
+        Assert.Equal(20, CompileIlAndRunInt(FieldReadingLoopSource));
+
+    [Fact]
+    public void InsideAClassMethod_ReadingAField_CapturesItRatherThanReachingThroughThis()
+    {
+        // The field arrives as a leading parameter and the site supplies it — which is what
+        // keeps the lifted function an ordinary static, needing no emitter change at all. It
+        // also means one read per call rather than one per iteration.
+        var cs = CompileCSharp(FieldReadingLoopSource);
+
+        Assert.Contains("__letrec_test_0_go(int start, int k, int acc)", cs);
+        Assert.Contains("__letrec_test_0_go(this.Start, n, 0)", cs);
+        Assert.Contains("while (true)", cs);
+    }
+
+    [Fact]
+    public void InsideAClassMethod_ReadingAMutableField_ReportsError()
+    {
+        // Capturing a `#:mutable` field would freeze the value at entry while the source can
+        // still observe a write through `this`, so this one stays refused.
+        var result = CompileWith(
+            @"(module test)
+(define-class Counter
+  [start : Int #:mutable]
+  (define (Run [n : Int]) : Int
+    (define (go [k : Int] [acc : Int]) : Int
+      (if (= k 0) acc (go (- k 1) (+ acc start))))
+    (go n 0)))
+(define (compute) : Int (Counter/Run (new Counter 5) 4))",
             OutputMode.CSharp
         );
 
         Assert.False(result.Success);
         Assert.Contains(
             result.Diagnostics.Diagnostics,
-            d => d.Message.Contains("reads the field 'start'")
+            d => d.Message.Contains("reads the mutable field 'start'")
         );
     }
+
+    // Every field of a class lifted from an `(object ...)` stands for a captured local, so it
+    // is immutable by construction — which makes this the shape that benefits most.
+    private const string ObjectCaptureLoopSource =
+        @"(module test)
+(define-interface Summer
+  (Sum [n : Int] : Int))
+
+(define (make-summer [step : Int]) : Summer
+  (object Summer
+    (define (Sum [n : Int]) : Int
+      (define (go [k : Int] [acc : Int]) : Int
+        (if (= k 0) acc (go (- k 1) (+ acc step))))
+      (go n 0))))
+
+(define (compute) : Int (Summer/Sum (make-summer 3) 4))";
+
+    [Fact]
+    public void InsideAnObjectMethod_ReadingACapture_CSharp() =>
+        Assert.Equal(12, CompileCSharpAndRunInt(ObjectCaptureLoopSource));
+
+    [Fact]
+    public void InsideAnObjectMethod_ReadingACapture_Il() =>
+        Assert.Equal(12, CompileIlAndRunInt(ObjectCaptureLoopSource));
+
+    // The point of the whole exercise: a loop helper written inside a method, reading the
+    // instance's state, running in constant stack. A million iterations overflow if the
+    // captured field stopped the group becoming a loop — and the captured parameter is
+    // reassigned on every back-edge, so a mis-ordered jump shows up as a wrong total rather
+    // than a crash.
+    private const string DeepFieldReadingLoopSource =
+        @"(module test)
+(define-class Counter
+  [step : Int]
+  (define (Run [n : Int]) : Int
+    (define (go [i : Int] [acc : Int]) : Int
+      (if (> i n) acc (go (+ i 1) (+ acc step))))
+    (go 1 0)))
+(define (compute) : Int (Counter/Run (new Counter 1) 1000000))";
+
+    [Fact]
+    public void FieldReadingLoopInAMethod_RunsInConstantStack_CSharp() =>
+        Assert.Equal(1000000, CompileCSharpAndRunInt(DeepFieldReadingLoopSource));
+
+    [Fact]
+    public void FieldReadingLoopInAMethod_RunsInConstantStack_Il() =>
+        Assert.Equal(1000000, CompileIlAndRunInt(DeepFieldReadingLoopSource));
 }

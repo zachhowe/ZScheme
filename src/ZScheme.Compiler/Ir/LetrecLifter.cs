@@ -124,6 +124,42 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
         return UpTheBaseChain(cd, c => c.Methods.Select(m => m.Name));
     }
 
+    /// <summary>
+    ///     The subset of <see cref="InstanceState" /> a group may capture <em>by value</em>
+    ///     instead of being refused: the fields that cannot change after construction.
+    ///     <para>
+    ///         Such a field is read once at the group's site — which is inside the method, where
+    ///         the bare name still resolves to <c>this.Field</c> — and passed in as an ordinary
+    ///         leading parameter, exactly what the refusal used to tell the author to do by
+    ///         hand. Nothing downstream can tell the difference between that and any other
+    ///         capture, so no new IR node, emitter path or traversal is involved. It is also
+    ///         cheaper than reaching through an instance would be: one read at the site rather
+    ///         than one per iteration of the loop.
+    ///     </para>
+    ///     <para>
+    ///         A <c>#:mutable</c> field is excluded because capturing it would freeze the value
+    ///         the loop sees at entry while the source can still observe writes through
+    ///         <c>this</c>, and an <c>init</c> field with it — the point is to capture only what
+    ///         provably cannot change while the group runs.
+    ///     </para>
+    /// </summary>
+    private HashSet<string> CapturableInstanceState(IrNode.ClassDecl cd)
+    {
+        var capturable = cd.IsObjectLifted
+            ? new HashSet<string>(
+                cd.Fields.Where(Immutable).Select(f => f.Name),
+                StringComparer.Ordinal
+            )
+            : UpTheBaseChain(cd, c => c.Fields.Where(Immutable).Select(f => f.Name));
+
+        // A name shadowed by a mutable field anywhere on the chain is not capturable, whatever
+        // a base class declared it as.
+        capturable.ExceptWith(UpTheBaseChain(cd, c => c.Fields.Where(f => !Immutable(f)).Select(f => f.Name)));
+        return capturable;
+
+        static bool Immutable(IrField f) => f is { IsMutable: false, IsInit: false };
+    }
+
     /// <summary>Collects a name set from <paramref name="cd" /> and every class it inherits
     ///     from. The guard bounds a base-class cycle, which the type checker rejects but which
     ///     must not hang the compiler if one ever reaches here.</summary>
@@ -439,6 +475,7 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                 // a lifted static function cannot read them.
                 var fields = InstanceState(cd);
                 var methods = InstanceMethods(cd);
+                var capturable = CapturableInstanceState(cd);
                 return cd with
                 {
                     Methods =
@@ -452,6 +489,7 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                                     {
                                         InstanceState = fields,
                                         InstanceMethods = methods,
+                                        CapturableInstanceState = capturable,
                                     }
                                 ),
                             }
@@ -645,6 +683,7 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
             // The site is still wherever the group was written — inside a method body, its
             // instance context is unchanged.
             InstanceMethods = scope.InstanceMethods,
+            CapturableInstanceState = scope.CapturableInstanceState,
         };
         return BuildSpine(
             letrec
@@ -723,12 +762,21 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
             // Free variables that are enclosing locals, or non-function members of this group,
             // become captures. Names bound at top level (globals, module functions) are left as
             // free references and resolve there, matching ClosureConverter.
+            //
+            // A field that cannot change after construction is captured too, and the site reads
+            // it through `this` like any other bare name in the method — which is what lets a
+            // loop helper inside a method use the instance's state instead of being refused.
+            // A local of the same name still wins, exactly as it does at the site.
             direct[binding.Name] =
             [
                 .. ClosureConverter
                     .CollectFreeVars(binding.Value, functionNames)
                     .SelectMany(v => ThroughSubstitution(v, scope))
-                    .Where(v => scope.Locals.Contains(v.Name) || valueNames.Contains(v.Name))
+                    .Where(v =>
+                        scope.Locals.Contains(v.Name)
+                        || valueNames.Contains(v.Name)
+                        || scope.CapturableInstanceState.Contains(v.Name)
+                    )
                     .DistinctBy(v => v.Name, StringComparer.Ordinal),
             ];
             siblings[binding.Name] =
@@ -813,11 +861,19 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                 .Where(v => !scope.Locals.Contains(v.Name))
                 .ToList();
 
-            var field = free.FirstOrDefault(v => scope.InstanceState.Contains(v.Name));
+            // A field that cannot change after construction is captured by value instead
+            // (ComputeCaptures), so only the ones whose value the loop could still observe
+            // changing are left with nowhere to come from.
+            var field = free.FirstOrDefault(v =>
+                scope.InstanceState.Contains(v.Name)
+                && !scope.CapturableInstanceState.Contains(v.Name)
+            );
             if (field is not null)
-                return $"'letrec' binding '{binding.Name}' reads the field '{field.Name}': a "
-                    + "recursive group is lifted to top-level static functions, which have no "
-                    + "instance to read fields from. Pass the field in as a parameter instead";
+                return $"'letrec' binding '{binding.Name}' reads the mutable field "
+                    + $"'{field.Name}': a recursive group is lifted to top-level static "
+                    + "functions, which have no instance to read fields from, and a mutable "
+                    + "field cannot be captured by value because the loop would not see a "
+                    + "later write. Pass the field in as a parameter instead";
 
             // A field of the same name wins over a method in both emitters' bare-name
             // resolution, so this runs after the field check — the same precedence they apply.
@@ -968,6 +1024,13 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
         ///     same way they pass an empty <see cref="InstanceState" />.
         /// </summary>
         public HashSet<string> InstanceMethods { get; init; } = [];
+
+        /// <summary>
+        ///     The subset of <see cref="InstanceState" /> that may be captured by value rather
+        ///     than refused — see <see cref="LetrecLifter.CapturableInstanceState" />. Cleared
+        ///     alongside the other two wherever there is no instance to read from.
+        /// </summary>
+        public HashSet<string> CapturableInstanceState { get; init; } = [];
 
         public Scope Bind(string name)
         {

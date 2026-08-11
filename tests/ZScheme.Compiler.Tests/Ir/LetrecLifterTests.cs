@@ -442,11 +442,12 @@ public class LetrecLifterTests
     }
 
     [Fact]
-    public void GroupReadingAClassField_ReportsError()
+    public void GroupReadingAnImmutableClassField_CapturesItByValue()
     {
-        // A lifted function is a top-level static, so it has no instance to read a field
-        // through. ClosureConverter sidesteps this by never lifting inside a class; a
-        // recursive group has no such fallback, so it has to be reported.
+        // A field that cannot change after construction is captured like any enclosing local:
+        // the site reads it through `this` (it is inside the method) and the lifted function
+        // takes it as a leading parameter. That is exactly what the refusal here used to tell
+        // the author to do by hand, so doing it for them costs no new machinery at all.
         var group = Group(
             [
                 (
@@ -476,10 +477,51 @@ public class LetrecLifterTests
         var lifter = new LetrecLifter(diagnostics);
         lifter.Lift(classDecl);
 
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        var lifted = Assert.Single(lifter.LiftedFunctions);
+        Assert.Equal("state", lifted.Params[0].Name);
+        Assert.Equal("n", lifted.Params[1].Name);
+    }
+
+    [Fact]
+    public void GroupReadingAMutableClassField_ReportsError()
+    {
+        // Capturing a `#:mutable` field would freeze the value at the group's entry while the
+        // source can still observe a write through `this`, so this one keeps the refusal — the
+        // field has nowhere to come from and no safe stand-in.
+        var group = Group(
+            [
+                (
+                    "f",
+                    Lambda(
+                        "f",
+                        [new IrParam("n", ZType.Int)],
+                        new IrNode.BinOp("+", V("state"), new IrNode.Call(V("f"), [V("n")]))
+                        {
+                            Type = ZType.Int,
+                        }
+                    )
+                ),
+            ],
+            new IrNode.Call(V("f"), [new IrNode.IntConst(1)])
+        );
+
+        var classDecl = new IrNode.ClassDecl(
+            "C",
+            [],
+            [],
+            [new IrField("state", ZType.Int, IsMutable: true)],
+            [new IrObjectMethod("M", [], ZType.Int, group)]
+        );
+
+        var diagnostics = new DiagnosticBag();
+        var lifter = new LetrecLifter(diagnostics);
+        lifter.Lift(classDecl);
+
         Assert.True(diagnostics.HasErrors);
         Assert.Contains(
             diagnostics.Diagnostics,
-            d => d.Message.Contains("reads the field 'state'")
+            d => d.Message.Contains("reads the mutable field 'state'")
         );
     }
 
@@ -693,11 +735,12 @@ public class LetrecLifterTests
     }
 
     [Fact]
-    public void ObjectLiftedGroupReadingItsOwnField_IsStillReported()
+    public void ObjectLiftedGroupReadingItsOwnField_CapturesItByValue()
     {
-        // The narrowing above is only about *inherited* fields. A synthesized field standing
-        // for a captured local is genuinely reachable by bare name inside the object's body,
-        // so it stays instance state and the group still cannot become a static.
+        // Every field of an object-lifted class stands for a captured local, so it is immutable
+        // by construction — which makes this the shape that benefits most from capturing rather
+        // than refusing. ObjectLifter itself has to see the reference for the field to exist at
+        // all; see ObjectLifterTests.CapturesAVariableReadOnlyInsideANestedDefine.
         var group = Group(
             [
                 (
@@ -725,13 +768,12 @@ public class LetrecLifterTests
         );
 
         var diagnostics = new DiagnosticBag();
-        new LetrecLifter(diagnostics).Lift(lifted);
+        var lifter = new LetrecLifter(diagnostics);
+        lifter.Lift(lifted);
 
-        Assert.True(diagnostics.HasErrors);
-        Assert.Contains(
-            diagnostics.Diagnostics,
-            d => d.Message.Contains("reads the field 'captured'")
-        );
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        var liftedFunc = Assert.Single(lifter.LiftedFunctions);
+        Assert.Equal("captured", liftedFunc.Params[0].Name);
     }
 
     [Fact]
