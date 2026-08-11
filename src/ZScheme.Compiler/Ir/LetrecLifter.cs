@@ -83,18 +83,62 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
         }
     }
 
-    /// <summary>The field names a method body can reach by bare name, following the base-class
-    ///     chain. A lifted function is a top-level static, so it has no <c>this</c> to read
-    ///     them through.</summary>
+    /// <summary>
+    ///     The field names a method body can reach by bare name. A lifted function is a
+    ///     top-level static, so it has no <c>this</c> to read them through.
+    ///     <para>
+    ///         Inherited fields count for a <c>define-class</c> but not for a class lifted from
+    ///         an <c>(object …)</c>: that body does not bring the base class's fields into
+    ///         bare-name scope (<see cref="Types.TypeInferer" />'s object-expression case binds
+    ///         only each method's own parameters), so a bare name colliding with an inherited
+    ///         field is a module-level function reference. Counting it as instance state would
+    ///         refuse a group that is perfectly liftable. Both emitters draw the same line —
+    ///         see the <c>IsObjectLifted</c> guard on <c>_currentClassFields</c>.
+    ///     </para>
+    /// </summary>
     private HashSet<string> InstanceState(IrNode.ClassDecl cd)
+    {
+        return cd.IsObjectLifted
+            ? new HashSet<string>(cd.Fields.Select(f => f.Name), StringComparer.Ordinal)
+            : UpTheBaseChain(cd, c => c.Fields.Select(f => f.Name));
+    }
+
+    /// <summary>
+    ///     The method names a body can reach by bare name, following the base-class chain.
+    ///     <see cref="Types.TypeInferer" /> puts sibling methods (self included) and inherited
+    ///     ones in scope unqualified, and both emitters resolve such a name to <c>this.M</c> —
+    ///     so a bare <c>(M …)</c> inside a group binding is an instance call, and a lifted static
+    ///     has no receiver to make it with.
+    ///     <para>
+    ///         Unlike <see cref="InstanceState" /> this is not narrowed for an object-lifted
+    ///         class, because the emitters do not narrow it either: <c>_currentClassMethods</c>
+    ///         carries inherited names whatever the class came from. The set is therefore an
+    ///         over-approximation for an <c>(object …)</c>, whose methods are not in each
+    ///         other's bare-name scope — but over-approximating only costs a refusal on a shape
+    ///         that fails type checking first, whereas under-approximating would let the
+    ///         miscompile back in.
+    ///     </para>
+    /// </summary>
+    private HashSet<string> InstanceMethods(IrNode.ClassDecl cd)
+    {
+        return UpTheBaseChain(cd, c => c.Methods.Select(m => m.Name));
+    }
+
+    /// <summary>Collects a name set from <paramref name="cd" /> and every class it inherits
+    ///     from. The guard bounds a base-class cycle, which the type checker rejects but which
+    ///     must not hang the compiler if one ever reaches here.</summary>
+    private HashSet<string> UpTheBaseChain(
+        IrNode.ClassDecl cd,
+        Func<IrNode.ClassDecl, IEnumerable<string>> select
+    )
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
         var current = cd;
         var guard = 0;
         while (current is not null && guard++ < 64)
         {
-            foreach (var field in current.Fields)
-                names.Add(field.Name);
+            foreach (var name in select(current))
+                names.Add(name);
             current =
                 current.BaseClassName is not null
                 && _classes.TryGetValue(current.BaseClassName, out var parent)
@@ -394,6 +438,7 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                 // node. The fields carried down are what the pass checks a group against —
                 // a lifted static function cannot read them.
                 var fields = InstanceState(cd);
+                var methods = InstanceMethods(cd);
                 return cd with
                 {
                     Methods =
@@ -406,12 +451,13 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                                     scope.Bind(m.Params.Select(p => p.Name)) with
                                     {
                                         InstanceState = fields,
+                                        InstanceMethods = methods,
                                     }
                                 ),
                             }
                         ),
                     ],
-                    Constructor = RewriteConstructor(cd.Constructor, scope, fields),
+                    Constructor = RewriteConstructor(cd.Constructor, scope),
                 };
 
             default:
@@ -425,22 +471,24 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
     /// <summary>
     ///     A constructor's super-arguments, field initializers and body are all ordinary
     ///     expressions that can contain a group, so they need the same rewrite as a method body.
-    ///     Super-arguments are evaluated before the instance exists, but they are checked
-    ///     against the instance state anyway — a field read there is already invalid, and the
-    ///     lifter is not the right place to relitigate it.
+    ///     <para>
+    ///         The instance context is <em>not</em> carried in, though: a constructor's scope
+    ///         binds only its own parameters (<see cref="Types.TypeInferer" />), so a bare name
+    ///         there that collides with a field or a method is the module-level function, not
+    ///         <c>this.X</c> — which is exactly how both emitters resolve it. Treating those
+    ///         names as instance state would refuse groups that lift perfectly well, blaming
+    ///         them for reading something they never named.
+    ///     </para>
     /// </summary>
-    private IrConstructor? RewriteConstructor(
-        IrConstructor? constructor,
-        Scope scope,
-        HashSet<string> fields
-    )
+    private IrConstructor? RewriteConstructor(IrConstructor? constructor, Scope scope)
     {
         if (constructor is null)
             return null;
 
         var ctorScope = scope.Bind(constructor.Params.Select(p => p.Name)) with
         {
-            InstanceState = fields,
+            InstanceState = [],
+            InstanceMethods = [],
         };
         return constructor with
         {
@@ -592,7 +640,12 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
             Merge(Shadow(scope.Substitutions, valueNames), lifted),
             scope.InstanceState,
             scope.ConstraintsByVarId
-        );
+        )
+        {
+            // The site is still wherever the group was written — inside a method body, its
+            // instance context is unchanged.
+            InstanceMethods = scope.InstanceMethods,
+        };
         return BuildSpine(
             letrec
                 .Bindings.Where(b => b.Value is not IrNode.FuncDef)
@@ -748,25 +801,99 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
             if (binding.Value is not IrNode.FuncDef)
                 continue;
 
-            if (scope.InstanceState.Count == 0)
+            if (scope.InstanceState.Count == 0 && scope.InstanceMethods.Count == 0)
                 continue;
 
-            // A local wins over a same-named field, so check only the names that are not
-            // bound locally. ObjectLifter turns each captured local into both a constructor
+            // A local wins over a same-named field or method, so check only the names that are
+            // not bound locally. ObjectLifter turns each captured local into both a constructor
             // parameter and a field of the synthesized class, and inside that constructor the
             // name refers to the parameter — which lifts perfectly well as a capture.
-            var field = ClosureConverter
+            var free = ClosureConverter
                 .CollectFreeVars(binding.Value, functionNames)
-                .FirstOrDefault(v =>
-                    !scope.Locals.Contains(v.Name) && scope.InstanceState.Contains(v.Name)
-                );
+                .Where(v => !scope.Locals.Contains(v.Name))
+                .ToList();
+
+            var field = free.FirstOrDefault(v => scope.InstanceState.Contains(v.Name));
             if (field is not null)
                 return $"'letrec' binding '{binding.Name}' reads the field '{field.Name}': a "
                     + "recursive group is lifted to top-level static functions, which have no "
                     + "instance to read fields from. Pass the field in as a parameter instead";
+
+            // A field of the same name wins over a method in both emitters' bare-name
+            // resolution, so this runs after the field check — the same precedence they apply.
+            var method = free.FirstOrDefault(v => scope.InstanceMethods.Contains(v.Name));
+            if (method is not null)
+                return $"'letrec' binding '{binding.Name}' calls the method '{method.Name}': a "
+                    + "recursive group is lifted to top-level static functions, which have no "
+                    + "instance to call methods on. Pass the result in as a parameter instead, "
+                    + "or move the definition to a top-level 'define'";
+
+            // A `set!` on a field, and a `super/M` call, both name their target implicitly:
+            // neither puts it in the free-variable set, so only a scan can see them. Left
+            // unreported they reach codegen as `this.X = …` in a static (C#) or dereference a
+            // null class-field map (IL).
+            if (TouchesInstanceImplicitly(binding.Value, scope.InstanceState))
+                return $"'letrec' binding '{binding.Name}' assigns a field or calls a 'super/' "
+                    + "method: a recursive group is lifted to top-level static functions, which "
+                    + "have no instance to reach them through. Move the definition to a "
+                    + "top-level 'define', or do the assignment in the enclosing method";
         }
 
         return null;
+    }
+
+    /// <summary>
+    ///     Whether <paramref name="node" /> writes one of <paramref name="fields" /> or makes a
+    ///     <c>super/</c> call — the two IR shapes whose receiver is an implicit <c>this</c> and
+    ///     so cannot appear in <see cref="ClosureConverter.CollectFreeVars" />'s result.
+    ///     <para>
+    ///         The default arm answers "no", which is only safe because every arm that can hold
+    ///         one of the two is listed. <c>LetrecLifterInstanceScanTests</c> pins that by
+    ///         reflection over the <see cref="IrNode" /> hierarchy, so a node kind added later
+    ///         fails a test rather than silently escaping the scan.
+    ///     </para>
+    /// </summary>
+    private static bool TouchesInstanceImplicitly(IrNode node, HashSet<string> fields)
+    {
+        bool Any(IEnumerable<IrNode> nodes) => nodes.Any(n => TouchesInstanceImplicitly(n, fields));
+
+        return node switch
+        {
+            IrNode.SetField sf => fields.Contains(sf.FieldName)
+                || TouchesInstanceImplicitly(sf.Value, fields),
+            IrNode.SuperMethodCall => true,
+
+            IrNode.Let let => Any([let.Value, let.Body]),
+            IrNode.Use use => Any([use.Value, use.Body]),
+            IrNode.If i => Any([i.Condition, i.Then, i.Else]),
+            IrNode.Seq seq => Any(seq.Nodes),
+            IrNode.FuncDef f => TouchesInstanceImplicitly(f.Body, fields),
+            IrNode.Match m => Any([m.Scrutinee, .. m.Arms.Select(a => a.Body)]),
+            IrNode.WithHandlers wh => Any([wh.Body, .. wh.Handlers.Select(h => h.HandlerBody)]),
+            IrNode.Call call => Any([call.Function, .. call.Args]),
+            IrNode.BinOp b => Any([b.Left, b.Right]),
+            IrNode.UnaryOp u => TouchesInstanceImplicitly(u.Operand, fields),
+            IrNode.MethodCall mc => Any([mc.Receiver, .. mc.Args]),
+            IrNode.ClrCall cc => Any(cc.Args),
+            IrNode.ClrNew cn => Any(cn.Args),
+            IrNode.UnionCaseNew ucn => Any(ucn.Args),
+            IrNode.TupleNew tn => Any(tn.Elements),
+            IrNode.RecordNew rn => Any(rn.Fields.Select(f => f.Value)),
+            IrNode.RecordWith rw => Any([rw.Record, .. rw.Updates.Select(u => u.Value)]),
+            IrNode.FieldGet fg => TouchesInstanceImplicitly(fg.Record, fields),
+            IrNode.MutableArrayNew man => Any(man.Elements),
+            IrNode.Throw th => TouchesInstanceImplicitly(th.Expr, fields),
+            IrNode.Await aw => TouchesInstanceImplicitly(aw.Expr, fields),
+            IrNode.Closure cl => Any(cl.CapturedValues),
+            IrNode.LetRec lr => Any([lr.Body, .. lr.Bindings.Select(b => b.Value)]),
+            IrNode.ObjectExpr oe => Any(oe.Methods.Select(m => m.Body)),
+            // Unreachable in practice — TailCallLowering introduces TcoJump long after this
+            // pass — but covered so the scan stays total if that ordering ever changes.
+            IrNode.TcoJump tj => Any(tj.NewArgs),
+
+            // Leaves: literals, Var, TypeOf, and the declaration nodes.
+            _ => false,
+        };
     }
 
     private static IrNode BuildSpine(
@@ -833,6 +960,15 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
         IReadOnlyDictionary<int, GenericConstraintKind> ConstraintsByVarId
     )
     {
+        /// <summary>
+        ///     The sibling and inherited method names reachable by bare name here, empty outside
+        ///     a class body. An init property rather than a positional parameter so that the two
+        ///     scopes standing for "no instance context" — a lifted function's body and the
+        ///     top-level scope <see cref="Lift" /> starts from — clear it by construction, the
+        ///     same way they pass an empty <see cref="InstanceState" />.
+        /// </summary>
+        public HashSet<string> InstanceMethods { get; init; } = [];
+
         public Scope Bind(string name)
         {
             return Bind([name]);

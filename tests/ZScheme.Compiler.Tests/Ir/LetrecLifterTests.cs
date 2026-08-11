@@ -1,3 +1,4 @@
+using System.Reflection;
 using Xunit;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Ir;
@@ -479,6 +480,343 @@ public class LetrecLifterTests
         Assert.Contains(
             diagnostics.Diagnostics,
             d => d.Message.Contains("reads the field 'state'")
+        );
+    }
+
+    [Fact]
+    public void GroupCallingASiblingMethod_ReportsError()
+    {
+        // TypeInferer puts sibling methods in scope by bare name, so `(Twice n)` here type
+        // checks and arrives as Call(Var("Twice"), …). Lifted into a static there is no
+        // receiver to make that call with: the C# backend emitted a bare `twice(n)` and
+        // reported nothing at all, while the IL backend failed with "Function 'Twice' not
+        // found" — a silent miscompile on one backend and an error on the other.
+        var group = Group(
+            [
+                (
+                    "f",
+                    Lambda(
+                        "f",
+                        [new IrParam("n", ZType.Int)],
+                        new IrNode.BinOp(
+                            "+",
+                            new IrNode.Call(V("Twice"), [V("n")]) { Type = ZType.Int },
+                            new IrNode.Call(V("f"), [V("n")])
+                        )
+                        {
+                            Type = ZType.Int,
+                        }
+                    )
+                ),
+            ],
+            new IrNode.Call(V("f"), [new IrNode.IntConst(1)])
+        );
+
+        var classDecl = new IrNode.ClassDecl(
+            "C",
+            [],
+            [],
+            [],
+            [
+                new IrObjectMethod("Twice", [new IrParam("n", ZType.Int)], ZType.Int, V("n")),
+                new IrObjectMethod("M", [], ZType.Int, group),
+            ]
+        );
+
+        var diagnostics = new DiagnosticBag();
+        new LetrecLifter(diagnostics).Lift(classDecl);
+
+        Assert.True(diagnostics.HasErrors);
+        Assert.Contains(
+            diagnostics.Diagnostics,
+            d => d.Message.Contains("calls the method 'Twice'")
+        );
+    }
+
+    [Fact]
+    public void GroupAssigningAField_ReportsError()
+    {
+        // A `set!` names its target implicitly — IrNode.SetField carries the field name, not a
+        // Var — so CollectFreeVars cannot see it and the field-read check above never fired.
+        // Lifted into a static, the C# backend emitted `this.State = …` in a static method and
+        // the IL backend dereferenced a null class-field map, crashing the compiler outright.
+        var group = Group(
+            [
+                (
+                    "f",
+                    Lambda(
+                        "f",
+                        [new IrParam("n", ZType.Int)],
+                        new IrNode.Seq(
+                            [
+                                new IrNode.SetField("state", V("n")),
+                                new IrNode.Call(V("f"), [V("n")]),
+                            ]
+                        )
+                    )
+                ),
+            ],
+            new IrNode.Call(V("f"), [new IrNode.IntConst(1)])
+        );
+
+        var classDecl = new IrNode.ClassDecl(
+            "C",
+            [],
+            [],
+            [new IrField("state", ZType.Int, IsMutable: true)],
+            [new IrObjectMethod("M", [], ZType.Int, group)]
+        );
+
+        var diagnostics = new DiagnosticBag();
+        new LetrecLifter(diagnostics).Lift(classDecl);
+
+        Assert.True(diagnostics.HasErrors);
+        Assert.Contains(diagnostics.Diagnostics, d => d.Message.Contains("assigns a field"));
+    }
+
+    [Fact]
+    public void GroupOutsideAClass_IsUnaffectedByTheInstanceChecks()
+    {
+        // The two checks above key off the enclosing class's members. A group at top level has
+        // none, so a local named like some class's method must still lift untouched.
+        var group = Group(
+            [
+                (
+                    "f",
+                    Lambda(
+                        "f",
+                        [new IrParam("n", ZType.Int)],
+                        new IrNode.Call(V("f"), [V("n")])
+                    )
+                ),
+            ],
+            new IrNode.Call(V("f"), [new IrNode.IntConst(1)])
+        );
+
+        var (body, lifter, diagnostics) = LiftInside(group);
+
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        Assert.Single(lifter.LiftedFunctions);
+        Assert.DoesNotContain(Walk(body), n => n is IrNode.LetRec);
+    }
+
+    [Fact]
+    public void GroupInAConstructorNamingAField_IsStillLifted()
+    {
+        // A constructor's scope binds only its own parameters, so a bare `state` there is the
+        // module-level function of that name, not this.State — which is how both emitters
+        // resolve it. Carrying the field set into the constructor blamed the group for reading
+        // something the source never named, refusing a group that lifts perfectly well.
+        var group = Group(
+            [
+                (
+                    "f",
+                    Lambda(
+                        "f",
+                        [new IrParam("n", ZType.Int)],
+                        new IrNode.BinOp("+", V("state"), new IrNode.Call(V("f"), [V("n")]))
+                        {
+                            Type = ZType.Int,
+                        }
+                    )
+                ),
+            ],
+            new IrNode.Call(V("f"), [new IrNode.IntConst(1)])
+        );
+
+        var classDecl = new IrNode.ClassDecl(
+            "C",
+            [],
+            [],
+            [new IrField("state", ZType.Int)],
+            [],
+            Constructor: new IrConstructor([], null, [], [group])
+        );
+
+        var diagnostics = new DiagnosticBag();
+        var lifter = new LetrecLifter(diagnostics);
+        var result = Assert.IsType<IrNode.ClassDecl>(lifter.Lift(classDecl));
+
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        Assert.Single(lifter.LiftedFunctions);
+        Assert.DoesNotContain(Walk(result.Constructor!.BodyExprs[0]), n => n is IrNode.LetRec);
+    }
+
+    [Fact]
+    public void ObjectLiftedGroupReadingAnInheritedField_IsStillLifted()
+    {
+        // An `(object ...)` body does not bring the base class's fields into bare-name scope,
+        // so `inherited` here is a module-level function reference. Walking the base chain for
+        // an object-lifted class counted it as instance state and refused the group; both
+        // emitters draw the line the other way (the IsObjectLifted guard on the field set).
+        var group = Group(
+            [
+                (
+                    "f",
+                    Lambda(
+                        "f",
+                        [new IrParam("n", ZType.Int)],
+                        new IrNode.BinOp("+", V("inherited"), new IrNode.Call(V("f"), [V("n")]))
+                        {
+                            Type = ZType.Int,
+                        }
+                    )
+                ),
+            ],
+            new IrNode.Call(V("f"), [new IrNode.IntConst(1)])
+        );
+
+        var baseClass = new IrNode.ClassDecl(
+            "Base",
+            [],
+            [],
+            [new IrField("inherited", ZType.Int)],
+            [],
+            IsOpen: true
+        );
+        var lifted = new IrNode.ClassDecl(
+            "__Object_0",
+            [],
+            [],
+            [new IrField("captured", ZType.Int)],
+            [new IrObjectMethod("M", [], ZType.Int, group)],
+            BaseClassName: "Base",
+            IsObjectLifted: true
+        );
+
+        var diagnostics = new DiagnosticBag();
+        var lifter = new LetrecLifter(diagnostics);
+        lifter.Lift(new IrNode.Seq([baseClass, lifted]));
+
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        Assert.Single(lifter.LiftedFunctions);
+    }
+
+    [Fact]
+    public void ObjectLiftedGroupReadingItsOwnField_IsStillReported()
+    {
+        // The narrowing above is only about *inherited* fields. A synthesized field standing
+        // for a captured local is genuinely reachable by bare name inside the object's body,
+        // so it stays instance state and the group still cannot become a static.
+        var group = Group(
+            [
+                (
+                    "f",
+                    Lambda(
+                        "f",
+                        [new IrParam("n", ZType.Int)],
+                        new IrNode.BinOp("+", V("captured"), new IrNode.Call(V("f"), [V("n")]))
+                        {
+                            Type = ZType.Int,
+                        }
+                    )
+                ),
+            ],
+            new IrNode.Call(V("f"), [new IrNode.IntConst(1)])
+        );
+
+        var lifted = new IrNode.ClassDecl(
+            "__Object_0",
+            [],
+            [],
+            [new IrField("captured", ZType.Int)],
+            [new IrObjectMethod("M", [], ZType.Int, group)],
+            IsObjectLifted: true
+        );
+
+        var diagnostics = new DiagnosticBag();
+        new LetrecLifter(diagnostics).Lift(lifted);
+
+        Assert.True(diagnostics.HasErrors);
+        Assert.Contains(
+            diagnostics.Diagnostics,
+            d => d.Message.Contains("reads the field 'captured'")
+        );
+    }
+
+    [Fact]
+    public void InstanceScan_CoversEveryIrNodeThatCanHoldOne()
+    {
+        // TouchesInstanceImplicitly answers "no" by default, which is only sound while every
+        // node kind that can *contain* a SetField or SuperMethodCall has an arm. The IR has no
+        // shared visitor, so a node kind added later would silently escape the scan and
+        // reinstate the miscompile GroupAssigningAField_ReportsError pins. Reflection over the
+        // hierarchy is what keeps that from going unnoticed.
+        var scan = typeof(LetrecLifter).GetMethod(
+            "TouchesInstanceImplicitly",
+            BindingFlags.NonPublic | BindingFlags.Static
+        );
+        Assert.NotNull(scan);
+
+        var fields = new HashSet<string>(StringComparer.Ordinal) { "state" };
+        var setField = new IrNode.SetField("state", new IrNode.IntConst(1) { Type = ZType.Int });
+
+        var missing = new List<string>();
+        foreach (var nodeType in typeof(IrNode).Assembly.GetTypes())
+        {
+            if (!nodeType.IsAssignableTo(typeof(IrNode)) || nodeType.IsAbstract)
+                continue;
+
+            // Only node kinds with at least one IrNode-typed child can hide a SetField.
+            var carriers = nodeType
+                .GetConstructors()
+                .SelectMany(c => c.GetParameters())
+                .Where(p =>
+                    p.ParameterType.IsAssignableTo(typeof(IrNode))
+                    || (
+                        p.ParameterType.IsGenericType
+                        && p.ParameterType.GetGenericArguments()
+                            .Any(a => a.IsAssignableTo(typeof(IrNode)))
+                    )
+                )
+                .ToList();
+            if (carriers.Count == 0)
+                continue;
+
+            if (!ScanHasArmFor(nodeType))
+                missing.Add(nodeType.Name);
+        }
+
+        Assert.True(
+            missing.Count == 0,
+            "TouchesInstanceImplicitly has no arm for: " + string.Join(", ", missing)
+        );
+
+        // And the scan really does find one, so the reflection above is not vacuous.
+        Assert.True((bool)scan.Invoke(null, [setField, fields])!);
+        Assert.False(
+            (bool)scan.Invoke(null, [new IrNode.IntConst(1) { Type = ZType.Int }, fields])!
+        );
+
+        static bool ScanHasArmFor(Type nodeType)
+        {
+            // The switch is source, not metadata, so the arm list is read from the file the
+            // scan lives in — the same trick SpanPreservationTests uses to avoid a hand-copied
+            // list drifting from the thing it describes.
+            var source = File.ReadAllText(LetrecLifterSourcePath());
+            var body = source[source.IndexOf(
+                "private static bool TouchesInstanceImplicitly",
+                StringComparison.Ordinal
+            )..];
+            body = body[..body.IndexOf("\n    }", StringComparison.Ordinal)];
+            return body.Contains($"IrNode.{nodeType.Name} ", StringComparison.Ordinal)
+                || body.Contains($"IrNode.{nodeType.Name}$", StringComparison.Ordinal)
+                || body.Contains($"IrNode.{nodeType.Name} =>", StringComparison.Ordinal);
+        }
+    }
+
+    private static string LetrecLifterSourcePath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        return Path.Combine(
+            dir.FullName,
+            "src",
+            "ZScheme.Compiler",
+            "Ir",
+            "LetrecLifter.cs"
         );
     }
 
