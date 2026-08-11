@@ -877,7 +877,7 @@ public sealed partial class IlEmitter
                         {
                             EmitNode(leaf, il, func.Params, locals, funcBodyCtx);
                             if (func.IsAsync)
-                                EmitAsyncTaskWrap(func, leaf.Type, il);
+                                EmitAsyncTaskWrap(func, leaf.Type, il, funcBodyCtx);
                             il.Add(CilOpCodes.Ret);
                         }
                     )
@@ -888,7 +888,7 @@ public sealed partial class IlEmitter
             EmitNode(func.Body, il, func.Params, locals, funcBodyCtx);
 
             if (func.IsAsync)
-                EmitAsyncTaskWrap(func, func.Body.Type, il);
+                EmitAsyncTaskWrap(func, func.Body.Type, il, funcBodyCtx);
 
             il.Add(CilOpCodes.Ret);
         }
@@ -906,7 +906,8 @@ public sealed partial class IlEmitter
     private void EmitAsyncTaskWrap(
         IrNode.FuncDef func,
         ZType? valueType,
-        CilInstructionCollection il
+        CilInstructionCollection il,
+        EmitContext ctx
     )
     {
         var isUnit = func.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
@@ -928,11 +929,27 @@ public sealed partial class IlEmitter
                 && _typeAliases.IsTaskName(taskNt.Name)
                     ? t
                     : func.ReturnType;
-            var fromResult = typeof(Task)
-                .GetMethod("FromResult")!
-                .MakeGenericMethod(MapToReflectionClr(inner));
-            il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(fromResult));
+            EmitTaskFromResult(inner, il, ctx);
         }
+    }
+
+    /// Emits <c>Task.FromResult&lt;T&gt;</c> for the value on the stack. The instantiation is
+    /// built from the AsmResolver signature of <paramref name="inner" /> rather than from
+    /// <see cref="MapToReflectionClr" />: a result type declared in this module has no
+    /// reflection <see cref="Type" />, so <c>MakeGenericMethod</c> would erase it to
+    /// <c>object</c> and hand back a <c>Task&lt;object&gt;</c> where the method signature
+    /// promises <c>Task&lt;T&gt;</c>.
+    private void EmitTaskFromResult(ZType inner, CilInstructionCollection il, EmitContext ctx)
+    {
+        var openFromResult = (IMethodDefOrRef)
+            _module.DefaultImporter.ImportMethod(typeof(Task).GetMethod("FromResult")!);
+        il.Add(
+            CilOpCodes.Call,
+            new MethodSpecification(
+                openFromResult,
+                new GenericInstanceMethodSignature([MapToClr(inner, ctx)])
+            )
+        );
     }
 
     /// How a TCO loop body terminates — the only thing that differs between the two method
@@ -1610,6 +1627,22 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Newobj, _module.DefaultImporter.ImportMethod(ctor));
     }
 
+    /// Whether <paramref name="type" /> mentions a type this module is defining, at any depth.
+    /// Such a type has no loaded <see cref="Type" />, so any generic instantiation built through
+    /// reflection erases it to <c>object</c> — the check has to look inside
+    /// <c>(TreeList (Ctx -&gt; (Task Result)))</c>, not just at its head.
+    private bool ContainsUserType(ZType type)
+    {
+        return type switch
+        {
+            ZType.ZNamedType nt => _userTypes.ContainsKey(nt.Name)
+                || nt.TypeArgs.Any(ContainsUserType),
+            ZType.ZFuncType ft => ft.Params.Any(ContainsUserType) || ContainsUserType(ft.Return),
+            ZType.ZNullableType nl => ContainsUserType(nl.Inner),
+            _ => false,
+        };
+    }
+
     private void EmitTypeOf(IrNode.TypeOf typeOf, CilInstructionCollection il, EmitContext ctx)
     {
         // (typeof T) lowers to `ldtoken T; call System.Type.GetTypeFromHandle(RuntimeTypeHandle)`,
@@ -1688,9 +1721,7 @@ public sealed partial class IlEmitter
                 && clrCall.GenericTypeArgs.Any(t => t is ZType.ZTypeVar or ZType.ZConstrainedVar);
             var hasUserTypeArgs =
                 clrCall.GenericTypeArgs is { Count: > 0 }
-                && clrCall.GenericTypeArgs.Any(t =>
-                    t is ZType.ZNamedType nt && _userTypes.ContainsKey(nt.Name)
-                );
+                && clrCall.GenericTypeArgs.Any(ContainsUserType);
             useAsmGenericPath =
                 openGeneric is not null
                 && ((hasTypeVarArgs && ctx.CurrentTypeVarMap is { Count: > 0 }) || hasUserTypeArgs);
@@ -2172,35 +2203,43 @@ public sealed partial class IlEmitter
                     : _precompiledReflectionMethods.GetValueOrDefault(sanitized);
                 if (reflectionMethod is { IsGenericMethodDefinition: true })
                 {
-                    var argClrTypes = call.Args.Select(a => MapToReflectionClr(a.Type)).ToArray();
-                    var callRetClrType = call.Type is not null
-                        ? MapToReflectionClr(call.Type)
-                        : null;
-                    var instantiated = reflectionMethod.MakeGenericMethod(
-                        InferGenericTypeArgs(reflectionMethod, argClrTypes, callRetClrType)
+                    // Close the call through an AsmResolver MethodSpecification rather than
+                    // reflection's MakeGenericMethod: a type argument mentioning a record or
+                    // union this module is defining has no loaded System.Type, and reflection
+                    // would silently erase it to object — leaving the call instantiated on
+                    // e.g. Func<object,Task<object>> while the argument on the stack is the
+                    // real Func<Ctx,Task<Result>>, which ilverify rejects.
+                    var typeArgs = InferPrecompiledTypeArgs(
+                        reflectionMethod,
+                        call.Args,
+                        call.Type,
+                        ctx
                     );
+                    var openParams = reflectionMethod.GetParameters();
 
                     // Emit arguments with boxing where value types are passed as reference types
-                    var instParams = instantiated.GetParameters();
                     for (var i = 0; i < call.Args.Count; i++)
                     {
                         EmitNode(call.Args[i], il, outerParams, locals, ctx);
+                        if (i >= openParams.Length)
+                            continue;
+                        var argSig = MapToClr(call.Args[i].Type, ctx);
                         if (
-                            i < instParams.Length
-                            && argClrTypes[i].IsValueType
-                            && !instParams[i].ParameterType.IsValueType
+                            argSig.IsValueType
+                            && !ParamIsValueType(openParams[i].ParameterType, typeArgs)
                         )
-                            il.Add(
-                                CilOpCodes.Box,
-                                _module.DefaultImporter.ImportType(argClrTypes[i])
-                            );
+                            il.Add(CilOpCodes.Box, argSig.ToTypeDefOrRef());
                     }
 
-                    var importedGeneric = _module.DefaultImporter.ImportMethod(instantiated);
-                    if (importedGeneric is MethodSpecification methodSpec)
-                        il.Add(CilOpCodes.Call, methodSpec);
-                    else
-                        il.Add(CilOpCodes.Call, (IMethodDefOrRef)importedGeneric);
+                    var openRef = (IMethodDefOrRef)
+                        _module.DefaultImporter.ImportMethod(reflectionMethod);
+                    il.Add(
+                        CilOpCodes.Call,
+                        new MethodSpecification(
+                            openRef,
+                            new GenericInstanceMethodSignature(typeArgs)
+                        )
+                    );
                 }
                 else
                 {
@@ -6032,13 +6071,7 @@ public sealed partial class IlEmitter
                                     && _typeAliases.IsTaskName(taskNt2.Name)
                                         ? t
                                         : method.ReturnType;
-                                var fromResult = typeof(Task)
-                                    .GetMethod("FromResult")!
-                                    .MakeGenericMethod(MapToReflectionClr(inner));
-                                methodIl.Add(
-                                    CilOpCodes.Call,
-                                    _module.DefaultImporter.ImportMethod(fromResult)
-                                );
+                                EmitTaskFromResult(inner, methodIl, methodCtx);
                             }
                         }
 

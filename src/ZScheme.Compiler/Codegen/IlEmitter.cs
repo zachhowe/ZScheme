@@ -919,6 +919,107 @@ public sealed partial class IlEmitter(
     }
 
     /// <summary>
+    ///     Infers the generic type arguments for a call to a <em>precompiled</em> generic module
+    ///     function, as AsmResolver signatures, by matching the method's <em>open</em> parameter
+    ///     types against the ZScheme types of the actual arguments.
+    /// </summary>
+    /// <remarks>
+    ///     The reflection equivalent (<see cref="InferGenericTypeArgs" /> feeding
+    ///     <c>MakeGenericMethod</c>) cannot serve here: an argument whose type is declared in the
+    ///     module being emitted maps to no loaded <see cref="Type" />, so every such type argument
+    ///     erases to <see cref="object" /> and the call closes on the wrong instantiation.
+    ///     Matching against the ZScheme types instead keeps them, because
+    ///     <see cref="MapToClr" /> can name a <see cref="TypeDefinition" /> this module is still
+    ///     building. This is the precompiled-call analogue of
+    ///     <see cref="InferTypeArgsForCall" />, which the locally-defined path already uses.
+    /// </remarks>
+    private TypeSignature[] InferPrecompiledTypeArgs(
+        MethodInfo openMethod,
+        IReadOnlyList<IrNode> args,
+        ZType? callReturnType,
+        EmitContext ctx
+    )
+    {
+        var result = new TypeSignature[openMethod.GetGenericArguments().Length];
+        var formals = openMethod.GetParameters();
+        for (var i = 0; i < formals.Length && i < args.Count; i++)
+            MatchClrFormal(formals[i].ParameterType, args[i].Type, result, ctx);
+
+        // Match the return type too, so a type parameter that appears only there resolves.
+        if (callReturnType is not null)
+            MatchClrFormal(openMethod.ReturnType, callReturnType, result, ctx);
+
+        for (var i = 0; i < result.Length; i++)
+            result[i] ??= _module.CorLibTypeFactory.Object;
+        return result;
+    }
+
+    /// Walks an open reflection type and the ZScheme type standing in for it in parallel,
+    /// binding each method type parameter (<c>!!k</c>) it reaches to the mapped signature of
+    /// the ZScheme type at the same position.
+    private void MatchClrFormal(Type formal, ZType? actual, TypeSignature[] result, EmitContext ctx)
+    {
+        if (actual is null || !formal.ContainsGenericParameters)
+            return;
+
+        if (formal.IsGenericMethodParameter)
+        {
+            if (formal.GenericParameterPosition < result.Length)
+                AssignGenericArgPreferringReference(
+                    result,
+                    formal.GenericParameterPosition,
+                    MapToClr(actual, ctx)
+                );
+            return;
+        }
+
+        var actualArgs = ZTypeArgsOf(actual);
+        if (formal.IsArray || formal.IsByRef)
+        {
+            // A variadic parameter's formal is `T[]` while the packed argument is the array
+            // alias over the same element type, so both sides unwrap by one level.
+            if (actualArgs.Count == 1)
+                MatchClrFormal(formal.GetElementType()!, actualArgs[0], result, ctx);
+            else
+                MatchClrFormal(formal.GetElementType()!, actual, result, ctx);
+            return;
+        }
+
+        var formalArgs = formal.GetGenericArguments();
+        for (var i = 0; i < formalArgs.Length && i < actualArgs.Count; i++)
+            MatchClrFormal(formalArgs[i], actualArgs[i], result, ctx);
+    }
+
+    /// The type arguments of <paramref name="type" />, ordered to line up with the reflection
+    /// generic arguments of the CLR type it maps to: a function type's parameters followed by
+    /// its return (as <c>Func&lt;...&gt;</c>), or just its parameters when the return is Unit
+    /// (as <c>Action&lt;...&gt;</c>).
+    private static IReadOnlyList<ZType> ZTypeArgsOf(ZType type)
+    {
+        return type switch
+        {
+            ZType.ZFuncType { Return: ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit } } act =>
+                act.Params,
+            ZType.ZFuncType ft => [.. ft.Params, ft.Return],
+            ZType.ZNamedType nt => nt.TypeArgs,
+            ZType.ZNullableType nl => [nl.Inner],
+            _ => [],
+        };
+    }
+
+    /// Whether an open reflection parameter type is a value type once
+    /// <paramref name="typeArgs" /> are substituted — the only thing the call site needs it for,
+    /// since it decides whether the argument has to be boxed. A parameter that merely
+    /// <em>contains</em> a type parameter (<c>ImmutableArray&lt;T&gt;</c>) already answers this
+    /// from its own definition, so only a bare <c>!!k</c> needs the substitution.
+    private static bool ParamIsValueType(Type formal, TypeSignature[] typeArgs)
+    {
+        return formal.IsGenericMethodParameter && formal.GenericParameterPosition < typeArgs.Length
+            ? typeArgs[formal.GenericParameterPosition].IsValueType
+            : formal.IsValueType;
+    }
+
+    /// <summary>
     ///     Assigns a candidate type to a generic-arg slot, preferring a previously-bound
     ///     reference type (e.g. Object) over a value type. This mirrors the widening the
     ///     Unifier performs during inference — when the same ^v gets matched by both a
@@ -1633,6 +1734,48 @@ public sealed partial class IlEmitter(
     internal IMethodDefOrRef ImportClosedGenericMethod(Type closedGenericType, string methodName)
     {
         var openGenericType = closedGenericType.GetGenericTypeDefinition();
+        var closedTypeArgs = closedGenericType
+            .GetGenericArguments()
+            .Select(a => _module.DefaultImporter.ImportType(a).ToTypeSignature(a.IsValueType))
+            .ToArray();
+        return ImportClosedGenericMethod(
+            openGenericType,
+            MakeClosedGenericSig(openGenericType, closedTypeArgs),
+            methodName
+        );
+    }
+
+    /// <summary>
+    ///     Closes <paramref name="openClrType" /> over AsmResolver type signatures rather than
+    ///     reflection types. Callers use this whenever a type argument may be a type defined in
+    ///     <em>this</em> module: such a type has no reflection <see cref="Type" />, so
+    ///     <see cref="Type.MakeGenericType" /> would silently erase the argument to
+    ///     <see cref="object" /> and emit metadata that <c>ilverify</c> rejects.
+    /// </summary>
+    internal GenericInstanceTypeSignature MakeClosedGenericSig(
+        Type openClrType,
+        params TypeSignature[] args
+    )
+    {
+        return new GenericInstanceTypeSignature(
+            _module.DefaultImporter.ImportType(openClrType),
+            openClrType.IsValueType,
+            args
+        );
+    }
+
+    /// <inheritdoc cref="ImportClosedGenericMethod(Type,string)" />
+    /// <remarks>
+    ///     Takes the closed declaring-type signature directly, for the same reason
+    ///     <see cref="MakeClosedGenericSig" /> exists: the type arguments may name types this
+    ///     module is still defining, which reflection cannot represent.
+    /// </remarks>
+    internal IMethodDefOrRef ImportClosedGenericMethod(
+        Type openGenericType,
+        GenericInstanceTypeSignature closedDeclaringSig,
+        string methodName
+    )
+    {
         // Prefer the method on the OPEN generic so we can translate signatures through
         // the open type's generic parameters. Property getters (`get_Task`) aren't
         // returned by GetMethods() under the property name, so we also probe properties.
@@ -1665,17 +1808,6 @@ public sealed partial class IlEmitter(
             // non-generic method and fails to find its closed form.
             sig.Attributes |= CallingConventionAttributes.Generic;
         }
-
-        // Build the closed declaring-type signature.
-        var closedTypeArgs = closedGenericType
-            .GetGenericArguments()
-            .Select(a => _module.DefaultImporter.ImportType(a).ToTypeSignature(a.IsValueType))
-            .ToArray();
-        var closedDeclaringSig = new GenericInstanceTypeSignature(
-            _module.DefaultImporter.ImportType(openGenericType),
-            openGenericType.IsValueType,
-            closedTypeArgs
-        );
 
         // Use the reflected method's actual name (may be `get_<Prop>` for property accessors
         // even if the caller passed the property name).

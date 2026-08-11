@@ -37,6 +37,61 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
     private ModuleDefinition _module => _host._module;
     private TypeAliasRegistry _typeAliases => _host._typeAliases;
 
+    /// <summary>
+    ///     A CLR type the async emitter needs in two forms: the open reflection definition, to
+    ///     look members up on, and the AsmResolver <see cref="TypeSignature" /> that actually
+    ///     names it in emitted metadata. The two are kept apart because a type argument may be a
+    ///     type defined in <em>this</em> module (a record, union or class being emitted right
+    ///     now), which has no reflection <see cref="Type" /> — closing the generic through
+    ///     reflection erases such an argument to <c>object</c>, so the state machine ends up
+    ///     built on <c>AsyncTaskMethodBuilder&lt;object&gt;</c> while the stub still declares
+    ///     <c>Task&lt;TheRecord&gt;</c>, which <c>ilverify</c> rejects with StackUnexpected.
+    /// </summary>
+    /// <param name="OpenClrType">
+    ///     The generic type definition (or the type itself, when non-generic).
+    /// </param>
+    /// <param name="Signature">The signature to emit — closed over real type arguments.</param>
+    private readonly record struct ClrTypeRef(Type OpenClrType, TypeSignature Signature)
+    {
+        /// The closed instance, or <c>null</c> when this names a non-generic type.
+        public GenericInstanceTypeSignature? Closed => Signature as GenericInstanceTypeSignature;
+    }
+
+    /// <summary>
+    ///     Names <paramref name="openClrType" /> closed over <paramref name="arg" />, or the bare
+    ///     non-generic <paramref name="openClrType" /> when <paramref name="arg" /> is null.
+    /// </summary>
+    private ClrTypeRef MakeTypeRef(Type openClrType, TypeSignature? arg)
+    {
+        return new ClrTypeRef(
+            openClrType,
+            arg is null
+                ? _module
+                    .DefaultImporter.ImportType(openClrType)
+                    .ToTypeSignature(openClrType.IsValueType)
+                : _host.MakeClosedGenericSig(openClrType, arg)
+        );
+    }
+
+    /// <summary>
+    ///     Imports <paramref name="name" /> (a method or property getter) off
+    ///     <paramref name="type" />, anchoring the reference on the closed generic instance when
+    ///     there is one so the emitted token carries the real type arguments.
+    /// </summary>
+    private IMethodDefOrRef ImportMember(ClrTypeRef type, string name)
+    {
+        if (type.Closed is { } closed)
+            return _host.ImportClosedGenericMethod(type.OpenClrType, closed, name);
+
+        var method =
+            type.OpenClrType.GetMethod(name)
+            ?? type.OpenClrType.GetProperty(name)?.GetGetMethod()
+            ?? throw new InvalidOperationException(
+                $"Method '{name}' not found on {type.OpenClrType}"
+            );
+        return (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(method);
+    }
+
     internal void EmitAsyncFuncDef(
         IrNode.FuncDef func,
         MethodDefinition stubMethod,
@@ -55,40 +110,13 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         );
         var smName = $"<{IlEmitter.Sanitize(func.Name)}>d__{_asyncSmCounter++}";
 
-        // Determine builder and task types
+        // Determine builder and task types. The builder is closed over the AsmResolver signature
+        // of the result type, not its reflection type: the result may be a record/union this very
+        // module is emitting, which reflection cannot name.
         var isVoid = info.IsVoidReturn;
-        Type builderClrType;
-        if (isVoid)
-            builderClrType = typeof(AsyncTaskMethodBuilder);
-        else
-            builderClrType = typeof(AsyncTaskMethodBuilder<>).MakeGenericType(
-                _host.MapToReflectionClr(func.ReturnType)
-            );
-
-        // For generic closed builders (AsyncTaskMethodBuilder<T>), build a
-        // GenericInstanceTypeSignature so later code that inspects the builder field
-        // signature (e.g. GetAwaitUnsafeOnCompletedRef) can recognize the closed
-        // generic and emit method references on the closed type.
-        TypeSignature builderTypeSig;
-        if (builderClrType.IsGenericType && !builderClrType.IsGenericTypeDefinition)
-        {
-            var openBuilder = builderClrType.GetGenericTypeDefinition();
-            var builderArgs = builderClrType
-                .GetGenericArguments()
-                .Select(a => _module.DefaultImporter.ImportType(a).ToTypeSignature(a.IsValueType))
-                .ToArray();
-            builderTypeSig = new GenericInstanceTypeSignature(
-                _module.DefaultImporter.ImportType(openBuilder),
-                openBuilder.IsValueType,
-                builderArgs
-            );
-        }
-        else
-        {
-            builderTypeSig = _module
-                .DefaultImporter.ImportType(builderClrType)
-                .ToTypeSignature(builderClrType.IsValueType);
-        }
+        var builder = isVoid
+            ? MakeTypeRef(typeof(AsyncTaskMethodBuilder), null)
+            : MakeTypeRef(typeof(AsyncTaskMethodBuilder<>), _host.MapToClr(func.ReturnType, ctx));
 
         // --- Define state machine struct ---
         var smType = new TypeDefinition(
@@ -122,7 +150,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         var builderField = new FieldDefinition(
             "__builder",
             FieldAttributes.Public,
-            new FieldSignature(builderTypeSig)
+            new FieldSignature(builder.Signature)
         );
         smType.Fields.Add(builderField);
 
@@ -168,15 +196,10 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         var awaiterFields = new Dictionary<int, FieldDefinition>();
         foreach (var ap in info.AwaitPoints)
         {
-            var awaiterClrType = GetAwaiterClrType(ap);
             var awaiterField = new FieldDefinition(
                 $"__awaiter{ap.StateNumber}",
                 FieldAttributes.Private,
-                new FieldSignature(
-                    _module
-                        .DefaultImporter.ImportType(awaiterClrType)
-                        .ToTypeSignature(awaiterClrType.IsValueType)
-                )
+                new FieldSignature(GetAwaiterTypeRef(ap.ResultType, ctx).Signature)
             );
             smType.Fields.Add(awaiterField);
             awaiterFields[ap.StateNumber] = awaiterField;
@@ -188,7 +211,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
             smType,
             stateField,
             builderField,
-            builderClrType,
+            builder,
             varFields,
             awaiterFields,
             info,
@@ -197,7 +220,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         );
 
         // --- Emit SetStateMachine method ---
-        EmitSetStateMachineMethod(smType, builderField, builderClrType);
+        EmitSetStateMachineMethod(smType);
 
         // --- Emit stub method body ---
         EmitAsyncStubBody(
@@ -206,7 +229,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
             smType,
             stateField,
             builderField,
-            builderClrType,
+            builder,
             varFields,
             thisField
         );
@@ -233,7 +256,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         TypeDefinition smType,
         FieldDefinition stateField,
         FieldDefinition builderField,
-        Type builderClrType,
+        ClrTypeRef builder,
         Dictionary<string, FieldDefinition> varFields,
         FieldDefinition? thisField = null
     )
@@ -267,10 +290,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         }
 
         // sm.__builder = AsyncTaskMethodBuilder<T>.Create()
-        var createMethod = builderClrType.IsGenericType
-            ? _host.ImportClosedGenericMethod(builderClrType, "Create")
-            : (IMethodDefOrRef)
-                _module.DefaultImporter.ImportMethod(builderClrType.GetMethod("Create")!);
+        var createMethod = ImportMember(builder, "Create");
         il.Add(CilOpCodes.Ldloca, smLocal);
         il.Add(CilOpCodes.Call, createMethod);
         il.Add(CilOpCodes.Stfld, builderField);
@@ -281,10 +301,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         il.Add(CilOpCodes.Stfld, stateField);
 
         // sm.__builder.Start<SM>(ref sm)
-        var startMethodRef = builderClrType.IsGenericType
-            ? _host.ImportClosedGenericMethod(builderClrType, "Start")
-            : (IMethodDefOrRef)
-                _module.DefaultImporter.ImportMethod(builderClrType.GetMethod("Start")!);
+        var startMethodRef = ImportMember(builder, "Start");
         var startSpec = new MethodSpecification(
             startMethodRef,
             new GenericInstanceMethodSignature([smType.ToTypeSignature(true)])
@@ -296,12 +313,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         il.Add(CilOpCodes.Call, startSpec);
 
         // return sm.__builder.Task
-        var taskPropGetter = builderClrType.IsGenericType
-            ? _host.ImportClosedGenericMethod(builderClrType, "Task")
-            : (IMethodDefOrRef)
-                _module.DefaultImporter.ImportMethod(
-                    builderClrType.GetProperty("Task")!.GetGetMethod()!
-                );
+        var taskPropGetter = ImportMember(builder, "Task");
         il.Add(CilOpCodes.Ldloca, smLocal);
         il.Add(CilOpCodes.Ldflda, builderField);
         il.Add(CilOpCodes.Call, taskPropGetter);
@@ -313,7 +325,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         TypeDefinition smType,
         FieldDefinition stateField,
         FieldDefinition builderField,
-        Type builderClrType,
+        ClrTypeRef builder,
         Dictionary<string, FieldDefinition> varFields,
         Dictionary<int, FieldDefinition> awaiterFields,
         AsyncStateMachineAnalyzer.AsyncMethodInfo info,
@@ -536,9 +548,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         il.Add(CilOpCodes.Stfld, stateField);
 
         // __builder.SetException(ex)
-        var setException = _module.DefaultImporter.ImportMethod(
-            builderClrType.GetMethod("SetException", [typeof(Exception)])!
-        );
+        var setException = ImportMember(builder, "SetException");
         il.Add(CilOpCodes.Ldarg_0);
         il.Add(CilOpCodes.Ldflda, builderField);
         il.Add(CilOpCodes.Ldloc, exLocal);
@@ -555,28 +565,12 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         il.Add(CilOpCodes.Stfld, stateField);
 
         // __builder.SetResult(result)
-        // __builder.SetResult(result)
-        if (info.IsVoidReturn)
-        {
-            var setResult = _module.DefaultImporter.ImportMethod(
-                builderClrType.GetMethod("SetResult", Type.EmptyTypes)!
-            );
-            il.Add(CilOpCodes.Ldarg_0);
-            il.Add(CilOpCodes.Ldflda, builderField);
-            il.Add(CilOpCodes.Call, setResult);
-        }
-        else
-        {
-            var setResultMethod = builderClrType.GetMethod(
-                "SetResult",
-                [_host.MapToReflectionClr(func.ReturnType)]
-            )!;
-            var setResult = _module.DefaultImporter.ImportMethod(setResultMethod);
-            il.Add(CilOpCodes.Ldarg_0);
-            il.Add(CilOpCodes.Ldflda, builderField);
+        var setResult = ImportMember(builder, "SetResult");
+        il.Add(CilOpCodes.Ldarg_0);
+        il.Add(CilOpCodes.Ldflda, builderField);
+        if (!info.IsVoidReturn)
             il.Add(CilOpCodes.Ldloc, resultLocal!);
-            il.Add(CilOpCodes.Call, setResult);
-        }
+        il.Add(CilOpCodes.Call, setResult);
 
         exitLabel.Instruction = il.Add(CilOpCodes.Nop);
         il.Add(CilOpCodes.Ret);
@@ -613,40 +607,27 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
             awaitNode.Expr.Type,
             _typeAliases
         );
-        var isVoidAwait = resultType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
-
-        // Determine awaiter CLR type
-        Type awaiterClrType;
-        if (isVoidAwait)
-            awaiterClrType = typeof(TaskAwaiter);
-        else
-            awaiterClrType = typeof(TaskAwaiter<>).MakeGenericType(
-                _host.MapToReflectionClr(resultType)
-            );
+        var awaiter = GetAwaiterTypeRef(resultType, ctx);
 
         // Declare a local for the awaiter
-        var awaiterLocal = new CilLocalVariable(
-            _module
-                .DefaultImporter.ImportType(awaiterClrType)
-                .ToTypeSignature(awaiterClrType.IsValueType)
-        );
+        var awaiterLocal = new CilLocalVariable(awaiter.Signature);
         il.Owner.LocalVariables.Add(awaiterLocal);
 
         // Emit the task expression
         _host.EmitNode(awaitNode.Expr, il, outerParams, locals, ctx);
 
         // Call GetAwaiter()
-        var taskClrType = _host.MapToReflectionClr(awaitNode.Expr.Type);
-        var getAwaiterMethod = taskClrType.GetMethod("GetAwaiter", Type.EmptyTypes)!;
-        il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(getAwaiterMethod));
+        il.Add(
+            CilOpCodes.Call,
+            ImportMember(GetTaskTypeRef(awaitNode.Expr.Type, ctx), "GetAwaiter")
+        );
         il.Add(CilOpCodes.Stloc, awaiterLocal);
 
         // Check IsCompleted
-        var isCompletedGetter = awaiterClrType.GetProperty("IsCompleted")!.GetGetMethod()!;
         var completedLabel = new CilInstructionLabel();
 
         il.Add(CilOpCodes.Ldloca, awaiterLocal);
-        il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(isCompletedGetter));
+        il.Add(CilOpCodes.Call, ImportMember(awaiter, "IsCompleted"));
         il.Add(CilOpCodes.Brtrue, completedLabel);
 
         // --- Not completed: suspend ---
@@ -673,7 +654,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
             }
 
         // Call __builder.AwaitUnsafeOnCompleted(ref awaiter, ref this)
-        var awaitUnsafe = GetAwaitUnsafeOnCompletedRef(awaiterClrType, mnCtx);
+        var awaitUnsafe = GetAwaitUnsafeOnCompletedRef(awaiter.Signature, mnCtx);
         il.Add(CilOpCodes.Ldarg_0);
         il.Add(CilOpCodes.Ldflda, mnCtx.BuilderField);
         il.Add(CilOpCodes.Ldarg_0);
@@ -695,13 +676,7 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         // Clear awaiter field
         il.Add(CilOpCodes.Ldarg_0);
         il.Add(CilOpCodes.Ldflda, awaiterField);
-        il.Add(
-            CilOpCodes.Initobj,
-            _module
-                .DefaultImporter.ImportType(awaiterClrType)
-                .ToTypeSignature(awaiterClrType.IsValueType)
-                .ToTypeDefOrRef()
-        );
+        il.Add(CilOpCodes.Initobj, awaiter.Signature.ToTypeDefOrRef());
 
         // Reset state to -1
         il.Add(CilOpCodes.Ldc_I4_M1);
@@ -723,18 +698,13 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         completedLabel.Instruction = il.Add(CilOpCodes.Nop);
 
         // Call GetResult()
-        var getResultMethod = awaiterClrType.GetMethod("GetResult", Type.EmptyTypes)!;
         il.Add(CilOpCodes.Ldloca, awaiterLocal);
-        il.Add(CilOpCodes.Call, _module.DefaultImporter.ImportMethod(getResultMethod));
+        il.Add(CilOpCodes.Call, ImportMember(awaiter, "GetResult"));
 
         // Result (T or void) is now on the stack
     }
 
-    private void EmitSetStateMachineMethod(
-        TypeDefinition smType,
-        FieldDefinition builderField,
-        Type builderClrType
-    )
+    private void EmitSetStateMachineMethod(TypeDefinition smType)
     {
         var setSmMethod = new MethodDefinition(
             "SetStateMachine",
@@ -779,31 +749,24 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         // Emit the task expression (pushes Task<T> or Task on stack)
         _host.EmitNode(awaitNode.Expr, il, outerParams, locals, ctx);
 
-        // Resolve GetAwaiter() and GetResult() via reflection on the CLR task type
-        var taskClrType = _host.MapToReflectionClr(awaitNode.Expr.Type);
-        var getAwaiterMethod = taskClrType.GetMethod("GetAwaiter", Type.EmptyTypes)!;
-        var awaiterType = getAwaiterMethod.ReturnType;
-        var getResultMethod = awaiterType.GetMethod("GetResult", Type.EmptyTypes)!;
-
         // Call GetAwaiter() on the Task
+        var awaiter = GetAwaiterTypeRef(
+            AsyncStateMachineAnalyzer.GetAwaitResultType(awaitNode.Expr.Type, _typeAliases),
+            ctx
+        );
         il.Add(
             CilOpCodes.Call,
-            (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(getAwaiterMethod)
+            ImportMember(GetTaskTypeRef(awaitNode.Expr.Type, ctx), "GetAwaiter")
         );
 
         // TaskAwaiter is a struct — store in local and load address for instance method call
-        var awaiterLocal = new CilLocalVariable(
-            _module.DefaultImporter.ImportType(awaiterType).ToTypeSignature(awaiterType.IsValueType)
-        );
+        var awaiterLocal = new CilLocalVariable(awaiter.Signature);
         il.Owner.LocalVariables.Add(awaiterLocal);
         il.Add(CilOpCodes.Stloc, awaiterLocal);
         il.Add(CilOpCodes.Ldloca, awaiterLocal);
 
         // Call GetResult() — returns T for Task<T>, void for non-generic Task
-        il.Add(
-            CilOpCodes.Call,
-            (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(getResultMethod)
-        );
+        il.Add(CilOpCodes.Call, ImportMember(awaiter, "GetResult"));
     }
 
     /// <summary>
@@ -877,53 +840,39 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         return shim;
     }
 
-    private Type GetAwaiterClrType(AsyncStateMachineAnalyzer.AwaitPointInfo ap)
+    /// <summary>
+    ///     Names the <c>TaskAwaiter</c>/<c>TaskAwaiter&lt;T&gt;</c> for an await whose awaited
+    ///     result is <paramref name="resultType" />.
+    /// </summary>
+    private ClrTypeRef GetAwaiterTypeRef(ZType resultType, EmitContext ctx)
     {
-        if (ap.ResultType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
-            return typeof(TaskAwaiter);
-        var innerClr = _host.MapToReflectionClr(ap.ResultType);
-        return typeof(TaskAwaiter<>).MakeGenericType(innerClr);
+        return resultType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+            ? MakeTypeRef(typeof(TaskAwaiter), null)
+            : MakeTypeRef(typeof(TaskAwaiter<>), _host.MapToClr(resultType, ctx));
+    }
+
+    /// <summary>
+    ///     Names the <c>Task</c>/<c>Task&lt;T&gt;</c> an await expression pushes, so
+    ///     <c>GetAwaiter</c> can be referenced on it. <paramref name="taskType" /> is already a
+    ///     Task type, so <see cref="IlEmitter.MapToClr" /> maps it directly.
+    /// </summary>
+    private ClrTypeRef GetTaskTypeRef(ZType taskType, EmitContext ctx)
+    {
+        return _host.MapToClr(taskType, ctx) is GenericInstanceTypeSignature git
+            ? new ClrTypeRef(typeof(Task<>), git)
+            : MakeTypeRef(typeof(Task), null);
     }
 
     private MethodSpecification GetAwaitUnsafeOnCompletedRef(
-        Type awaiterClrType,
+        TypeSignature awaiterSig,
         AsyncMoveNextContext ctx
     )
     {
-        // Import the AwaitUnsafeOnCompleted method from the builder type
+        // Import the AwaitUnsafeOnCompleted method from the builder type. The builder field's
+        // own signature is the authority on which builder this state machine uses.
         var builderType = ctx.BuilderField.Signature!.FieldType;
 
-        // Find the open AwaitUnsafeOnCompleted method on the CLR builder type
-        Type builderClrType;
-        if (ctx.IsVoidReturn)
-        {
-            builderClrType = typeof(AsyncTaskMethodBuilder);
-        }
-        else
-        {
-            // Reconstruct the closed generic builder CLR type
-            // The builder field's signature tells us the type args
-            if (builderType is GenericInstanceTypeSignature git)
-            {
-                var innerClrTypes = git
-                    .TypeArguments.Select(ta =>
-                    {
-                        // Map back from TypeSignature to CLR Type
-                        var fullName = ta.FullName;
-                        return Type.GetType(fullName) ?? typeof(object);
-                    })
-                    .ToArray();
-                builderClrType = typeof(AsyncTaskMethodBuilder<>).MakeGenericType(innerClrTypes);
-            }
-            else
-            {
-                builderClrType = typeof(AsyncTaskMethodBuilder);
-            }
-        }
-
-        // Use the AsmResolver approach:
-        // Import the open generic method, then create a MethodSpecification
-        var openAwaitMethod = builderClrType
+        var openAwaitMethod = typeof(AsyncTaskMethodBuilder)
             .GetMethods()
             .First(m => m is { Name: "AwaitUnsafeOnCompleted", IsGenericMethodDefinition: true });
         var importedMethod = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod(openAwaitMethod);
@@ -932,11 +881,6 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
         if (builderType is GenericInstanceTypeSignature gitSig)
         {
             // Create a MemberReference on the closed generic builder type
-            var openMethod = typeof(AsyncTaskMethodBuilder<>)
-                .GetMethods()
-                .First(m => m.Name == "AwaitUnsafeOnCompleted" && m.IsGenericMethodDefinition);
-            var openParams = openMethod.GetParameters();
-
             var sig = MethodSignature.CreateInstance(
                 _module.CorLibTypeFactory.Void,
                 [
@@ -962,9 +906,6 @@ internal sealed class IlAsyncEmitter(IlEmitter host)
             importedMethod = memberRef;
         }
 
-        var awaiterSig = _module
-            .DefaultImporter.ImportType(awaiterClrType)
-            .ToTypeSignature(awaiterClrType.IsValueType);
         var smSig = ctx.SmType.ToTypeSignature(true); // state machines are always value types
 
         return new MethodSpecification(
