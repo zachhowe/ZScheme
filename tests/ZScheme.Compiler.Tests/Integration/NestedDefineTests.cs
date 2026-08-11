@@ -517,6 +517,43 @@ public class NestedDefineTests
     public void InsideAnOpenClassMethod_RunsInConstantStack_Il() =>
         Assert.Equal(1000000, CompileIlAndRunInt(OpenClassMutableLoopSource));
 
+    // Two groups in one body where the second calls the first, and only the first names a
+    // field. Found by the differential fuzzer: the second group touches no instance state of
+    // its own, so it lifted to a static — and a static cannot call the private method the
+    // first became. The IL backend said so ("Function '__letrec_..._x128' not found") while
+    // the C# backend emitted an unqualified call and compiled, which is the divergence the
+    // fuzzer exists to catch. Needing an instance has to be transitive.
+    private const string TwoGroupsOneNeedsInstanceSource =
+        @"(module test)
+(define-class Counter
+  [state : Int #:mutable]
+  (define (Run [n : Int]) : Int
+    (define (first [k : Int]) : Int
+      (if (= k 0) state (begin (set! state k) (first (- k 1)))))
+    (+ n 0)
+    (define (second [k : Int]) : Int
+      (if (= k 0) 0 (+ (first 1) (second (- k 1)))))
+    (second n)))
+(define (compute) : Int (Counter/Run (new Counter 0) 3))";
+
+    [Fact]
+    public void TwoGroups_WhereOnlyTheFirstNeedsTheInstance_CSharp() =>
+        Assert.Equal(3, CompileCSharpAndRunInt(TwoGroupsOneNeedsInstanceSource));
+
+    [Fact]
+    public void TwoGroups_WhereOnlyTheFirstNeedsTheInstance_Il() =>
+        Assert.Equal(3, CompileIlAndRunInt(TwoGroupsOneNeedsInstanceSource));
+
+    [Fact]
+    public void TwoGroups_WhereOnlyTheFirstNeedsTheInstance_HostsBothOnTheClass()
+    {
+        var cs = CompileCSharp(TwoGroupsOneNeedsInstanceSource);
+
+        Assert.Contains("private int __letrec_test_0_first(int k)", cs);
+        Assert.Contains("private int __letrec_test_1_second(int k)", cs);
+        Assert.Contains("this.__letrec_test_0_first(1)", cs);
+    }
+
     [Fact]
     public void InsideAnOpenClassMethod_HelperIsPrivateAndNotVirtual()
     {

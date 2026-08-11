@@ -689,19 +689,22 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
             // nested inside the helper can reach instance state just as this one did.
             // The enclosing substitutions are kept so a nested group can still reach an outer
             // group's members; the constraints are kept because the same type-var IDs survive.
-            var bodyScope = new Scope(
-                ClosureConverter.Extend(
+            var bodyScope = scope with
+            {
+                Locals = ClosureConverter.Extend(
                     scope.Locals,
                     captureParams.Concat(func.Params).Select(p => p.Name)
                 ),
-                Shadow(Merge(scope.Substitutions, lifted), func.Params.Select(p => p.Name)),
-                onInstance ? scope.InstanceState : [],
-                scope.ConstraintsByVarId
-            )
-            {
+                Substitutions = Shadow(
+                    Merge(scope.Substitutions, lifted),
+                    func.Params.Select(p => p.Name)
+                ),
+                InstanceState = onInstance ? scope.InstanceState : [],
                 InstanceMethods = onInstance ? scope.InstanceMethods : [],
                 CapturableInstanceState = onInstance ? scope.CapturableInstanceState : [],
                 InstanceHost = onInstance ? scope.InstanceHost : null,
+                // The lifted body is a static function or a method, never a constructor.
+                InInstanceInitializer = false,
             };
 
             var body = Rewrite(func.Body, bodyScope);
@@ -755,19 +758,15 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
         var siteLocals = new HashSet<string>(scope.Locals, StringComparer.Ordinal);
         siteLocals.ExceptWith(functionNames);
         siteLocals.UnionWith(valueNames);
-        var siteSubst = new Scope(
-            siteLocals,
+        // Derived with `with` rather than rebuilt field by field: the site is still wherever the
+        // group was written, so every part of its instance context carries over unchanged, and
+        // a field added to Scope later cannot be silently dropped here.
+        var siteSubst = scope with
+        {
+            Locals = siteLocals,
             // The group's own function names win over an enclosing group's; its value names are
             // ordinary locals and so must drop any enclosing substitution of the same name.
-            Merge(Shadow(scope.Substitutions, valueNames), lifted),
-            scope.InstanceState,
-            scope.ConstraintsByVarId
-        )
-        {
-            // The site is still wherever the group was written — inside a method body, its
-            // instance context is unchanged.
-            InstanceMethods = scope.InstanceMethods,
-            CapturableInstanceState = scope.CapturableInstanceState,
+            Substitutions = Merge(Shadow(scope.Substitutions, valueNames), lifted),
         };
         return BuildSpine(
             letrec
@@ -972,6 +971,20 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
 
             // A field of the same name wins over a method in both emitters' bare-name
             // resolution, so this runs after the field check — the same precedence they apply.
+            // A reference to an *enclosing* group's member that was hosted on the class is
+            // rewritten into a call to that private method, and only another method can make
+            // one. This binding therefore needs an instance too, even when it names no field
+            // of its own — two adjacent groups where the second calls the first are exactly
+            // how that arises.
+            var hostedSibling = free.FirstOrDefault(v =>
+                scope.Substitutions.TryGetValue(v.Name, out var t) && t.IsInstanceMethod
+            );
+            if (hostedSibling is not null)
+                return $"'letrec' binding '{binding.Name}' calls '{hostedSibling.Name}', which "
+                    + "reaches the enclosing instance: a recursive group is lifted to top-level "
+                    + "static functions, which have no instance to call it on. Move the "
+                    + "definition to a top-level 'define'";
+
             var method = free.FirstOrDefault(v => scope.InstanceMethods.Contains(v.Name));
             if (method is not null)
                 return $"'letrec' binding '{binding.Name}' calls the method '{method.Name}': a "
