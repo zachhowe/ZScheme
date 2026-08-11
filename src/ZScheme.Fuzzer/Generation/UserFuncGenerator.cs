@@ -62,7 +62,11 @@ public sealed class UserFuncGenerator
         var baseExpr = _exprs.GenInt(scope, bodyDepth);
         var stepExpr = _exprs.GenInt(scope, bodyDepth);
 
-        var isTail = _ctx.Rng.NextDouble() < 0.75;
+        // A quarter of these are deliberately non-tail, to cover the plain recursive call shape
+        // as well as the TCO-eligible one. Under --deep-recursion that shape is forced off: a
+        // non-tail call at that depth overflows on *both* backends by design, which is agreement
+        // rather than a finding and would only dilute the signal.
+        var isTail = _ctx.DeepRecursion || _ctx.Rng.NextDouble() < 0.75;
         var recCall = $"({name} (- {nParam} 1) {stepExpr})";
         var elseBranch = isTail ? recCall : $"(+ 1 {recCall})";
         var body = $"(if (<= {nParam} 0) {baseExpr} {elseBranch})";

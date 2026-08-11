@@ -44,9 +44,9 @@ public sealed class ProgramGenerator
     private readonly WithExprGenerator _with;
     private readonly TypeOfExprGenerator _typeOf;
 
-    public ProgramGenerator(Random rng, int maxDepth, int maxFuncs)
+    public ProgramGenerator(Random rng, int maxDepth, int maxFuncs, int deepRecursionDepth = 0)
     {
-        _ctx = new GeneratorContext(rng, maxDepth, maxFuncs);
+        _ctx = new GeneratorContext(rng, maxDepth, maxFuncs, deepRecursionDepth);
         _where = new WhereConstraintGenerator(_ctx);
         _attrs = new AttributeAnnotationGenerator(_ctx);
         _exprs = new ExprGenerator(_ctx);
@@ -367,15 +367,22 @@ public sealed class ProgramGenerator
             sb.AppendLine();
         }
 
-        // Mutual recursion pair — DISABLED until the compiler supports forward
-        // references between top-level defines. TypeInferer.InferProgram
-        // (TypeInferer.cs:353-358) currently registers each Define's type only
-        // after inferring its body, so `(define (mr_a ...) (... (mr_b ...)))`
-        // followed by `(define (mr_b ...) ...)` errors with
-        // "Undefined variable: 'mr_b'". Re-verified 2026-05-02 — limitation
-        // still exists; the MutualRecFuncGenerator file is kept intact so it
-        // can be re-wired once the compiler grows a signature pre-pass.
-        _ = _mutualRec;
+        // 0-1 mutually-recursive pair per program. The first function's body calls the second,
+        // which is declared after it — a forward reference between sibling top-level defines,
+        // resolved by TypeInferer's signature pre-pass. That is a different lowering path from
+        // the letrec and nested-define generators: those become one lifted group, while these
+        // stay two ordinary top-level statics that happen to call each other, which is what
+        // makes the IL emitter's register-all-signatures-before-any-body ordering observable.
+        if (_ctx.Rng.NextDouble() < 0.25)
+        {
+            var (mrA, mrB) = _mutualRec.GeneratePair($"mr{numFuncs}a", $"mr{numFuncs}b");
+            foreach (var mr in new[] { mrA, mrB })
+            {
+                _ctx.UserFuncs.Add(mr);
+                sb.AppendLine(mr.Definition);
+                sb.AppendLine();
+            }
+        }
 
         // Decide whether to emit async user funcs / make compute async. computeAsync
         // forces emitAsync because a sync compute can't reach async helpers (no

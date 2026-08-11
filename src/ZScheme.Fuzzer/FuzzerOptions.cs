@@ -26,6 +26,23 @@ public sealed class FuzzerOptions
     public bool Verbose { get; set; }
     public int Workers { get; set; } = Environment.ProcessorCount;
 
+    /// <summary>
+    ///     Generate recursion deep enough to exhaust the stack if tail-call optimization is
+    ///     broken, instead of the small bounded counts ordinary runs use.
+    /// </summary>
+    /// <remarks>
+    ///     Ordinary generation bounds every recursion so it terminates regardless of whether TCO
+    ///     works, which checks the <em>value</em> TCO produces but never its effect on stack
+    ///     depth. This flag inverts that: recursive calls are made deep and forced into tail
+    ///     position, so a correct compiler runs them in constant stack and a broken one
+    ///     overflows. It implies out-of-process execution, because an overflow is uncatchable and
+    ///     would otherwise kill the fuzzer itself.
+    /// </remarks>
+    public bool DeepRecursion { get; set; }
+
+    /// <summary>Recursion depth used when <see cref="DeepRecursion" /> is on.</summary>
+    public int RecursionDepth { get; set; } = 200_000;
+
     public static FuzzerOptions Parse(string[] args)
     {
         var opts = new FuzzerOptions();
@@ -66,6 +83,14 @@ public sealed class FuzzerOptions
                     break;
                 case "--oracles" when i + 1 < args.Length:
                     opts.Oracles = ParseOracles(args[++i]);
+                    break;
+                case "--deep-recursion":
+                    opts.DeepRecursion = true;
+                    break;
+                case "--recursion-depth" when i + 1 < args.Length:
+                    opts.RecursionDepth = ParseIntArg("--recursion-depth", args[++i]);
+                    if (opts.RecursionDepth < 1)
+                        throw new ArgumentException("--recursion-depth must be >= 1");
                     break;
                 case "--workers" or "-j" when i + 1 < args.Length:
                     opts.Workers = ParseIntArg("--workers", args[++i]);
@@ -155,6 +180,10 @@ public sealed class FuzzerOptions
               --repo-root <path>          Override repo root discovery
               --keep-passing              Save passing cases in cases.jsonl with full source
               --timeout <secs>            Per-subprocess timeout (default: 10)
+              --deep-recursion            Generate recursion deep enough to overflow the stack if
+                                          TCO is broken; runs Compute() out-of-process so an
+                                          overflow is reported instead of killing the fuzzer
+              --recursion-depth <n>       Depth used by --deep-recursion (default: 200000)
               --workers <n>, -j <n>       Parallel workers (default: ProcessorCount)
               --verbose, -v               Log each case as it runs
               --help, -h                  Show this help

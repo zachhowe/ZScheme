@@ -267,6 +267,22 @@ operator signatures, injects bindings from imported modules
 overload sets for multimethod-style dispatch), runs inference, then runs a
 `Resolve` pass that applies the accumulated substitution to every node.
 
+`InferProgram` runs two pre-passes before inferring any form. `RegisterDeclaredTypeNames`
+comes first, so an annotation naming a type declared later in the file is not promoted to an
+unrelated CLR type sharing its simple name. `PreBindTopLevelSignatures` follows: it resolves
+every top-level `define` / `define-async` signature and registers it in the environment
+(single binding plus overload candidate) *before* any body is inferred, which is what makes a
+forward reference between sibling top-level functions — and so top-level mutual recursion —
+resolve. It is the top-level analogue of `InferLetrec`'s step 1 and exists for the same reason;
+value defines are excluded, since they have no annotation to derive a signature from and their
+initializers run in source order. Each define's `typeVarScope` is cached and reused by the body
+pass so `^a` in the signature and `^a` in the body stay one type variable, and the placeholder
+is removed (`TypeEnv.RemoveBinding`) just before generalization — otherwise its free type
+variables would count against `Generalize` and silently make every annotated generic function
+monomorphic. Two top-level defines sharing a name is an error, reported here: unlike a nested
+definition it does not shadow, because inference completes before any call is emitted, so every
+call site binds to the last definition including ones written above it.
+
 Supporting pieces:
 
 - [`Unifier.Unify(a, b, span)`](../src/ZScheme.Compiler/Types/Unifier.cs) — the

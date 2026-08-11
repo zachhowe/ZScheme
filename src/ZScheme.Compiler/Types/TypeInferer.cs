@@ -37,6 +37,13 @@ public sealed class TypeInferer
     private readonly Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> _outParamsByAlias =
         new();
 
+    // Top-level function signatures built by PreBindTopLevelSignatures before any body is
+    // inferred. Keyed by node identity, not value: AstNode is a record, so two textually
+    // identical defines would collide under the default comparer.
+    private readonly Dictionary<AstNode, PendingSignature> _pendingSignatures = new(
+        ReferenceEqualityComparer.Instance
+    );
+
     private readonly TypeAliasRegistry? _typeAliases;
     private readonly Unifier _unifier;
     private string? _currentBaseClassName; // set during method body inference for super/ calls
@@ -720,29 +727,88 @@ public sealed class TypeInferer
         return winner.ReturnType;
     }
 
+    /// <summary>
+    ///     A function signature resolved before its body is inferred. Cached by
+    ///     <see cref="PreBindTopLevelSignatures" /> and consumed by <see cref="InferDefine" /> /
+    ///     <see cref="InferDefineAsync" />, which must reuse these exact objects: rebuilding
+    ///     <c>TypeVarScope</c> would make <c>^a</c> in the signature and <c>^a</c> in the body
+    ///     two different type variables.
+    /// </summary>
+    /// <param name="ReturnType">
+    ///     For an async define this is the <em>inner</em> type — <c>SelfType</c>'s return is the
+    ///     surrounding <c>Task</c>.
+    /// </param>
+    private sealed record PendingSignature(
+        List<ZType> ParamTypes,
+        Dictionary<string, ZType> TypeVarScope,
+        ZType SelfType,
+        ZType ReturnType,
+        bool IsNonGenericTaskAnnotation = false
+    );
+
+    private PendingSignature BuildSignature(AstNode.Define node)
+    {
+        var typeVarScope = new Dictionary<string, ZType>();
+        var (paramTypes, isVariadic) = ResolveParamTypes(node.Params, typeVarScope);
+        var retType =
+            ResolveTypeVarAnnotations(node.ReturnTypeAnnotation, typeVarScope) ?? FreshVar();
+
+        return new PendingSignature(
+            paramTypes,
+            typeVarScope,
+            new ZType.ZFuncType(paramTypes, retType, isVariadic),
+            retType
+        );
+    }
+
+    private (List<ZType> ParamTypes, bool IsVariadic) ResolveParamTypes(
+        IReadOnlyList<Param> parameters,
+        Dictionary<string, ZType> typeVarScope
+    )
+    {
+        var paramTypes = new List<ZType>(parameters.Count);
+        foreach (var param in parameters)
+            paramTypes.Add(ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar());
+        return (paramTypes, parameters.Count > 0 && parameters[^1].IsVariadic);
+    }
+
+    /// <summary>
+    ///     Binds each parameter into the body's scope. The variadic parameter is bound as
+    ///     <c>Clr-Array[T]</c> even though the signature records the element type.
+    /// </summary>
+    private static void BindParams(
+        IReadOnlyList<Param> parameters,
+        IReadOnlyList<ZType> paramTypes,
+        TypeEnv childEnv,
+        Func<ZType, ZType> makeVariadic
+    )
+    {
+        for (var i = 0; i < parameters.Count; i++)
+        {
+            var param = parameters[i];
+            var bound = param.IsVariadic ? makeVariadic(paramTypes[i]) : paramTypes[i];
+            childEnv.Define(param.Name, bound);
+            param.ResolvedType = bound;
+        }
+    }
+
     private ZType InferDefine(AstNode.Define node, TypeEnv env)
     {
         var childEnv = env.CreateChild();
-        var paramTypes = new List<ZType>();
-        var typeVarScope = new Dictionary<string, ZType>();
-        var isVariadic = node.Params.Count > 0 && node.Params[^1].IsVariadic;
 
-        foreach (var param in node.Params)
-        {
-            var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
-            paramTypes.Add(pType);
-            // Variadic param is bound as Clr-Array[T] in the body
-            if (param.IsVariadic)
-                childEnv.Define(param.Name, MakeVariadicType(pType));
-            else
-                childEnv.Define(param.Name, pType);
-            param.ResolvedType = param.IsVariadic ? MakeVariadicType(pType) : pType;
-        }
+        // Reuse the pre-pass's signature when there is one, so this body unifies against the
+        // very type variables the siblings already saw. Falls back to building one for defines
+        // the pre-pass does not reach (nested contexts, direct Infer calls from tests).
+        var preBound = _pendingSignatures.Remove(node, out var cached);
+        var signature = cached ?? BuildSignature(node);
+        var paramTypes = signature.ParamTypes;
+        var typeVarScope = signature.TypeVarScope;
+
+        BindParams(node.Params, paramTypes, childEnv, MakeVariadicType);
 
         // For self-recursion, add the function itself to the environment
-        var selfRetType =
-            ResolveTypeVarAnnotations(node.ReturnTypeAnnotation, typeVarScope) ?? FreshVar();
-        var selfType = new ZType.ZFuncType(paramTypes, selfRetType, isVariadic);
+        var selfRetType = signature.ReturnType;
+        var selfType = signature.SelfType;
         childEnv.Define(node.FnName, selfType);
 
         // Pre-register self in the outer overload set so recursive calls inside the body can
@@ -771,6 +837,13 @@ public sealed class TypeInferer
         // this, the function would be inferred as a non-polymorphic same-module
         // candidate and subsequent calls with different concrete types would fail.
         env.RemoveOverloadCandidate(node.FnName, localQname);
+
+        // The signature pre-pass leaves the same placeholder as a plain binding so siblings
+        // can call this function before its body runs. It has to come out for the same
+        // reason, and only here — a sibling inferred later re-reads it from its own
+        // pre-pass entry, not from env.
+        if (preBound)
+            env.RemoveBinding(node.FnName);
 
         var generalized = Generalize(resolvedFuncType, env);
 
@@ -802,10 +875,84 @@ public sealed class TypeInferer
         // its name to an unrelated CLR type that happens to share the simple name.
         RegisterDeclaredTypeNames(DeclaredTypeNames(node));
 
+        // Then every function signature, before any body: a define's body may call a sibling
+        // declared later in the file, which is what makes top-level mutual recursion work.
+        PreBindTopLevelSignatures(Forms(node.TopLevelForms), env);
+
         var last = ZType.Unit;
         foreach (var form in node.TopLevelForms)
             last = Infer(form, env);
         return Assign(node, last);
+    }
+
+    /// <summary>
+    ///     Registers each top-level function's signature in <paramref name="env" /> before any
+    ///     body is inferred, so a define can call a sibling that appears later in the file.
+    ///     Bodies are still inferred in source order — only the names are hoisted.
+    /// </summary>
+    /// <remarks>
+    ///     This is the top-level analogue of <see cref="InferLetrec" />'s step 1, and the two
+    ///     exist for the same reason: a name must be bound before any value is inferred for a
+    ///     value to refer to its siblings. Value defines are deliberately excluded — they carry
+    ///     no annotation to derive a signature from, and their initializers are order-dependent
+    ///     (the emitted static constructor runs them in source order).
+    /// </remarks>
+    private void PreBindTopLevelSignatures(IEnumerable<AstNode> forms, TypeEnv env)
+    {
+        var declared = new Dictionary<string, SourceSpan>(StringComparer.Ordinal);
+
+        foreach (var form in forms)
+        {
+            var (name, nameSpan, signature) = form switch
+            {
+                AstNode.Define d => (d.FnName, NameSpanOf(d.NameSpan, d.Span), BuildSignature(d)),
+                AstNode.DefineAsync a => (
+                    a.FnName,
+                    NameSpanOf(a.NameSpan, a.Span),
+                    BuildSignature(a)
+                ),
+                _ => (null, default, null),
+            };
+
+            if (name is null || signature is null)
+                continue;
+
+            if (declared.TryGetValue(name, out var earlier))
+            {
+                // Not merely shadowing, which is why this is an error where the body-level
+                // equivalent (AstBuilder's "shadows an earlier definition in this body") is a
+                // warning: inference completes before any call is emitted, so *every* call
+                // site binds to the last definition — including ones written above it.
+                Diagnostics.Error(
+                    $"'{name}' is already defined at the top level of this module. Unlike a "
+                        + "nested definition, a second top-level definition does not shadow the "
+                        + "first — every call resolves to this one, including calls written "
+                        + "before it. Rename one of them",
+                    nameSpan,
+                    related: [new DiagnosticRelatedInfo(earlier, $"earlier definition of '{name}'")]
+                );
+                continue;
+            }
+
+            declared[name] = nameSpan;
+            _pendingSignatures[form] = signature;
+
+            // Mirror what the body pass registers, so a forward reference resolves through
+            // either path: InferName's single-binding lookup, or InferApply's overload set
+            // when the name also collides with an import.
+            env.Define(name, signature.SelfType);
+            if (form is AstNode.Define)
+                env.DefineOrReplaceOverload(
+                    name,
+                    LocalOverloadQualifiedName(name),
+                    signature.SelfType
+                );
+        }
+
+        static SourceSpan NameSpanOf(SourceSpan nameSpan, SourceSpan span)
+        {
+            return nameSpan.Length > 0 ? nameSpan : span;
+        }
     }
 
     private static IEnumerable<string> DeclaredTypeNames(AstNode.Program program)
@@ -831,17 +978,22 @@ public sealed class TypeInferer
                     yield return ta.AliasName;
                     break;
             }
+    }
 
-        // A `(module name ...)` wraps the file's forms in its own body.
-        static IEnumerable<AstNode> Forms(IEnumerable<AstNode> forms)
+    /// <summary>
+    ///     Flattens one level of <c>(module name ...)</c> wrapping, which is how a file's forms
+    ///     are nested. Shared by the two pre-passes so both see a module-wrapped file's contents;
+    ///     <see cref="InferModuleDecl" /> infers that body into the same environment, so hoisting
+    ///     in <see cref="InferProgram" /> covers it.
+    /// </summary>
+    private static IEnumerable<AstNode> Forms(IEnumerable<AstNode> forms)
+    {
+        foreach (var form in forms)
         {
-            foreach (var form in forms)
-            {
-                yield return form;
-                if (form is AstNode.ModuleDecl module)
-                    foreach (var inner in module.Body)
-                        yield return inner;
-            }
+            yield return form;
+            if (form is AstNode.ModuleDecl module)
+                foreach (var inner in module.Body)
+                    yield return inner;
         }
     }
 
@@ -1859,23 +2011,10 @@ public sealed class TypeInferer
         return Assign(node, FreshVar());
     }
 
-    private ZType InferDefineAsync(AstNode.DefineAsync node, TypeEnv env)
+    private PendingSignature BuildSignature(AstNode.DefineAsync node)
     {
-        var childEnv = env.CreateChild();
-        var paramTypes = new List<ZType>();
         var typeVarScope = new Dictionary<string, ZType>();
-        var isVariadic = node.Params.Count > 0 && node.Params[^1].IsVariadic;
-
-        foreach (var param in node.Params)
-        {
-            var pType = ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar();
-            paramTypes.Add(pType);
-            if (param.IsVariadic)
-                childEnv.Define(param.Name, MakeVariadicType(pType));
-            else
-                childEnv.Define(param.Name, pType);
-            param.ResolvedType = param.IsVariadic ? MakeVariadicType(pType) : pType;
-        }
+        var (paramTypes, isVariadic) = ResolveParamTypes(node.Params, typeVarScope);
 
         // Determine the inner return type (unwrap Task<T> from annotation)
         ZType innerRetType;
@@ -1905,8 +2044,30 @@ public sealed class TypeInferer
                 ? MakeTaskType(null)
                 : MakeTaskType(innerRetType);
 
+        return new PendingSignature(
+            paramTypes,
+            typeVarScope,
+            new ZType.ZFuncType(paramTypes, taskRetType, isVariadic),
+            innerRetType,
+            isNonGenericAnn
+        );
+    }
+
+    private ZType InferDefineAsync(AstNode.DefineAsync node, TypeEnv env)
+    {
+        var childEnv = env.CreateChild();
+
+        // Same pre-pass reuse as InferDefine; see the comment there.
+        var preBound = _pendingSignatures.Remove(node, out var cached);
+        var signature = cached ?? BuildSignature(node);
+        var typeVarScope = signature.TypeVarScope;
+        var innerRetType = signature.ReturnType;
+        var isNonGenericAnn = signature.IsNonGenericTaskAnnotation;
+
+        BindParams(node.Params, signature.ParamTypes, childEnv, MakeVariadicType);
+
         // For self-recursion, add the function itself to the environment
-        var selfType = new ZType.ZFuncType(paramTypes, taskRetType, isVariadic);
+        var selfType = signature.SelfType;
         childEnv.Define(node.FnName, selfType);
 
         var prevAsyncContext = _inAsyncContext;
@@ -1923,6 +2084,11 @@ public sealed class TypeInferer
 
         // Resolve the function type with substitutions
         var resolvedFuncType = Substitution.Apply(selfType);
+
+        // Drop the pre-pass placeholder before generalizing — see InferDefine.
+        if (preBound)
+            env.RemoveBinding(node.FnName);
+
         var generalized = Generalize(resolvedFuncType, env);
 
         // Register in the outer environment

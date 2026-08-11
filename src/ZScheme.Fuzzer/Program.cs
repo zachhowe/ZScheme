@@ -7,6 +7,12 @@ using ZScheme.Fuzzer.Oracles;
 using ZScheme.Fuzzer.Reporting;
 using ZScheme.Fuzzer.Runtime;
 
+// Internal re-exec, dispatched before option parsing: the out-of-process execution oracle runs
+// one generated program's Compute() in a child copy of this binary so an uncatchable stack
+// overflow kills the child instead of the fuzzer. Not a user-facing flag.
+if (args.Length >= 3 && args[0] == ExecChild.Flag)
+    return ExecChild.Run(args[1], args[2]);
+
 if (args.Length >= 2 && args[0] == "--repro")
 {
     var auxIdx = Array.IndexOf(args, "--aux");
@@ -101,7 +107,12 @@ try
         {
             var caseSeed = caseSeeds[i];
             var caseRng = new Random((int)(caseSeed ^ (caseSeed >> 32)));
-            var caseGen = new ProgramGenerator(caseRng, opts.MaxDepth, opts.MaxFuncs);
+            var caseGen = new ProgramGenerator(
+                caseRng,
+                opts.MaxDepth,
+                opts.MaxFuncs,
+                opts.DeepRecursion ? opts.RecursionDepth : 0
+            );
             var program = caseGen.Generate(caseSeed);
             counts.AddOrUpdate("generated", 1, (_, v) => v + 1);
 
@@ -301,7 +312,14 @@ static (
 
     if (opts.Oracles.Contains(OracleKind.DiffExec))
     {
-        var diff = DifferentialExecOracle.Run(artifacts, caseScratch, opts.PerCaseTimeout);
+        // Deep-recursion runs must execute out-of-process: an overflowing Compute() is exactly
+        // what they are looking for, and in-process that would take the fuzzer down with it.
+        var diff = DifferentialExecOracle.Run(
+            artifacts,
+            caseScratch,
+            opts.PerCaseTimeout,
+            opts.DeepRecursion
+        );
         stages.Add(("diffexec", diff));
         if (!diff.Passed)
             return (artifacts, diff, stages);

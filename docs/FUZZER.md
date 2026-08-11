@@ -246,6 +246,18 @@ Later additions to the expression surface:
   on the same terms too. This found a real
   capture bug: a nested group referencing an *enclosing* group's member has to
   inherit that member's captures, because the retargeted call must supply them.
+- **Top-level mutual recursion** (`MutualRecFuncGenerator`, ~25% of programs) — a
+  pair of `Int -> Int` defines that call each other, the first referring to the
+  second before it is declared. This is a *different* lowering path from the
+  `letrec` and nested-`define` generators above: those collapse into one lifted
+  group, while these stay two ordinary top-level statics that happen to call each
+  other. What it probes is the ordering contract at both ends — `TypeInferer`'s
+  signature pre-pass, which registers every top-level function's type before
+  inferring any body, and the IL main-module emitter's matching
+  register-all-signatures-then-emit-all-bodies pass. Either one reverting to
+  source order breaks the forward reference. Both halves are tagged
+  `UserFuncKind.Recursive`, so `GenCall`'s first-argument clamp keeps them
+  terminating.
 - **Symbols** — `'lit` literals, `string->symbol` / `symbol->string`
   round-trips, symbol equality across construction paths (interning probe:
   each backend lowers symbol equality and symbol match-arms differently), and
@@ -315,28 +327,18 @@ Two invariants make the whole thing tractable for the oracle:
 
 ### 4.4 What is deliberately *not* generated (coverage gaps)
 
-- **Mutual recursion between *top-level* defines is disabled.**
-  `MutualRecFuncGenerator` exists but is unwired, because
-  `TypeInferer.InferProgram` registers each define's type only after inferring
-  its body, so a forward reference between siblings still fails to type-check.
-  (The IL codegen half of that blocker is gone — the main-module emitter now
-  registers every signature before emitting any body — so re-wiring it needs
-  only an inference-side signature pre-pass.) Mutual recursion *is* generated
-  through `letrec` and through adjacent nested `define`s, both of which pre-bind
-  the whole group before any value is inferred.
 - **Only `Int` (or `Task<Int>`) is ever the top-level result type.** Strings,
   chars, floats, and collections appear only internally and are reduced to
   `Int`. The oracle compares **ints only**.
-- **Recursion always terminates.** The first argument of a recursive function is
-  forced to a small literal in `0..20`, so the fuzzer checks the *value*
-  produced by TCO, not non-termination or stack overflow from broken TCO.
-  Active TCO stack-depth probing (deep tail-recursive loops that would
-  stack-overflow if TCO broke) stays **deferred**: DiffExec runs `compute`
-  in-process, and a StackOverflowException is uncatchable and would kill the
-  fuzzer host — making it safe needs an out-of-process (or big-stack-thread)
-  exec oracle change.
-- No **top-level `define` shadowing chains** (local binder shadowing across
-  let/let*/lambda/match sites *is* generated — see §4.3), no real I/O, no
+- **Recursion terminates by default.** The first argument of a recursive
+  function is forced to a small literal in `0..20`, so an ordinary run checks
+  the *value* produced by TCO, not the stack depth. `--deep-recursion` inverts
+  that (see §4.5); it is off by default because it costs two process spawns per
+  case.
+- No **top-level `define` shadowing chains** — two top-level defines sharing a
+  name is a compile error (`'x' is already defined at the top level of this
+  module`), so there is nothing to generate. Local binder shadowing across
+  let/let\*/lambda/match sites *is* generated (see §4.3). Also no real I/O, no
   genuine concurrency (concurrent collections are exercised single-threaded),
   and no reflection beyond the fixed CLR bindings.
 - It is **purely generative**: no seed corpus, no mutation, no coverage feedback.
@@ -388,6 +390,39 @@ Newly documented *language-level* limits (constructs the generator cannot emit):
 - The `class` where-constraint is not emitted (no reference-type ground exists
   to instantiate it with); `struct` / `unmanaged` / `default` / `notnull` /
   `new` all are.
+
+### 4.5 Deep-recursion mode (`--deep-recursion`)
+
+Ordinary generation bounds every recursion so it terminates *regardless of
+whether TCO works*. That checks the value TCO computes, but never its actual
+effect — a compiler that silently stopped turning tail self-calls into loops
+would still return the right answer, just on a deeper stack, and every oracle
+would pass.
+
+`--deep-recursion` inverts the constraint. Two changes, both required:
+
+- The first-argument clamp in `ExprGenerator.GenCall` becomes
+  `--recursion-depth` (default 200 000) instead of `Rng.Next(0, 21)`.
+- The recursive call is **forced into tail position** in
+  `UserFuncGenerator.GenerateRecursiveFunction` and
+  `MutualRecFuncGenerator.BuildOne`. Both normally emit a non-tail shape 25% of
+  the time; at this depth those overflow on *both* backends by construction,
+  which the oracle reads as agreement and which would only dilute the signal.
+
+At that depth a correct compiler still runs in constant stack and a broken one
+overflows, so the difference becomes observable — as a
+`Compute() stack overflowed on one backend (broken TCO)` verdict.
+
+This mode implies **out-of-process execution** (§5.3), and cannot work without
+it: a `StackOverflowException` is uncatchable, so in-process it would kill the
+fuzzer host and every parallel worker along with it.
+
+The `letrec` and nested-`define` generators keep their own `RecursionBound = 16`
+regardless. Their clamp is *inside* the generated function rather than at the
+call site (a binding in `Scope` as an `IntFn` can be applied to an arbitrary
+`Int`), and their step bodies come from `GenInt` — so raising that bound
+multiplies per-iteration work and collides with `--timeout` rather than probing
+stack depth.
 
 ---
 
@@ -457,10 +492,40 @@ Then it compares outcomes:
 | returns `int` a | returns `int` b | **FAIL** if `a != b` (`"Compute() return diverged (IL=…, CS=…)"`), else PASS |
 | throws | throws | **PASS** only if exception **type AND message** match (after unwrapping a single-inner `AggregateException`), else FAIL |
 | throws | returns (or vice versa) | **FAIL** (`"one threw, one returned"`) |
+| stack overflows | stack overflows | **PASS** — agreement (a non-tail shape at depth is *meant* to overflow on both) |
+| stack overflows | returns / throws (or vice versa) | **FAIL** (`"Compute() stack overflowed on one backend (broken TCO)"`) |
 | no `Compute` / non-int | — | **FAIL** (`"Compute() invocation errored"`), distinct from a program runtime error |
 
 So the model is: **C#-backend-as-reference vs IL-backend**, differential on a
 single `Int` return value (or thrown-exception identity).
+
+#### Out-of-process execution
+
+The two stack-overflow rows are only reachable when the oracle runs
+**out-of-process** — the mode `--deep-recursion` turns on (§4.5), and which
+`--repro` always uses. In-process a `StackOverflowException` cannot be caught
+and would take the fuzzer down with every parallel worker; out here it kills only
+the child, and the parent reads the verdict off the exit code (`134`/SIGABRT) and
+the runtime's `Stack overflow.` banner on stderr.
+
+The child is **this same binary re-executed** with an internal
+`--exec-child <dll> <class>` flag (`Oracles/ExecChild.cs`), dispatched in
+`Program.cs` ahead of option parsing. Re-exec rather than a separate host
+program is what keeps it cheap: `ZScheme.Runtime.dll` already sits beside the
+fuzzer and resolves through the default load context exactly as in-process, so
+there is no runtimeconfig to write, no assemblies to copy, and — importantly —
+no need to generate a `main` into the fuzzed program, which would change the
+very thing under test (entry-point path, tail-call reachability, unused-binding
+analysis). The child writes one JSON line to stdout; the parent takes the last
+such line, so a stray write from the generated program cannot be mistaken for
+the verdict.
+
+Both paths funnel into one `ExecOutcome` shape (value / exception / overflowed /
+timed out / harness error), so the comparison table above is a single
+implementation regardless of how the program was run.
+
+The cost is two process spawns per case (~50-100 ms each), multiplied by
+`--workers`, which is why it is off for ordinary runs.
 
 ---
 
@@ -529,15 +594,22 @@ only see bugs where the two backends **disagree**.
   dedicated type-soundness oracle; if the checker wrongly accepts a program but
   codegen happens to agree, nothing fires.
 - **Parser/printer round-tripping.** There is no source-reconstruction oracle.
-- **Non-termination / stack overflow from broken TCO.** Recursion is bounded to
-  terminate by construction, so only TCO *value* correctness is checked, not the
-  optimization's effect on stack depth. (DiffExec now *bounds* each `Compute()`
-  invocation with `--timeout` and reports a timeout rather than hanging — see
-  §5.3 — but generation still terminates by construction, so this is a safety
-  net, not active stack-depth probing.)
+- **Broken TCO — in a default run only.** Ordinary generation bounds recursion
+  to terminate regardless of TCO, so only TCO *value* correctness is checked.
+  `--deep-recursion` (§4.5) closes this and turns a stack overflow on one backend
+  into a first-class verdict; it is opt-in because of what out-of-process
+  execution costs. Note it probes the *tail-self-call* path specifically: a
+  mutual cycle is not a self-call, so `TailCallLowering` leaves it alone and
+  those overflow on both backends by design.
 - **Concurrency / race bugs.** Concurrent collections are used single-threaded;
-  the only parallelism is across independent cases.
-- **Anything in disabled paths** — e.g. mutual recursion.
+  the only parallelism is across independent cases. This one is structural, not
+  a gap to close: ZScheme has no fork point — `stdlib/task` exports only
+  `Task/CompletedTask` and `stdlib/thread` only `Thread.Sleep`, there is no
+  `Task.Run` / `WhenAll` / channel / lock anywhere in the stdlib, and
+  `Interlocked` is unbindable because `import-clr` supports `out` but not `ref`
+  parameters. Even given all that, the oracle compares one `Int`, so only
+  schedule-independent shapes would qualify. This needs stdlib concurrency
+  primitives first.
 - **Deliberately-probed known/suspected divergences.** `is-null?` is generated at
   a very low per-program rate (like the string-indexer path): it is *confirmed* to
   surface an IL-backend bug — `is-null?` lowers to `ReferenceEquals(x, null)` and
@@ -584,6 +656,8 @@ All from `FuzzerOptions.cs`:
 | `--repo-root <path>` | auto-discovered | Overrides the walk-up search for `ZScheme.slnx` |
 | `--keep-passing` | off | Save passing-case source in `cases.jsonl` |
 | `--timeout <secs>` | 10 | Per-subprocess timeout (ilverify) **and** per-`Compute()` execution bound (DiffExec, one budget per backend invocation) |
+| `--deep-recursion` | off | Generate recursion deep enough to overflow the stack if TCO is broken; implies out-of-process execution (§4.5) |
+| `--recursion-depth <n>` | 200000 | Depth used by `--deep-recursion` |
 | `--workers <n>`, `-j` | `ProcessorCount` | Parallel workers |
 | `--verbose`, `-v` | off | Log each case |
 
@@ -627,8 +701,14 @@ The gaps in Section 7.2 map directly to potential improvements:
   int.
 - **Automatic shrinking** (delta-debugging over the S-expression structure) would
   remove the main manual step in triage.
-- **Active TCO stack-depth probing.** The DiffExec execution timeout (background
-  watchdog thread, §5.3) is now in place, so the recursion-always-terminates
-  constraint could be relaxed to deliberately generate deep/unbounded recursion
-  and check that broken TCO is caught as a timeout/stack-overflow divergence
-  rather than a hang.
+- **Unfuzzed stdlib modules.** `StdlibImportGenerator`'s enum covers 21 modules
+  and omits `task`, `thread`, `concurrent/cancellation`, `datetime`, `json` and
+  `attrs`. `concurrent/cancellation` (9 exports) and `datetime` are the cheapest
+  additions — same weighted-import pattern as the existing entries.
+- **Program-owned `StringWriter` I/O.** The language has no I/O builtins, but a
+  generated program can construct its own `System.IO.StringWriter` (as
+  `UseExprGenerator` already does purely to dispose one), write to it, and fold
+  `.ToString().Length` back into the returned `Int`. That would observe
+  formatting behavior through the existing oracle with no process-global state —
+  unlike capturing stdout, which `Console.SetOut` makes process-wide and which
+  the abandoned timeout threads would race.

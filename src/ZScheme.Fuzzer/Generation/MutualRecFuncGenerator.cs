@@ -49,7 +49,11 @@ public sealed class MutualRecFuncGenerator
         var bodyDepth = Math.Min(_ctx.MaxDepth, 3);
         var baseExpr = _exprs.GenInt(scope, bodyDepth);
 
-        var isTail = _ctx.Rng.NextDouble() < 0.75;
+        // Forced tail under --deep-recursion, for the reason UserFuncGenerator spells out.
+        // Note a mutual tail call is not a *self* call, so TailCallLowering leaves it as a real
+        // call — meaning this pair overflows at depth on both backends, which the oracle reads
+        // as agreement.
+        var isTail = _ctx.DeepRecursion || _ctx.Rng.NextDouble() < 0.75;
         var recCall = $"({other} (- {nParam} 1))";
         var step = isTail ? recCall : $"(+ {_exprs.GenInt(scope, bodyDepth)} {recCall})";
         var body = $"(if (<= {nParam} 0) {baseExpr} {step})";

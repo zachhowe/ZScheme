@@ -38,6 +38,19 @@ public sealed class TypeEnv(TypeEnv? parent = null)
     }
 
     /// <summary>
+    ///     Removes a single binding from this scope. Returns <c>true</c> if one was removed.
+    ///     The top-level define path uses this to drop the signature pre-pass's monomorphic
+    ///     placeholder before generalization, for the same reason
+    ///     <see cref="RemoveOverloadCandidate" /> exists: a placeholder still bound here would
+    ///     leave its type variables free in the environment, and <c>Generalize</c> subtracts
+    ///     those — which would silently make every annotated generic function monomorphic.
+    /// </summary>
+    public bool RemoveBinding(string name)
+    {
+        return _bindings.Remove(name);
+    }
+
+    /// <summary>
     ///     Injects an imported binding from <paramref name="moduleName" />. Function-typed
     ///     bindings join an overload set keyed by the bare name so multiple modules can
     ///     export functions with the same name; non-function bindings use the legacy

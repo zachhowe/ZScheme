@@ -26,6 +26,20 @@ type constraints via `: where`.
 (define add5 (partial add 5))
 ```
 
+Top-level definitions are visible to each other regardless of order, so one may call another
+declared further down the file — which is how mutual recursion is written at the top level:
+
+```scheme
+(define (even? [n : Int]) : Bool (if (= n 0) #t (odd? (- n 1))))
+(define (odd?  [n : Int]) : Bool (if (= n 0) #f (even? (- n 1))))
+```
+
+A forward reference sees the callee's *declared* signature, not a generalized one, so a generic
+function called before it is declared is used at a single type. Declare it first to call it at
+several. Two top-level definitions may not share a name: the second does not shadow the first
+the way a nested definition would — every call would bind to it, including calls written above
+it — so it is an error.
+
 An optional `#:recursive` marker before the signature asserts that the function's
 self-recursion is intended even though it will not be compiled as a loop, silencing the
 `ZS0005` warning for that definition. Use it where the recursion genuinely cannot be a
@@ -52,8 +66,8 @@ enclosing function's parameters instead of taking them as arguments:
   (loop 1 0))
 ```
 
-A run of *adjacent* definitions forms one group whose members can all see each other, which is what
-makes mutual recursion work:
+A run of *adjacent* definitions forms one group whose members can all see each other, so they may
+call each other:
 
 ```scheme
 (define (classify [n : Int]) : Int

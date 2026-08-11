@@ -1008,8 +1008,12 @@ public sealed class ExprGenerator
             if (func.Kind == UserFuncKind.Recursive && i == 0)
             {
                 // First recursive-function argument must be a bounded small Int literal
-                // so the recursion terminates regardless of TCO correctness.
-                args.Add(_ctx.Rng.Next(0, 21).ToString(CultureInfo.InvariantCulture));
+                // so the recursion terminates regardless of TCO correctness. Under
+                // --deep-recursion the point is the opposite: go deep enough that only a
+                // working TCO survives, which is safe because those runs execute Compute()
+                // out-of-process (see DifferentialExecOracle).
+                var count = _ctx.DeepRecursion ? _ctx.DeepRecursionDepth : _ctx.Rng.Next(0, 21);
+                args.Add(count.ToString(CultureInfo.InvariantCulture));
                 continue;
             }
 

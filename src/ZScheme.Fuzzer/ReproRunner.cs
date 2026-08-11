@@ -15,6 +15,10 @@ namespace ZScheme.Fuzzer;
 /// </summary>
 public static class ReproRunner
 {
+    // Generous compared to the fuzzer's per-case budget: a repro is one case being inspected by
+    // hand, so waiting is cheaper than a spurious timeout verdict.
+    private static readonly TimeSpan ReproTimeout = TimeSpan.FromSeconds(30);
+
     public static int Run(string filePath, string? auxDir)
     {
         var repoRoot =
@@ -55,12 +59,21 @@ public static class ReproRunner
         );
         Console.WriteLine($"[compile] {(compile.Passed ? "PASS" : "FAIL")}: {compile.Summary}");
 
+        var scratch = Path.Combine(Path.GetTempPath(), $"zs-repro-{moduleName}");
+        Directory.CreateDirectory(scratch);
+
         // Even when the consistency oracle fails (e.g. one backend emits
         // uncompilable code), run whichever backend did produce a loadable
         // assembly so the divergence can be inspected directly.
         if (artifacts.IlResult is not null)
             Console.WriteLine(
-                $"[il-run] {DescribeRun(artifacts.IlResult.OutputBytes, program.ModuleName)}"
+                "[il-run] "
+                    + DifferentialExecOracle.DescribeOutOfProcess(
+                        artifacts.IlResult.OutputBytes,
+                        program.ModuleName,
+                        Path.Combine(scratch, "il-run"),
+                        ReproTimeout
+                    )
             );
 
         if (!compile.Passed)
@@ -69,9 +82,10 @@ public static class ReproRunner
             return 1;
         }
 
-        var scratch = Path.Combine(Path.GetTempPath(), $"zs-repro-{moduleName}");
-        Directory.CreateDirectory(scratch);
-        var diff = DifferentialExecOracle.Run(artifacts, scratch, TimeSpan.FromSeconds(30));
+        // Out-of-process throughout: a repro is a single case where surviving whatever the
+        // saved artifact does matters far more than the two process spawns it costs. A
+        // deep-recursion finding is only reproducible this way at all.
+        var diff = DifferentialExecOracle.Run(artifacts, scratch, ReproTimeout, true);
         Console.WriteLine($"[diffexec] {(diff.Passed ? "PASS" : "FAIL")}: {diff.Summary}");
         if (!diff.Passed)
         {
@@ -81,30 +95,6 @@ public static class ReproRunner
 
         Console.WriteLine("All oracles passed (no divergence).");
         return 0;
-    }
-
-    private static string DescribeRun(byte[] assemblyBytes, string moduleName)
-    {
-        try
-        {
-            var asm = System.Reflection.Assembly.Load(assemblyBytes);
-            var method = asm.GetExportedTypes()
-                .SelectMany(t => t.GetMethods())
-                .FirstOrDefault(m =>
-                    m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
-                    && m.GetParameters().Length == 0
-                );
-            if (method is null)
-                return "no Compute() found";
-            var result = method.Invoke(null, null);
-            if (result is System.Threading.Tasks.Task<int> t)
-                return $"returned {t.GetAwaiter().GetResult()}";
-            return $"returned {result}";
-        }
-        catch (Exception ex)
-        {
-            return $"threw {(ex.InnerException ?? ex).GetType().Name}: {(ex.InnerException ?? ex).Message}";
-        }
     }
 
     private static string? FindRepoRoot()

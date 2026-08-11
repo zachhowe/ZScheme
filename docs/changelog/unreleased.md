@@ -67,10 +67,32 @@ In development since 2026-08-11.
 - **A class or `object` method body is sequenced like every other body.** It was a single
   expression, so a nested definition there needed a `let` wrapper no other body asks for, and
   trailing forms were dropped. All bodies now share `BuildExprSequence`.
+- **Top-level definitions may reference each other in any order.** A `define` can now call a
+  sibling declared further down the file, which is what makes mutual recursion writable at the
+  top level rather than only inside a `letrec` or a run of nested defines.
+  - `TypeInferer.InferProgram` gained a signature pre-pass: every top-level `define` /
+    `define-async` signature is resolved and registered before any body is inferred. It is the
+    top-level analogue of `InferLetrec`'s step 1 and exists for the same reason — a name has to
+    be bound before any value is inferred for a value to refer to its siblings. Value defines
+    are excluded; they carry no annotation to derive a signature from and their initializers run
+    in source order.
+  - A forward reference sees the callee's declared signature rather than a generalized one, so a
+    generic function called before it is declared is used at a single type. This matches how a
+    `letrec` group behaves, and for the same reason: polymorphic recursion is undecidable.
+  - Nothing was needed downstream. The IL main-module emitter already registered every signature
+    before emitting any body, and C# static methods in one class resolve order-independently.
 - `examples/letrec.zs`, and `letrec` added to all four editor grammars (IntelliJ, Sublime,
   VS Code, Zed).
 
 ## Changed
+
+- **Two top-level definitions may no longer share a name.** Unlike a nested definition, a second
+  top-level one never shadowed the first: inference completes before any call is emitted, so
+  every call site bound to the last definition — including calls written above it. That is a
+  trap rather than a feature, and it also let two same-named functions collide on one emitted
+  name. It is now an error, reported by the same pre-pass that hoists the signatures. A local
+  definition sharing a name with an *imported* one is unaffected — that goes through the
+  overload set and stays legal.
 
 - **`let`, `let*`, `letrec`, `use` and `use*` share one body builder.** Each had folded its own
   body by hand, so a `define` in any of them was silently dropped; all five now go through
@@ -149,3 +171,25 @@ In development since 2026-08-11.
   above.
 - The `issues/` backlog records an IL-backend bug the new generator surfaced; a baseline run with
   nested defines disabled reproduces it, so it is pre-existing and left alone.
+- **A top-level mutual-recursion fuzzer generator.** `MutualRecFuncGenerator` had been written
+  but left unwired behind the inference limitation above; with that lifted it now runs in ~25% of
+  programs. It covers a lowering path the `letrec` and nested-define generators cannot: those
+  collapse into one lifted group, while these stay two ordinary top-level statics calling each
+  other, which is what makes the emitters' signature-before-body ordering observable.
+- **Active TCO stack-depth probing (`--deep-recursion`).** Ordinary generation bounds recursion
+  so it terminates regardless of whether TCO works, which checks the value TCO produces but never
+  its effect on the stack — a compiler that stopped turning tail self-calls into loops would pass
+  every oracle. This mode calls recursive functions at `--recursion-depth` (default 200 000) and
+  forces the recursive call into tail position, so a correct compiler runs in constant stack and a
+  broken one overflows.
+  - It requires the new **out-of-process execution oracle**, because a `StackOverflowException`
+    is uncatchable: in-process it would kill the fuzzer and every parallel worker. The child is
+    the fuzzer binary re-executed with an internal `--exec-child` flag, which keeps
+    `ZScheme.Runtime.dll` resolving exactly as it does in-process — no runtimeconfig, no copied
+    assemblies, and no `main` generated into the program under test. `DifferentialExecOracle`
+    gained a `StackOverflow` outcome; both sides overflowing is agreement, one side is a
+    broken-TCO finding. `--repro` now always runs out-of-process, so a saved deep-recursion
+    artifact can be replayed without killing the tool inspecting it.
+  - Verified by deliberately disabling `TailCallLowering` on the IL backend alone: the run
+    reported `Compute() stack overflowed on one backend (broken TCO)` on 5 of 40 cases and
+    completed normally, where previously the first overflow would have taken the process down.

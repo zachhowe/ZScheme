@@ -4,16 +4,39 @@ public sealed class GeneratorContext
 {
     private int _nameCounter;
 
-    public GeneratorContext(Random rng, int maxDepth, int maxFuncs)
+    public GeneratorContext(
+        Random rng,
+        int maxDepth,
+        int maxFuncs,
+        int deepRecursionDepth = 0
+    )
     {
         Rng = rng;
         MaxDepth = Math.Max(1, maxDepth);
         MaxFuncs = Math.Max(0, maxFuncs);
+        DeepRecursionDepth = Math.Max(0, deepRecursionDepth);
     }
 
     public Random Rng { get; }
     public int MaxDepth { get; }
     public int MaxFuncs { get; }
+
+    /// <summary>
+    ///     When non-zero, recursive functions are called at this depth instead of the usual
+    ///     bounded 0..20, and their recursive call is forced into tail position.
+    /// </summary>
+    /// <remarks>
+    ///     Ordinary generation makes recursion terminate by construction so a case can never
+    ///     stack-overflow — which also means broken TCO is only ever caught as a wrong
+    ///     <em>value</em>, never as the stack growth it actually causes. At this depth a correct
+    ///     compiler still runs in constant stack and a broken one overflows, so the difference
+    ///     becomes observable. The tail-position forcing is not optional: the generator otherwise
+    ///     emits non-tail shapes a quarter of the time, and those are *supposed* to overflow at
+    ///     depth, which would drown the signal.
+    /// </remarks>
+    public int DeepRecursionDepth { get; }
+
+    public bool DeepRecursion => DeepRecursionDepth > 0;
     public List<UserFunc> UserFuncs { get; } = [];
     public List<UserUnionDecl> UserUnions { get; } = [];
     public List<UserRecordDecl> UserRecords { get; } = [];
