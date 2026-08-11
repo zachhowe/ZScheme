@@ -45,6 +45,11 @@ public sealed partial class IlEmitter(
 
     private readonly Dictionary<string, AsmClassInfo> _asmClassInfos = new();
     private readonly ClrInterop _clrInterop = new(diagnostics, assemblySearchPaths, typeAliases);
+
+    // Empty class types published by DeclareClassType ahead of the module's static-field
+    // pass, so a `define` holding a class instance can be typed as that class. EmitClassDecl
+    // fills each one in.
+    private readonly Dictionary<string, TypeDefinition> _declaredClassTypes = new();
     private readonly Dictionary<string, ZType.ZFuncType> _genericMethodTypes = new();
     private readonly string _ilNamespace = ilNamespace ?? assemblyName;
 

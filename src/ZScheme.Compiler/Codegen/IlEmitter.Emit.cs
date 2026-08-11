@@ -132,10 +132,14 @@ public sealed partial class IlEmitter
                 };
                 _module.TopLevelTypes.Add(moduleType);
 
-                // Sub-pass 1: type declarations
+                // Sub-pass 1: type declarations. Classes only get an empty type here — their
+                // members need the function signatures registered in sub-pass 3 — but that is
+                // enough for sub-pass 2 to type a static field as the class it holds.
                 foreach (var def in defs)
                     if (def is IrNode.RecordDecl or IrNode.UnionDecl or IrNode.InterfaceDecl)
                         DefineTypeDecl(def, moduleType);
+                    else if (def is IrNode.ClassDecl classToDeclare)
+                        DeclareClassType(classToDeclare);
 
                 // Sub-pass 2: static field bindings (let)
                 var moduleLetBindings = new List<IrNode.Let>();
@@ -261,6 +265,9 @@ public sealed partial class IlEmitter
                 foreach (var child in seq.Nodes)
                     if (child is IrNode.RecordDecl or IrNode.UnionDecl or IrNode.InterfaceDecl)
                         DefineTypeDecl(child, isModule ? typeDef : null);
+                    else if (child is IrNode.ClassDecl classToDeclare)
+                        // An empty type only — see the same step in the imported-module pass.
+                        DeclareClassType(classToDeclare);
 
                 foreach (var child in seq.Nodes)
                     if (child is IrNode.Let let)
@@ -5526,6 +5533,32 @@ public sealed partial class IlEmitter
     ///     resolve the call. Only body emission moves — the type, its fields, and every method
     ///     shell are still declared in place, so nothing that depends on declaration order shifts.
     /// </param>
+    /// <summary>
+    ///     Publishes an empty type for a class ahead of the pass that emits its members, so
+    ///     that anything mapping a <see cref="ZType" /> in between — module static fields,
+    ///     above all — resolves the class to its own type rather than falling back to
+    ///     <c>object</c>. Records, unions and interfaces get the same treatment from
+    ///     <c>DefineTypeDecl</c>; the base type and members are filled in by
+    ///     <see cref="EmitClassDecl" />, which cannot run this early because a class body may
+    ///     reference the very static fields whose types depend on this declaration.
+    /// </summary>
+    private TypeDefinition DeclareClassType(IrNode.ClassDecl classDecl)
+    {
+        var typeAttrs = TypeAttributes.Public | TypeAttributes.Class;
+        if (!classDecl.IsOpen)
+            typeAttrs |= TypeAttributes.Sealed;
+
+        var classType = new TypeDefinition(
+            _ilNamespace,
+            Emitted(classDecl.EmitName, classDecl.Name),
+            typeAttrs
+        );
+        _module.TopLevelTypes.Add(classType);
+        _declaredClassTypes[classDecl.Name] = classType;
+        RegisterUserType(classDecl.Name, classType);
+        return classType;
+    }
+
     private void EmitClassDecl(
         IrNode.ClassDecl classDecl,
         EmitContext ctx,
@@ -5594,20 +5627,13 @@ public sealed partial class IlEmitter
             }
         }
 
-        var typeAttrs = TypeAttributes.Public | TypeAttributes.Class;
-        if (!classDecl.IsOpen)
-            typeAttrs |= TypeAttributes.Sealed;
+        // Reuse the type published by DeclareClassType if this class went through the
+        // declaration pass; otherwise declare it now.
+        if (!_declaredClassTypes.Remove(classDecl.Name, out var classType))
+            classType = DeclareClassType(classDecl);
+        _declaredClassTypes.Remove(classDecl.Name);
 
-        var classType = new TypeDefinition(
-            _ilNamespace,
-            Emitted(classDecl.EmitName, classDecl.Name),
-            typeAttrs
-        )
-        {
-            BaseType = baseTypeRef,
-        };
-        _module.TopLevelTypes.Add(classType);
-        RegisterUserType(classDecl.Name, classType);
+        classType.BaseType = baseTypeRef;
 
         EmitCustomAttributes(classDecl.Attributes, classType);
 
