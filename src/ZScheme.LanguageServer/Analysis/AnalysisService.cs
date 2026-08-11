@@ -19,6 +19,20 @@ public sealed class AnalysisService
     ///     under the timeouts editors apply to LSP requests (Zed cancels at 120s).</summary>
     internal static readonly TimeSpan AnalysisBudget = TimeSpan.FromSeconds(20);
 
+    /// <summary>How long an edit sits before it is analyzed, so a burst of keystrokes
+    ///     compiles once instead of once per character.</summary>
+    internal static readonly TimeSpan DebounceInterval = TimeSpan.FromMilliseconds(300);
+
+    /// <summary>
+    ///     How the debounce window is waited out. Production always delays on the wall
+    ///     clock; a test substitutes a delay it drives itself, so "a second edit arrived
+    ///     while the first was still debouncing" is established by construction rather
+    ///     than by racing two <see cref="Task.Delay(TimeSpan)" /> calls and hoping the
+    ///     machine stays idle.
+    /// </summary>
+    internal Func<TimeSpan, CancellationToken, Task> DebounceDelay { get; init; } =
+        (interval, token) => Task.Delay(interval, token);
+
     private readonly ConcurrentDictionary<string, DocumentState> _documents = new(
         StringComparer.OrdinalIgnoreCase
     );
@@ -118,10 +132,9 @@ public sealed class AnalysisService
 
         try
         {
-            // Debounce: wait 300ms before analyzing
-            await Task.Delay(300, cts.Token);
+            await DebounceDelay(DebounceInterval, cts.Token);
         }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
             return _documents.TryGetValue(uri, out var existing)
                 ? existing

@@ -6,6 +6,11 @@ namespace ZScheme.LanguageServer.Tests;
 
 public sealed class AnalysisServiceTests
 {
+    /// <summary>How long <see cref="AnalyzeAsync_SecondCallCancelsFirst" /> waits for a
+    ///     canceled analysis to unwind. Not a timing assumption about the behaviour under
+    ///     test — only a bound on how long a regression may hang before it is reported.</summary>
+    private static readonly TimeSpan CancellationTimeout = TimeSpan.FromSeconds(30);
+
     [Fact]
     public void GetDocument_UnknownUri_ReturnsNull()
     {
@@ -245,20 +250,29 @@ public sealed class AnalysisServiceTests
             (define (square [x : Int]) : Int (* x x))
             """;
         var uri = LspTestSession.SyntheticUri(nameof(AnalyzeAsync_SecondCallCancelsFirst));
-        var svc = new AnalysisService();
 
-        // Fire two analyses back-to-back. The first should be canceled in its 300ms
-        // debounce window; the second should win.
+        // The interleaving is scripted, not timed: the first call parks in its debounce
+        // until something cancels it, and the second parks until this test releases it.
+        var debounce = new ScriptedDebounce();
+        var svc = new AnalysisService { DebounceDelay = debounce.DelayAsync };
+
+        // AnalyzeAsync registers its cancellation source before its first await, so the
+        // second call is guaranteed to find the first one still debouncing.
         var first = svc.AnalyzeAsync(uri, srcA, 1);
-        await Task.Delay(50);
         var second = svc.AnalyzeAsync(uri, srcB, 2);
 
-        var firstResult = await first;
-        var secondResult = await second;
+        // Should cancellation regress, the first call would sit in its debounce forever;
+        // the timeout turns that into a failure instead of a hung suite.
+        var firstResult = await first.WaitAsync(CancellationTimeout);
 
         // First call returns the placeholder (no document state existed yet, so it
-        // gets a freshly-constructed empty state with version 1).
+        // gets a freshly-constructed empty state with version 1). The second is still
+        // parked in its debounce, so nothing else can have stored a document.
         Assert.Null(firstResult.Ast);
+
+        debounce.Release();
+        var secondResult = await second;
+
         // Second call ran the full pipeline.
         Assert.NotNull(secondResult.Ast);
         Assert.Equal(2, secondResult.Version);
@@ -305,5 +319,44 @@ public sealed class AnalysisServiceTests
 
         Assert.False(inside.Service.Index.Contains(inside.PathOf("a.zs")));
         Assert.True(inside.Service.Index.Contains(outside.PathOf("b.zs")));
+    }
+
+    /// <summary>
+    ///     A debounce that sequences two <see cref="AnalysisService.AnalyzeAsync" /> calls
+    ///     deterministically: the first waits until it is canceled, the second until
+    ///     <see cref="Release" /> is called, and any further call passes straight through.
+    /// </summary>
+    private sealed class ScriptedDebounce
+    {
+        private readonly TaskCompletionSource _gate = new(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        private int _calls;
+
+        public Task DelayAsync(TimeSpan _, CancellationToken token)
+        {
+            return Interlocked.Increment(ref _calls) switch
+            {
+                1 => UntilCanceledAsync(token),
+                2 => _gate.Task,
+                _ => Task.CompletedTask,
+            };
+        }
+
+        public void Release()
+        {
+            _gate.TrySetResult();
+        }
+
+        private static Task UntilCanceledAsync(CancellationToken token)
+        {
+            // RunContinuationsAsynchronously so the canceling caller does not run the
+            // canceled analysis's continuation inline, on its own stack.
+            var canceled = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+            token.Register(() => canceled.TrySetCanceled(token));
+            return canceled.Task;
+        }
     }
 }
