@@ -55,6 +55,47 @@ public class ObjectLifterTests
     }
 
     [Fact]
+    public void ReferenceOnlyInsideANestedDefineIsCaptured()
+    {
+        // CollectFree had no LetRec arm, so a variable that only a nested definition's body
+        // read was invisible to capture analysis: the synthesized class got no field for it,
+        // its constructor took no argument, and the reference dangled — the C# backend emitted
+        // a bare identifier and the IL backend failed with "Variable 'x' not found". Transform
+        // had gained a LetRec case in the letrec cycle; this walker had not.
+        var group = new IrNode.LetRec(
+            [
+                new IrNode.LetRecBinding(
+                    "go",
+                    new IrNode.FuncDef(
+                        "go",
+                        [new IrParam("k", ZType.Int)],
+                        ZType.Int,
+                        new IrNode.BinOp("+", V("x"), V("k")) { Type = ZType.Int },
+                        IsSelfRecursive: false
+                    )
+                    {
+                        Type = ZType.Int,
+                    },
+                    null
+                ),
+            ],
+            new IrNode.Call(V("go"), [Int(1)]) { Type = ZType.Int }
+        )
+        {
+            Type = ZType.Int,
+        };
+
+        var (cls, fn) = LiftSingle(Func(Obj(group), new IrParam("x", ZType.Int)));
+
+        var field = Assert.Single(cls.Fields);
+        Assert.Equal("x", field.Name);
+        Assert.Equal("x", Assert.Single(cls.Constructor!.Params).Name);
+
+        var site = Assert.IsType<IrNode.ClrNew>(fn.Body);
+        Assert.Equal("x", Assert.IsType<IrNode.Var>(Assert.Single(site.Args)).Name);
+    }
+
+    [Fact]
     public void EnclosingParamReferenceIsCaptured()
     {
         var oe = Obj(V("x"));

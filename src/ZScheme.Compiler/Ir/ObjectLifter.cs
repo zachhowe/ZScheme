@@ -433,6 +433,20 @@ public sealed class ObjectLifter
                 CollectFree(use.Body, Bound(bound, use.VarName), acc, seen);
                 break;
 
+            case IrNode.LetRec letrec:
+            {
+                // Recursive scope, the same one Transform uses: every name is bound in every
+                // value and in the body. LetrecLifter runs after this pass, so a group is still
+                // here — and a variable that only a group binding reads is a capture like any
+                // other. Without this arm the synthesized class got no field for it and the
+                // reference dangled at codegen.
+                var groupBound = Bound(bound, letrec.Bindings.Select(b => b.Name));
+                foreach (var binding in letrec.Bindings)
+                    CollectFree(binding.Value, groupBound, acc, seen);
+                CollectFree(letrec.Body, groupBound, acc, seen);
+                break;
+            }
+
             case IrNode.If ifn:
                 CollectFree(ifn.Condition, bound, acc, seen);
                 CollectFree(ifn.Then, bound, acc, seen);
