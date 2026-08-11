@@ -552,4 +552,74 @@ public class TailCallLoweringTests
     }
 
     #endregion
+
+    #region Open classes
+
+    private static IrObjectMethod Method(string name, bool synthesized = false) =>
+        new(
+            name,
+            [new IrParam("n", ZType.Int), new IrParam("acc", ZType.Int)],
+            ZType.Int,
+            new IrNode.If(
+                new IrNode.BinOp("=", Var("n"), new IrNode.IntConst(0) { Type = ZType.Int })
+                {
+                    Type = ZType.Bool,
+                },
+                Var("acc"),
+                Call(name, Var("n"), Var("acc"))
+            )
+            {
+                Type = ZType.Int,
+            }
+        )
+        {
+            IsSynthesizedHelper = synthesized,
+        };
+
+    private static IrNode.ClassDecl Cls(bool isOpen, params IrObjectMethod[] methods) =>
+        new("C", [], [], [], methods, IsOpen: isOpen);
+
+    [Fact]
+    public void UserMethodOfAnOpenClass_IsNotRewritten()
+    {
+        // Emitted virtual, so `this.M(...)` may dispatch to a subclass override and a back-edge
+        // would silently run the base body instead.
+        var result = Assert.IsType<IrNode.ClassDecl>(
+            new TailCallLowering().Rewrite(Cls(isOpen: true, Method("f")))
+        );
+
+        Assert.False(result.Methods[0].IsTcoLoop);
+    }
+
+    [Fact]
+    public void SynthesizedHelperOfAnOpenClass_IsRewritten()
+    {
+        // A helper is private and non-virtual, so nothing can override it and no source name
+        // can reach it: its self-call binds statically even here. Without this the analyzer
+        // would stay silent — it judges the group as a letrec binding, with no container veto —
+        // while IsTcoLoop was false, which is a live drift violation and a stack overflow.
+        var result = Assert.IsType<IrNode.ClassDecl>(
+            new TailCallLowering().Rewrite(
+                Cls(isOpen: true, Method("__letrec_0_go", synthesized: true))
+            )
+        );
+
+        Assert.True(result.Methods[0].IsTcoLoop);
+        Assert.IsType<IrNode.TcoJump>(Assert.IsType<IrNode.If>(result.Methods[0].Body).Else);
+    }
+
+    [Fact]
+    public void BothKindsOfMethodOfASealedClass_AreRewritten()
+    {
+        var result = Assert.IsType<IrNode.ClassDecl>(
+            new TailCallLowering().Rewrite(
+                Cls(isOpen: false, Method("f"), Method("__letrec_0_go", synthesized: true))
+            )
+        );
+
+        Assert.True(result.Methods[0].IsTcoLoop);
+        Assert.True(result.Methods[1].IsTcoLoop);
+    }
+
+    #endregion
 }

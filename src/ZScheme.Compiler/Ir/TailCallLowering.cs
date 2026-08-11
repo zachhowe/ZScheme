@@ -90,23 +90,33 @@ public sealed class TailCallLowering
     ///     <c>this.M</c>. So the name match <see cref="RewriteTail" /> already performs is a
     ///     genuine self-call marker here, under the same shadowing rules.
     ///
-    ///     Only a class that cannot be subclassed is rewritten. An <c>#:open</c> class emits
-    ///     its methods <c>virtual</c>/<c>override</c>, so <c>this.M(…)</c> dispatches to a
-    ///     derived override; a back-edge would silently run the base body instead. A sealed
-    ///     class — which includes every class lifted from an <c>(object …)</c> — binds
-    ///     <c>this.M</c> statically, so the jump and the call it replaces are one target.
-    ///     <see cref="Types.TailRecursionAnalyzer" /> mirrors this <c>IsOpen</c> test, which is
-    ///     what keeps the drift contract true for methods as well as functions.
+    ///     A method is rewritten when its self-call binds statically. Every method of a sealed
+    ///     class does — which includes every class lifted from an <c>(object …)</c> — so the
+    ///     jump and the call it replaces are one target. An <c>#:open</c> class emits the
+    ///     methods the source wrote as <c>virtual</c>/<c>override</c>, so <c>this.M(…)</c> may
+    ///     dispatch to a derived override and a back-edge would silently run the base body
+    ///     instead; those are left alone. Its <see cref="IrObjectMethod.IsSynthesizedHelper" />
+    ///     methods are not, because they are emitted private and non-virtual: nothing can
+    ///     override one and no source name can reach it.
+    ///     <see cref="Types.TailRecursionAnalyzer" /> mirrors this, which is what keeps the
+    ///     drift contract true for methods as well as functions — a synthesized helper has no
+    ///     source form for it to judge, and the group it hosts is judged as a letrec binding.
     /// </summary>
     private IrNode.ClassDecl RewriteClass(IrNode.ClassDecl cls)
     {
-        if (cls.IsOpen)
-            return cls;
-
         var fieldNames = cls.Fields.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
         return cls with
         {
-            Methods = cls.Methods.Select(m => RewriteMethod(m, fieldNames)).ToList(),
+            Methods = cls
+                .Methods.Select(m =>
+                    // `IsOpen` is a proxy for "this method's self-call dispatches virtually",
+                    // and it is exact for every method the source wrote. A synthesized helper
+                    // is emitted private and non-virtual, so nothing can override it and no
+                    // source name can reach it: its self-call binds statically on an open class
+                    // exactly as any method's does on a sealed one.
+                    cls.IsOpen && !m.IsSynthesizedHelper ? m : RewriteMethod(m, fieldNames)
+                )
+                .ToList(),
         };
     }
 
