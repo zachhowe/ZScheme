@@ -10,11 +10,14 @@ namespace ZScheme.Compiler.Ir;
 ///     start label), so self-recursion runs in constant stack — this is what makes the two
 ///     backends agree on deep recursion instead of the IL backend overflowing.
 ///
-///     Only top-level functions are rewritten: those are exactly the ones each backend emits
-///     as a full method body. Capturing recursive lambdas have already been lifted to top
-///     level by <see cref="ClosureConverter" />; bare nested lambdas keep their existing
-///     (non-looped) emission. Only self tail calls become jumps — mutual/other tail calls and
-///     non-tail self-calls stay plain <see cref="IrNode.Call" />.
+///     Rewritten are top-level functions and the methods of sealed classes — exactly the ones
+///     each backend emits as a full method body whose self-call binds statically. Capturing
+///     recursive lambdas have already been lifted to top level by
+///     <see cref="ClosureConverter" />; bare nested lambdas keep their existing (non-looped)
+///     emission, and an <c>#:open</c> class's methods are left alone because their self-call
+///     dispatches virtually (see <see cref="RewriteClass" />). Only self tail calls become
+///     jumps — mutual/other tail calls and non-tail self-calls stay plain
+///     <see cref="IrNode.Call" />.
 ///
 ///     Self-calls are matched by name, but scope-aware: every binder on the tail spine that
 ///     can rebind the function's own name — a parameter, a <c>let</c>, a <c>match</c> arm
@@ -72,8 +75,53 @@ public sealed class TailCallLowering
                 Span = seq.Span,
             },
             IrNode.FuncDef func => RewriteFunc(func),
+            IrNode.ClassDecl cls => RewriteClass(cls),
             _ => node,
         };
+    }
+
+    /// <summary>
+    ///     Rewrites tail self-calls in a class's method bodies, so a loop written as a method
+    ///     iterates exactly as the same body written as a top-level <c>define</c> does.
+    ///
+    ///     A bare <c>(M …)</c> in a method body <em>is</em> a resolved reference to the
+    ///     enclosing class's <c>M</c>: <see cref="Types.TypeInferer" /> puts sibling methods
+    ///     (self included) in scope by bare name, and both emitters resolve such a name to
+    ///     <c>this.M</c>. So the name match <see cref="RewriteTail" /> already performs is a
+    ///     genuine self-call marker here, under the same shadowing rules.
+    ///
+    ///     Only a class that cannot be subclassed is rewritten. An <c>#:open</c> class emits
+    ///     its methods <c>virtual</c>/<c>override</c>, so <c>this.M(…)</c> dispatches to a
+    ///     derived override; a back-edge would silently run the base body instead. A sealed
+    ///     class — which includes every class lifted from an <c>(object …)</c> — binds
+    ///     <c>this.M</c> statically, so the jump and the call it replaces are one target.
+    ///     <see cref="Types.TailRecursionAnalyzer" /> mirrors this <c>IsOpen</c> test, which is
+    ///     what keeps the drift contract true for methods as well as functions.
+    /// </summary>
+    private IrNode.ClassDecl RewriteClass(IrNode.ClassDecl cls)
+    {
+        if (cls.IsOpen)
+            return cls;
+
+        var fieldNames = cls.Fields.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        return cls with
+        {
+            Methods = cls.Methods.Select(m => RewriteMethod(m, fieldNames)).ToList(),
+        };
+    }
+
+    private IrObjectMethod RewriteMethod(IrObjectMethod method, IReadOnlySet<string> fieldNames)
+    {
+        // A field of the same name wins over the method in both emitters' reference
+        // resolution (`this.<Field>` is checked first), and a parameter rebinds the name over
+        // the whole body — mirroring RewriteFunc's `shadowedByParams`. Either way the bare
+        // name in the body is not this method, so there is nothing to turn into a back-edge.
+        var paramNames = method.Params.Select(p => p.Name).ToList();
+        if (fieldNames.Contains(method.Name) || paramNames.Contains(method.Name))
+            return method;
+
+        var (body, rewrote) = RewriteTail(method.Body, method.Name, paramNames, method.IsAsync);
+        return rewrote ? method with { Body = body, IsTcoLoop = true } : method;
     }
 
     private IrNode.FuncDef RewriteFunc(IrNode.FuncDef func)

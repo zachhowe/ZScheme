@@ -1889,14 +1889,21 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
     private ObjectMethod? ParseObjectMethod(SExpr expr, bool isAsync = false)
     {
         if (
-            expr is SExpr.SList methodList
-            && methodList.Items.Count >= 2
-            && methodList.Items[0] is SExpr.Atom headAtom
+            expr is SExpr.SList outerMethodList
+            && outerMethodList.Items.Count >= 2
+            && outerMethodList.Items[0] is SExpr.Atom headAtom
             && (headAtom.Text == "define" || headAtom.Text == "define-async")
         )
         {
             var isAsyncForm = headAtom.Text == "define-async";
             var keyword = headAtom.Text;
+
+            // A method of a sealed class becomes a loop just as a top-level define does, so it
+            // takes the same `#:recursive` opt-out from ZS0005.
+            var (allowsUnloopedRecursion, methodList) = StripRecursiveMarker(
+                outerMethodList,
+                keyword
+            );
 
             // (define (Name [params...]) : RetType body)
             // (define-async (Name [params...]) : RetType body)
@@ -1947,7 +1954,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 returnType,
                 body,
                 methodList.Span,
-                IsAsync: isAsyncForm || isAsync
+                IsAsync: isAsyncForm || isAsync,
+                AllowsUnloopedRecursion: allowsUnloopedRecursion,
+                NameSpan: nameAtom.Span
             );
         }
 

@@ -321,7 +321,17 @@ public sealed record IrObjectMethod(
     IrNode Body,
     IReadOnlyList<IrAttribute>? Attributes = null,
     bool IsAsync = false
-);
+)
+{
+    /// <summary>
+    ///     Set by TailCallLowering when this method's tail self-calls have been rewritten
+    ///     into <see cref="IrNode.TcoJump" /> nodes — the method-body counterpart of
+    ///     <see cref="IrNode.FuncDef.IsTcoLoop" />, consumed by the same loop emitters. Only
+    ///     ever set on a method of a sealed class, where <c>this.M(…)</c> binds statically
+    ///     and a back-edge is therefore the same target as the call it replaces.
+    /// </summary>
+    public bool IsTcoLoop { get; init; }
+}
 
 public sealed record IrInterfaceMethodSignature(
     string Name,

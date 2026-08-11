@@ -55,9 +55,10 @@ The LSP went from a small feature set to broad coverage:
 - **`zs lint`** reports ZS0004 across a whole package instead of one editor buffer at a time,
   and `--fix` applies it in place. The analyzer moved from the language server into
   `ZScheme.Compiler/Analysis/` so both front ends share it; no compile path runs it.
-- **`ZS0005`** warns when a self-recursive function will not be compiled as a loop, and names
-  why: the call isn't in tail position, it sits behind a `with-handlers`/`use` frame, or the
-  function isn't a top-level `define`. A new stage-4.8 analyzer mirrors `TailCallLowering`'s
+- **`ZS0005`** warns when a self-recursive function or class/object method will not be
+  compiled as a loop, and names why: the call isn't in tail position, it sits behind a
+  `with-handlers`/`use` frame, the function isn't a top-level `define`, or the method is
+  virtual because its class is `#:open`. A new stage-4.8 analyzer mirrors `TailCallLowering`'s
   rules on the AST — a drift test pins silence to `FuncDef.IsTcoLoop` — so the language server
   sees it too. Package builds analyse each of their own modules, against that module's own
   file and span; imported and installed dependencies don't leak their warnings into a
@@ -113,6 +114,18 @@ The LSP went from a small feature set to broad coverage:
   - `ZS0005`'s `async` reason is gone: it existed only to name the backend asymmetry this
     removes, and was unreachable from valid source. Async definitions still report
     `not-tail`, `barrier` and `not-top-level` as before.
+- **Tail-call optimization never reached class and object methods, and `ZS0005` stayed quiet
+  about it.** `TailCallLowering` descended only `Seq` and `FuncDef`, so a self-recursive
+  method was emitted as plain recursion however it was written, while the identical body as a
+  top-level `define` became a loop — and the analyzer deliberately abstained on method bodies,
+  so nothing said so. Since ZScheme has no `while`/`do`/named-`let`, a method had *no*
+  constant-stack iteration available at all. The pass now rewrites the methods of a **sealed**
+  class (which includes every class lifted from an `(object …)`), and both backends emit an
+  `IsTcoLoop` method as a loop — C# `while(true)`, IL a start label with a `Br` back, and for
+  an async method that still awaits, the loop inside its state machine's `MoveNext`. An
+  `#:open` class is deliberately left alone: its methods emit `virtual`/`override`, so a
+  back-edge would run the base body where the source calls for a subclass's override. Methods
+  now take `#:recursive` too, and `ZS0005` gained a `virtual` reason naming that case.
 - **Tail-call optimization never reached module code.** Both emitters lowered only the main
   IR, so an inlined source module stayed recursive under the C# backend, and a package
   library — which emits with an empty main IR and every function arriving as an imported

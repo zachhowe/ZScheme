@@ -8,8 +8,9 @@ namespace ZScheme.Compiler.Types;
 ///     Flags self-recursive functions that <see cref="Ir.TailCallLowering" /> will not turn
 ///     into a loop, as <see cref="DiagnosticCodes.NonLoopedSelfRecursion" /> warnings. The
 ///     message names the reason, because that is what makes it actionable: the recursive call
-///     is not in tail position, it is behind a <c>with-handlers</c>/<c>use</c> frame, or the
-///     function is not a top-level <c>define</c>.
+///     is not in tail position, it is behind a <c>with-handlers</c>/<c>use</c> frame, the
+///     function is not a top-level <c>define</c>, or it is a method of an <c>#:open</c> class
+///     and so has to dispatch virtually.
 ///
 ///     This mirrors <see cref="Ir.TailCallLowering" />'s rules on the AST, one stage earlier,
 ///     so the warning reaches the language server. The AST tail spine — <c>if</c> branches,
@@ -18,11 +19,14 @@ namespace ZScheme.Compiler.Types;
 ///     the time this runs. <c>tests/Pipeline/TailRecursionDriftTests.cs</c> pins the two
 ///     together: silence here must mean <c>IsTcoLoop</c> there.
 ///
+///     Class and object methods are candidates too, on the same footing as a top-level
+///     <c>define</c>: a bare <c>(M …)</c> in a method body <em>does</em> resolve to the
+///     enclosing class's <c>M</c> (<see cref="TypeInferer" /> puts sibling methods in scope by
+///     bare name), so the same name match applies — shadowed, as there, by a same-named field
+///     or parameter. Constructors have no name to call and are still skipped.
+///
 ///     Deliberately quiet where the AST cannot decide:
 ///     <list type="bullet">
-///         <item>Class/object methods and constructors are skipped — a bare <c>(foo x)</c> in a
-///             method body does not resolve to the method, so treating it as a self-call would
-///             be a false positive.</item>
 ///         <item>A body containing an immediately-invoked lambda this pass cannot prove reducible
 ///             is left alone, since <c>IiffeBetaReducer</c> may yet move the call into tail
 ///             position.</item>
@@ -47,6 +51,20 @@ public sealed class TailRecursionAnalyzer(
     private const string ReasonNotTail = "not-tail";
     private const string ReasonBarrier = "barrier";
     private const string ReasonNotTopLevel = "not-top-level";
+    private const string ReasonVirtual = "virtual";
+
+    /// <summary>The container itself rules a loop out, whatever shape the body has.</summary>
+    private static readonly (string Reason, string Explanation) NotTopLevelBlock = (
+        ReasonNotTopLevel,
+        "only top-level 'define' forms and sealed-class methods become loops"
+    );
+
+    private static readonly (string Reason, string Explanation) VirtualBlock = (
+        ReasonVirtual,
+        "the method is virtual because its class is '#:open', so the self-call must dispatch "
+            + "to whatever subclass overrides it; drop '#:open' or lift the loop to a top-level "
+            + "'define'"
+    );
 
     public void Analyze(AstNode.Program program)
     {
@@ -55,12 +73,70 @@ public sealed class TailRecursionAnalyzer(
 
         var topLevel = TopLevelForms(program);
         foreach (var form in topLevel)
+        {
             CheckCandidate(form, isTopLevel: true);
+            CheckMethods(form);
+        }
 
         // Nested definitions: never looped, wherever they appear.
         foreach (var form in topLevel)
         foreach (var nested in Descendants(form))
+        {
             CheckCandidate(nested, isTopLevel: false);
+            CheckMethods(nested);
+        }
+    }
+
+    /// <summary>
+    ///     Checks the methods of a <c>define-class</c> / <c>(object …)</c>, which are loop
+    ///     candidates in their own right: a bare <c>(M …)</c> in a method body resolves to the
+    ///     enclosing class's <c>M</c>, and <see cref="Ir.TailCallLowering" /> rewrites its tail
+    ///     self-calls exactly as it does a top-level function's.
+    /// </summary>
+    private void CheckMethods(AstNode node)
+    {
+        switch (node)
+        {
+            // An `#:open` class emits its methods virtual/override, so the pass leaves them
+            // alone however they are written — the one case where the body's own shape cannot
+            // be the reason.
+            case AstNode.ClassDecl cls:
+            {
+                var fieldNames = cls.Fields.Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+                foreach (var method in cls.Methods)
+                    CheckMethod(method, fieldNames, cls.IsOpen ? VirtualBlock : null);
+                break;
+            }
+
+            // An `(object …)` lifts to a sealed class with no fields of its own, so its
+            // methods loop like any other sealed class's.
+            case AstNode.ObjectExpr obj:
+            {
+                foreach (var method in obj.Methods)
+                    CheckMethod(method, new HashSet<string>(StringComparer.Ordinal), null);
+                break;
+            }
+        }
+    }
+
+    private void CheckMethod(
+        ObjectMethod method,
+        IReadOnlySet<string> fieldNames,
+        (string Reason, string Explanation)? blocked
+    )
+    {
+        if (method.AllowsUnloopedRecursion)
+            return;
+        // Macro-synthesized methods have no name token to point at.
+        if (method.NameSpan.Length == 0)
+            return;
+
+        // A field or a parameter of the same name rebinds it over the body, so no call in
+        // there is a self-call. Mirrors TailCallLowering.RewriteMethod.
+        var shadowed =
+            fieldNames.Contains(method.Name) || method.Params.Any(p => p.Name == method.Name);
+
+        Report(method.Name, method.NameSpan, method.Body, shadowed, blocked, noun: "method");
     }
 
     /// <summary>Every strict descendant of <paramref name="node" />.</summary>
@@ -105,8 +181,26 @@ public sealed class TailRecursionAnalyzer(
             _ => false,
         };
 
+        Report(name, nameSpan, body, shadowedByParams, isTopLevel ? null : NotTopLevelBlock);
+    }
+
+    /// <summary>
+    ///     The shared verdict for one named body: collect its self-call sites, and warn unless
+    ///     the pass will loop it. <paramref name="blocked" /> is the container's own veto —
+    ///     a nested definition, or a virtual method — which stands in for the body-shape reason
+    ///     when present, because no way of writing the body would produce a loop.
+    /// </summary>
+    private void Report(
+        string name,
+        SourceSpan nameSpan,
+        AstNode body,
+        bool shadowed,
+        (string Reason, string Explanation)? blocked,
+        string noun = "function"
+    )
+    {
         var sites = new List<Site>();
-        Walk(body, name, sites, tail: true, Barrier.None, shadowed: shadowedByParams);
+        Walk(body, name, sites, tail: true, Barrier.None, shadowed);
         if (sites.Count == 0)
             return;
 
@@ -121,12 +215,12 @@ public sealed class TailRecursionAnalyzer(
             return;
 
         // No async exclusion: TailCallLowering loops an awaited tail self-call on both backends.
-        if (isTopLevel && hasCleanTailCall)
+        if (blocked is null && hasCleanTailCall)
             return;
 
-        var (reason, explanation) = Diagnose(sites, isTopLevel);
+        var (reason, explanation) = blocked ?? DiagnoseTailShape(sites);
         diagnostics.Warning(
-            $"Self-recursive function '{name}' is not compiled as a loop: {explanation}",
+            $"Self-recursive {noun} '{name}' is not compiled as a loop: {explanation}",
             nameSpan,
             DiagnosticCodes.NonLoopedSelfRecursion,
             [name, reason]
@@ -134,11 +228,8 @@ public sealed class TailRecursionAnalyzer(
     }
 
     /// <summary>Picks the most actionable reason, most-fixable first.</summary>
-    private static (string Reason, string Explanation) Diagnose(List<Site> sites, bool isTopLevel)
+    private static (string Reason, string Explanation) DiagnoseTailShape(List<Site> sites)
     {
-        if (!isTopLevel)
-            return (ReasonNotTopLevel, "only top-level 'define' forms become loops");
-
         var tailBarrier = sites.FirstOrDefault(s => s.IsTail)?.Barrier;
         if (tailBarrier is Barrier.Use or Barrier.WithHandlers)
             return (

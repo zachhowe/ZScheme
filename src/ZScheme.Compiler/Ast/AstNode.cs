@@ -281,6 +281,9 @@ public abstract record AstNode(SourceSpan Span)
         : AstNode(Span);
 }
 
+// AllowsUnloopedRecursion / NameSpan: see Define. A method of a sealed class is a loop
+// candidate in its own right (TailCallLowering rewrites its tail self-calls), so it takes
+// the same `#:recursive` opt-out and the same name anchor for the diagnostic.
 public sealed record ObjectMethod(
     string Name,
     IReadOnlyList<Param> Params,
@@ -288,7 +291,9 @@ public sealed record ObjectMethod(
     AstNode Body,
     SourceSpan Span,
     IReadOnlyList<AttributeDecl>? Attributes = null,
-    bool IsAsync = false
+    bool IsAsync = false,
+    bool AllowsUnloopedRecursion = false,
+    SourceSpan NameSpan = default
 );
 
 public sealed record InterfaceMethodSignature(

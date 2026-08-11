@@ -320,12 +320,14 @@ disabled by `CompilerOptions.WarnUnusedParameters`.
 - **Input:** the typed `AstNode.Program`
 - **Driver:** [`TailRecursionAnalyzer.Analyze(program)`](../src/ZScheme.Compiler/Types/TailRecursionAnalyzer.cs)
 
-Warns (`ZS0005`) when a self-recursive function will *not* be turned into a loop by
-[`TailCallLowering`](../src/ZScheme.Compiler/Ir/TailCallLowering.cs) (Stage 6), so the
-recursion consumes stack. The message names the reason, carried in `Diagnostic.Data[1]`:
-`not-tail` (the recursive call isn't in tail position), `barrier` (a syntactically tail
-call inside a `with-handlers`/`use` body, whose frame outlives the body), or
-`not-top-level` (only top-level `define` forms become loops).
+Warns (`ZS0005`) when a self-recursive function or class/object method will *not* be turned
+into a loop by [`TailCallLowering`](../src/ZScheme.Compiler/Ir/TailCallLowering.cs)
+(Stage 6), so the recursion consumes stack. The message names the reason, carried in
+`Diagnostic.Data[1]`: `not-tail` (the recursive call isn't in tail position), `barrier` (a
+syntactically tail call inside a `with-handlers`/`use` body, whose frame outlives the body),
+`not-top-level` (only top-level `define` forms and sealed-class methods become loops), or
+`virtual` (a method of an `#:open` class, whose self-call must dispatch to any subclass
+override).
 
 The analyzer mirrors `TailCallLowering`'s rules one stage earlier, on the AST, so the
 warning reaches the language server. That mapping is near 1:1 — the AST tail spine
@@ -336,8 +338,12 @@ anything else under an `await` (e.g. `(await (if … (f …) …))`) does not.
 [`TailRecursionDriftTests`](../tests/ZScheme.Compiler.Tests/Pipeline/TailRecursionDriftTests.cs)
 pins the two together: silence here must mean `FuncDef.IsTcoLoop` there.
 
-It stays deliberately quiet where the AST can't decide — class/object methods (a bare
-`(foo x)` in a method body doesn't resolve to the method), and bodies containing an
+Class and object methods are candidates on the same footing as a top-level `define`: a bare
+`(M …)` in a method body *does* resolve to the enclosing class's `M` (the type inferer puts
+sibling methods in scope by bare name), shadowed as elsewhere by a same-named field or
+parameter. Constructors have no name to call and are skipped.
+
+It stays deliberately quiet where the AST can't decide — bodies containing an
 immediately-invoked lambda it couldn't prove reducible (`IiffeBetaReducer` may yet move
 the call into tail position). Mutual recursion is never reported, matching the pass's
 own self-call-only scope. **Silence means the function will be marked `IsTcoLoop`, not
@@ -405,9 +411,12 @@ Tail-call optimization is a separate shared rewrite,
 **not** part of `IrLowering`. It runs just before code generation — at each emitter's entry,
 after the with-handlers/await hoisters — so that by then every tail self-call is a plain
 `Call` with already-hoisted arguments and no other pass (name resolution, the hoisters)
-needs to know about the nodes it introduces. For each top-level function it replaces every
-tail *self*-call with an `IrNode.TcoJump` back-edge (carrying the parameter names and the new
-argument values) and marks the `FuncDef` with `IsTcoLoop`. Only self-calls in tail position
+needs to know about the nodes it introduces. For each top-level function — and each method of
+a **sealed** class — it replaces every tail *self*-call with an `IrNode.TcoJump` back-edge
+(carrying the parameter names and the new argument values) and marks the `FuncDef` /
+`IrObjectMethod` with `IsTcoLoop`. An `#:open` class's methods are left alone: they emit
+`virtual`/`override`, so `this.M(…)` dispatches to whatever a subclass overrides and a
+back-edge would silently run the base body instead. Only self-calls in tail position
 through `if`/`let`/`match`/`begin` spines are rewritten; mutual/other tail calls and non-tail
 self-calls stay plain `Call`s. Both backends then emit an `IsTcoLoop` function as a loop — C#
 as `while(true)` with a `continue` at each `TcoJump`, IL as a start label with a `Br` back —

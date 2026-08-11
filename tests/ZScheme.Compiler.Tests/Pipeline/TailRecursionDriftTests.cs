@@ -127,12 +127,133 @@ public class TailRecursionDriftTests
             },
         };
 
+    /// <summary>
+    ///     The same biconditional for class/object methods, whose self-call the pass loops only
+    ///     when the class is sealed. Each source defines a self-recursive method <c>f</c>; the
+    ///     row is (source, expectedLooped). As above, only genuinely self-recursive methods
+    ///     belong here — a name shadowed into something else is neither looped nor warned about
+    ///     and gets its own <c>[Fact]</c>.
+    /// </summary>
+    public static TheoryData<string, bool> MethodCorpus =>
+        new()
+        {
+            // --- looped: sealed class, self-call on the tail spine ---
+            {
+                """
+                    (define-class C
+                      [start : Int]
+                      (define (f [n : Int] [acc : Int]) : Int
+                        (if (= n 0) acc (f (- n 1) (+ acc 1)))))
+                    """,
+                true
+            },
+            {
+                """
+                    (define-class C
+                      [start : Int]
+                      (define (f [n : Int]) : Int (let ([m (- n 1)]) (f m))))
+                    """,
+                true
+            },
+            // A sibling method on the tail spine is not a self-call, but the method's own tail
+            // call still is — the pass loops on the latter.
+            {
+                """
+                    (define-class C
+                      [start : Int]
+                      (define (g [n : Int]) : Int (* n 2))
+                      (define (f [n : Int]) : Int (if (= n 0) (g 1) (f (- n 1)))))
+                    """,
+                true
+            },
+            // async: an awaited tail self-call in a method, same as in a function
+            {
+                """
+                    (define-class C
+                      [start : Int]
+                      (define-async (f [n : Int] [acc : Int]) : (Task Int)
+                        (if (= n 0) acc (await (f (- n 1) (+ acc 1))))))
+                    """,
+                true
+            },
+            // --- not looped: `#:open`, so the self-call dispatches virtually ---
+            {
+                """
+                    (define-class #:open C
+                      [start : Int]
+                      (define (f [n : Int] [acc : Int]) : Int
+                        (if (= n 0) acc (f (- n 1) (+ acc 1)))))
+                    """,
+                false
+            },
+            // --- not looped: sealed, but the call is not in tail position ---
+            {
+                """
+                    (define-class C
+                      [start : Int]
+                      (define (f [n : Int]) : Int (if (= n 0) 1 (* n (f (- n 1))))))
+                    """,
+                false
+            },
+            // --- not looped: sealed and tail, but behind a with-handlers frame ---
+            {
+                """
+                    (define-class C
+                      [start : Int]
+                      (define (f [n : Int]) : Int
+                        (with-handlers ([System.Exception e] 0)
+                          (if (= n 0) 0 (f (- n 1))))))
+                    """,
+                false
+            },
+        };
+
     [Theory]
     [MemberData(nameof(Corpus))]
     public void AnalyzerSilence_MatchesTcoLoop(string source, bool expectedLooped)
     {
         Assert.Equal(expectedLooped, IsLooped(source, "f"));
         Assert.Equal(expectedLooped, !Warned(source, "f"));
+    }
+
+    [Theory]
+    [MemberData(nameof(MethodCorpus))]
+    public void AnalyzerSilence_MatchesTcoLoop_ForMethods(string source, bool expectedLooped)
+    {
+        Assert.Equal(expectedLooped, IsMethodLooped(source, "f"));
+        Assert.Equal(expectedLooped, !Warned(source, "f"));
+    }
+
+    [Fact]
+    public void FieldShadowingAMethodName_IsNotRewrittenToABackEdge()
+    {
+        // Both emitters resolve a bare name to `this.<Field>` before they consider methods, so
+        // the `(f ...)` here is not a call to the method and a back-edge would jump somewhere
+        // the source never named. Like the `let`/`match` shadowing cases, this is not
+        // self-recursion at all, so both halves stay false rather than pairing off.
+        const string source = """
+            (define-class C
+              [f : (Int -> Int)]
+              (define (f [n : Int]) : Int (if (= n 0) 0 (f (- n 1)))))
+            """;
+
+        Assert.False(IsMethodLooped(source, "f"));
+        Assert.False(Warned(source, "f"));
+    }
+
+    [Fact]
+    public void RecursiveMarkerOnAMethod_SilencesTheWarning()
+    {
+        // `#:recursive` is the per-definition opt-out, and an `#:open` class's method has no
+        // other way to say "the virtual dispatch is what I meant".
+        const string source = """
+            (define-class #:open C
+              [start : Int]
+              (define #:recursive (f [n : Int]) : Int (if (= n 0) 0 (f (- n 1)))))
+            """;
+
+        Assert.False(IsMethodLooped(source, "f"));
+        Assert.False(Warned(source, "f"));
     }
 
     [Fact]
@@ -207,7 +328,11 @@ public class TailRecursionDriftTests
     }
 
     /// <summary>TailCallLowering's view: lower to IR, then run the real pass.</summary>
-    private static bool IsLooped(string source, string funcName)
+    private static bool IsLooped(string source, string funcName) =>
+        FindFunc(Lower(source), funcName)?.IsTcoLoop ?? false;
+
+    /// <summary>The real pipeline down to IR, with TailCallLowering applied.</summary>
+    private static IrNode Lower(string source)
     {
         var diag = new DiagnosticBag();
         var tokens = new Lexer(source, "drift.zs", diag).Tokenize();
@@ -225,11 +350,12 @@ public class TailRecursionDriftTests
             enableClosureConversion: true,
             canonicalizer: inferer.Canonicalizer
         );
-        var ir = lowering.Lower(program);
-        var rewritten = new TailCallLowering().Rewrite(ir);
-
-        return FindFunc(rewritten, funcName)?.IsTcoLoop ?? false;
+        return new TailCallLowering().Rewrite(lowering.Lower(program));
     }
+
+    /// <summary>The same, for a method of the (single) class the source declares.</summary>
+    private static bool IsMethodLooped(string source, string methodName) =>
+        FindMethod(Lower(source), methodName)?.IsTcoLoop ?? false;
 
     private static IrNode.FuncDef? FindFunc(IrNode node, string name)
     {
@@ -239,6 +365,21 @@ public class TailRecursionDriftTests
                 return func;
             case IrNode.Seq seq:
                 return seq.Nodes.Select(n => FindFunc(n, name)).FirstOrDefault(f => f is not null);
+            default:
+                return null;
+        }
+    }
+
+    private static IrObjectMethod? FindMethod(IrNode node, string name)
+    {
+        switch (node)
+        {
+            case IrNode.ClassDecl cls:
+                return cls.Methods.FirstOrDefault(m => m.Name == name);
+            case IrNode.Seq seq:
+                return seq
+                    .Nodes.Select(n => FindMethod(n, name))
+                    .FirstOrDefault(m => m is not null);
             default:
                 return null;
         }

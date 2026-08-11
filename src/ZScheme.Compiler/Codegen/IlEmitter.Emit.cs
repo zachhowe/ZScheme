@@ -5955,6 +5955,10 @@ public sealed partial class IlEmitter
                     )
                     {
                         Span = method.Body.Span,
+                        // Carried through so the state machine's MoveNext emits its loop mode:
+                        // an async method that still awaits loops inside MoveNext exactly as an
+                        // async top-level function does, `__this` and all.
+                        IsTcoLoop = method.IsTcoLoop,
                     };
                     Async.EmitAsyncFuncDef(syntheticFunc, mb, classType, methodCtx);
                 }
@@ -5973,63 +5977,120 @@ public sealed partial class IlEmitter
                         CurrentBaseTypeDefinition = baseTypeDef,
                     };
 
-                    EmitNode(method.Body, methodIl, method.Params, methodLocals, methodCtx);
-
-                    if (
-                        method is
-                        {
-                            ReturnType: ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit },
-                            Body.Type: not null
-                                and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-                        }
-                    )
-                        methodIl.Add(CilOpCodes.Pop);
-
-                    // Async class methods without any await still need their body wrapped into a Task
-                    // before returning (the async state machine path is skipped when there are no awaits).
-                    if (method.IsAsync)
+                    // The method's return sequence for a value already on the stack: the
+                    // Unit-return discard, the Task wrap an await-free async method still owes
+                    // its signature, and the Ret. Taken as a parameter rather than read off
+                    // method.Body because a TCO loop has many leaves, each with its own type.
+                    void EmitMethodReturn(ZType? valueType)
                     {
-                        var isVoidTask =
-                            method.ReturnType is ZType.ZNamedType { TypeArgs: [] } voidTask2
-                            && _typeAliases.IsTaskName(voidTask2.Name);
-                        var isUnitMethod =
-                            method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+                        if (
+                            method.ReturnType is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                            && valueType
+                                is not null
+                                    and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
+                        )
+                            methodIl.Add(CilOpCodes.Pop);
 
-                        if (isUnitMethod || isVoidTask)
+                        // Async class methods without any await still need their body wrapped into a Task
+                        // before returning (the async state machine path is skipped when there are no awaits).
+                        if (method.IsAsync)
                         {
-                            if (
-                                !isUnitMethod
-                                && method.Body.Type
-                                    is not null
-                                        and not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit }
-                            )
-                                methodIl.Add(CilOpCodes.Pop);
-                            var completedTaskGetter = typeof(Task)
-                                .GetProperty("CompletedTask")!
-                                .GetGetMethod()!;
-                            methodIl.Add(
-                                CilOpCodes.Call,
-                                _module.DefaultImporter.ImportMethod(completedTaskGetter)
-                            );
+                            var isVoidTask =
+                                method.ReturnType is ZType.ZNamedType { TypeArgs: [] } voidTask2
+                                && _typeAliases.IsTaskName(voidTask2.Name);
+                            var isUnitMethod =
+                                method.ReturnType is ZType.ZPrimitiveType
+                                {
+                                    Kind: PrimitiveKind.Unit
+                                };
+
+                            if (isUnitMethod || isVoidTask)
+                            {
+                                if (
+                                    !isUnitMethod
+                                    && valueType
+                                        is not null
+                                            and not ZType.ZPrimitiveType
+                                            {
+                                                Kind: PrimitiveKind.Unit,
+                                            }
+                                )
+                                    methodIl.Add(CilOpCodes.Pop);
+                                var completedTaskGetter = typeof(Task)
+                                    .GetProperty("CompletedTask")!
+                                    .GetGetMethod()!;
+                                methodIl.Add(
+                                    CilOpCodes.Call,
+                                    _module.DefaultImporter.ImportMethod(completedTaskGetter)
+                                );
+                            }
+                            else
+                            {
+                                var inner =
+                                    method.ReturnType
+                                        is ZType.ZNamedType { TypeArgs: [var t] } taskNt2
+                                    && _typeAliases.IsTaskName(taskNt2.Name)
+                                        ? t
+                                        : method.ReturnType;
+                                var fromResult = typeof(Task)
+                                    .GetMethod("FromResult")!
+                                    .MakeGenericMethod(MapToReflectionClr(inner));
+                                methodIl.Add(
+                                    CilOpCodes.Call,
+                                    _module.DefaultImporter.ImportMethod(fromResult)
+                                );
+                            }
                         }
-                        else
-                        {
-                            var inner =
-                                method.ReturnType is ZType.ZNamedType { TypeArgs: [var t] } taskNt2
-                                && _typeAliases.IsTaskName(taskNt2.Name)
-                                    ? t
-                                    : method.ReturnType;
-                            var fromResult = typeof(Task)
-                                .GetMethod("FromResult")!
-                                .MakeGenericMethod(MapToReflectionClr(inner));
-                            methodIl.Add(
-                                CilOpCodes.Call,
-                                _module.DefaultImporter.ImportMethod(fromResult)
-                            );
-                        }
+
+                        methodIl.Add(CilOpCodes.Ret);
                     }
 
-                    methodIl.Add(CilOpCodes.Ret);
+                    if (method.IsTcoLoop)
+                    {
+                        // Self-recursion lowered to a loop by TailCallLowering, the method-body
+                        // counterpart of the FuncDef path in EmitFuncDef: a start label, then a
+                        // body whose every leaf returns and whose every TcoJump reassigns the
+                        // parameter slots and branches back. `mb.Parameters` is indexed by
+                        // declared parameter (`this` is `mb.ParameterDefinitions`' slot 0, not
+                        // this collection's), so `Starg` on index i hits the right argument.
+                        var sig = mb.Signature!;
+                        var startLabel = new CilInstructionLabel
+                        {
+                            Instruction = methodIl.Add(CilOpCodes.Nop),
+                        };
+                        EmitLoopBody(
+                            method.Body,
+                            methodIl,
+                            method.Params,
+                            methodLocals,
+                            methodCtx,
+                            startLabel,
+                            new LoopExit(
+                                ParamSlotType: i =>
+                                    i < sig.ParameterTypes.Count ? sig.ParameterTypes[i] : null,
+                                StoreParam: (i, tmp) =>
+                                {
+                                    methodIl.Add(CilOpCodes.Ldloc, tmp);
+                                    methodIl.Add(CilOpCodes.Starg, mb.Parameters[i]);
+                                },
+                                EmitLeaf: leaf =>
+                                {
+                                    EmitNode(
+                                        leaf,
+                                        methodIl,
+                                        method.Params,
+                                        methodLocals,
+                                        methodCtx
+                                    );
+                                    EmitMethodReturn(leaf.Type);
+                                }
+                            )
+                        );
+                        continue;
+                    }
+
+                    EmitNode(method.Body, methodIl, method.Params, methodLocals, methodCtx);
+                    EmitMethodReturn(method.Body.Type);
                 }
             }
         }

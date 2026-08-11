@@ -310,7 +310,7 @@ public sealed partial class CSharpEmitter
         BeginDeclarationSpace(func.Params);
 
         if (func.IsTcoLoop)
-            EmitTailRecursiveLoop(func);
+            EmitTailRecursiveLoop(func.Body, func.ReturnType, func.IsAsync);
         else if (func.IsAsync && ContainsAwait(func.Body))
             EmitAsyncStatementsBody(func.Body, IsAsyncVoidReturn(func.ReturnType));
         else if (WantsStatementForm(func.Body))
@@ -526,13 +526,18 @@ public sealed partial class CSharpEmitter
         return IsValidStatementExpr(body) ? $"{emitted};" : $"_ = {emitted};";
     }
 
-    private void EmitTailRecursiveLoop(IrNode.FuncDef func)
+    /// Emits a body TailCallLowering turned into a loop (<c>IsTcoLoop</c>) as a
+    /// <c>while (true)</c> whose every leaf terminates and whose every <see cref="IrNode.TcoJump" />
+    /// reassigns the parameters and <c>continue</c>s. Shared by top-level functions
+    /// (<see cref="EmitFuncDef" />) and sealed-class methods
+    /// (<see cref="EmitInstanceMethodBody" />), whose parameters are assignable alike.
+    private void EmitTailRecursiveLoop(IrNode body, ZType returnType, bool isAsync)
     {
         EmitLine("while (true)");
         EmitLine("{");
         _indent++;
 
-        EmitStatementsBody(func.Body, func.ReturnType, inLoop: true, isAsync: func.IsAsync);
+        EmitStatementsBody(body, returnType, inLoop: true, isAsync: isAsync);
 
         _indent--;
         EmitLine("}");
@@ -2313,7 +2318,8 @@ public sealed partial class CSharpEmitter
         IrNode body,
         ZType returnType,
         IReadOnlyList<IrParam> methodParams,
-        bool isAsync
+        bool isAsync,
+        bool isTcoLoop
     )
     {
         var savedLocals = new HashSet<string>(_localBindings);
@@ -2329,7 +2335,12 @@ public sealed partial class CSharpEmitter
             _localBindings.Add(p.Name);
         try
         {
-            if (isAsync && ContainsAwait(body))
+            if (isTcoLoop)
+                // Tail self-calls already lowered to TcoJump back-edges: same `while (true)`
+                // as a top-level function's, and legal in an `async` method too — a C# `await`
+                // inside a loop is exactly what the async body of one compiles to.
+                EmitTailRecursiveLoop(body, returnType, isAsync);
+            else if (isAsync && ContainsAwait(body))
                 EmitAsyncStatementsBody(body, IsAsyncVoidReturn(returnType));
             else if (WantsStatementForm(body))
                 // Only reached when the body contains no `await` at all (the branch above claims
@@ -2588,7 +2599,13 @@ public sealed partial class CSharpEmitter
             );
             EmitLine("{");
             _indent++;
-            EmitInstanceMethodBody(method.Body, method.ReturnType, method.Params, method.IsAsync);
+            EmitInstanceMethodBody(
+                method.Body,
+                method.ReturnType,
+                method.Params,
+                method.IsAsync,
+                method.IsTcoLoop
+            );
             _indent--;
             EmitLine("}");
         }

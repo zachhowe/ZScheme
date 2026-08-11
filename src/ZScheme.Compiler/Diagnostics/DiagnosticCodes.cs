@@ -35,12 +35,13 @@ public static class DiagnosticCodes
     public const string RedundantTypeQualifier = "ZS0004";
 
     /// <summary>
-    ///     A self-recursive function that <c>Ir/TailCallLowering</c> will not turn into a
-    ///     <c>TcoJump</c> loop, so the recursion consumes stack. Data: <c>[0]</c> = the
-    ///     function name, <c>[1]</c> = why it is not looped — one of <c>"not-tail"</c>,
-    ///     <c>"barrier"</c>, <c>"not-top-level"</c>. Silenced for one definition by
-    ///     <c>#:recursive</c>, and for a whole compilation by
-    ///     <c>CompilerOptions.WarnUnloopedRecursion</c>.
+    ///     A self-recursive function or class/object method that <c>Ir/TailCallLowering</c>
+    ///     will not turn into a <c>TcoJump</c> loop, so the recursion consumes stack. Data:
+    ///     <c>[0]</c> = the function or method name, <c>[1]</c> = why it is not looped — one of
+    ///     <c>"not-tail"</c>, <c>"barrier"</c>, <c>"not-top-level"</c>, <c>"virtual"</c> (a
+    ///     method of an <c>#:open</c> class, whose self-call has to dispatch to any subclass
+    ///     override). Silenced for one definition or method by <c>#:recursive</c>, and for a
+    ///     whole compilation by <c>CompilerOptions.WarnUnloopedRecursion</c>.
     ///     <para>
     ///         Silence means the function will be marked <c>IsTcoLoop</c> — <em>not</em> that
     ///         every recursive path is bounded: a function with one tail arm and one non-tail

@@ -5,9 +5,10 @@
 ;; `await` into a back-edge, so these loops allocate one state machine instead of one per level.
 ;; Without that, each depth below overflows the stack.
 ;;
-;; The helpers are deliberately top-level `define-async`: TailCallLowering only descends
-;; top-level functions, so a loop written inside a `test-suite-async` body would be a class
-;; method and would not be looped at all.
+;; The helpers are top-level `define-async` so the shapes under test are exactly the ones the
+;; pass was built for. A `test-suite-async` body compiles to methods of a sealed class, which
+;; TailCallLowering now loops too — but keeping the helpers top-level keeps what is being
+;; measured (the back-edge) separate from where it happens to be written.
 (namespace ZScheme.StdLib.Tests)
 (module async-tco-tests)
 
