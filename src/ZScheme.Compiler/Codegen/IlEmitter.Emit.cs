@@ -2403,10 +2403,24 @@ public sealed partial class IlEmitter
         // `f` came from the enclosing `define`'s parameters) falls through
         // to the "Function not found" error since `f` is no longer in
         // outerParams once we descend into the object's method.
+        //
+        // The field has to actually hold the delegate this call site expects.
+        // `call.Function.Type` is the type of the *call site's* function
+        // expression — a ZFuncType for every call — so on its own it admits
+        // any same-named field: a class field colliding with a module-level
+        // function (`[f0 : Int]` beside `(define (f0 ...))`, with the field
+        // map carrying inherited fields too) swallowed the call and emitted
+        // `ldfld int32` where a Func was expected. Comparing signatures keeps
+        // the capture case and lets a non-callable field fall through to the
+        // module method below.
         if (
             ctx.CurrentClassFields is not null
             && ctx.CurrentClassFields.TryGetValue(v.Name, out var classFieldDelegate)
             && call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType
+            && TypeSigComparer.Equals(
+                classFieldDelegate.Signature!.FieldType,
+                MapToClr(call.Function.Type, ctx)
+            )
         )
         {
             Log.Debug("EmitCall: resolved {FuncName} as captured class field delegate", v.Name);

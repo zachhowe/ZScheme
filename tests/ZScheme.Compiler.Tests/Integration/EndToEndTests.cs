@@ -1875,6 +1875,117 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void ObjectExpr_CallsModuleFunctionSharingAnInheritedFieldName_RunsCorrectlyIl()
+    {
+        // Regression (fuzzer seed 0x5eed1000, 9 of its 9 failures): the
+        // opposite direction of the capture case above. A class field may
+        // legally share its name with a module-level function — `[f0 : Int]`
+        // beside `(define (f0 ...))` — and inside an `(object : FCls_0 ...)`
+        // body the bare `f0` is the function, not the base's field (the
+        // inferer does not bring inherited fields into an object body's
+        // scope, and the C# backend agrees).
+        //
+        // EmitCall's class-field branch guarded on `call.Function.Type`,
+        // which is a ZFuncType at every call site and so admitted the Int
+        // field. The emitter produced `ldfld int32` followed by a
+        // `Func`3::Invoke` — ilverify `[StackUnexpected] found Int32,
+        // expected ref 'System.Func`3<int32,int32,int32>'`, and a
+        // NullReferenceException at run time as the field's `0` was read
+        // back as a null delegate reference.
+        var source =
+            @"(namespace Repro)
+(module test)
+(define-class #:open FCls_0
+  [f0 : Int #:mutable]
+  (define (M0_0) : Int f0))
+
+(define (f0 [a : Int] [b : Int]) : Int (+ a b))
+
+(define (compute) : Int
+  (FCls_0/f0 (object : FCls_0
+    (constructor (super (f0 1 2)))
+    (define (M0_0) : Int 7))))";
+
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+        Assert.Equal(3, compute.Invoke(null, null));
+    }
+
+    [Fact]
+    public void ClassCtor_CallsModuleFunctionSharingAnOwnFieldName_RunsCorrectlyIl()
+    {
+        // Same root cause as the object-expression test above, reached
+        // without any object lifting: a plain `define-class` explicit
+        // constructor whose `super` argument calls a module-level function
+        // that shares a name with one of the class's own fields. The
+        // constructor context carries the same class-field map, so `(f0 1 2)`
+        // resolved to `Derived::F0` there too. `(set! f0 p)` in the same
+        // constructor does mean the field, which is why the field map has to
+        // stay and the call site has to discriminate on type.
+        var source =
+            @"(namespace Repro)
+(module test)
+(define-class #:open Base
+  [b0 : Int #:mutable]
+  (define (M) : Int b0))
+
+(define (f0 [a : Int] [b : Int]) : Int (+ a b))
+
+(define-class Derived : Base
+  [f0 : Int #:mutable]
+  (constructor [p : Int]
+    (super (f0 1 2))
+    (set! f0 p))
+  (define (M) : Int b0))
+
+(define (compute) : Int (Derived/M (new Derived 9)))";
+
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(source);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var compute = asm.GetExportedTypes()
+            .SelectMany(t => t.GetMethods())
+            .First(m =>
+                m.Name.Equals("Compute", StringComparison.OrdinalIgnoreCase)
+                && m.GetParameters().Length == 0
+            );
+        Assert.Equal(3, compute.Invoke(null, null));
+    }
+
+    [Fact]
     public void ClassDecl_NewCallWithExplicitConstructorAndSuper_EmitsPositionalArgs()
     {
         // Inheritance variant: the subclass has an explicit constructor that
