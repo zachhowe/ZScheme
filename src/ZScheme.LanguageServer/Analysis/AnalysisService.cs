@@ -151,7 +151,11 @@ public sealed class AnalysisService
         }
         finally
         {
-            _pendingAnalysis.TryRemove(uri, out _);
+            // Only our own registration: by the time a canceled call gets here the slot
+            // usually belongs to the newer call that canceled it, and clearing that would
+            // leave the edit after it with nothing to cancel — so both would compile the
+            // same file and race to store its document.
+            _pendingAnalysis.TryRemove(new KeyValuePair<string, CancellationTokenSource>(uri, cts));
         }
 
         return AnalyzeGuarded(uri, source, version);

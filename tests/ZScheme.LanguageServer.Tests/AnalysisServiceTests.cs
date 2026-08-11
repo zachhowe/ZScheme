@@ -281,6 +281,48 @@ public sealed class AnalysisServiceTests
     }
 
     [Fact]
+    public async Task AnalyzeAsync_CanceledCallLeavesItsSuccessorCancelable()
+    {
+        // Regression: the finally in AnalyzeAsync removed whatever was registered for the
+        // document rather than its own registration. By the time a canceled call reached
+        // it the slot held the newer call that had just canceled it, so that newer call
+        // was silently unregistered — the edit after it found nothing pending, canceled
+        // nothing, and two analyses of the same file ran and raced to store a document.
+        var srcA = "(module a)";
+        var srcB = "(module b)";
+        var srcC = """
+            (module c)
+            (define (square [x : Int]) : Int (* x x))
+            """;
+        var uri = LspTestSession.SyntheticUri(
+            nameof(AnalyzeAsync_CanceledCallLeavesItsSuccessorCancelable)
+        );
+
+        var debounce = new ScriptedDebounce();
+        var svc = new AnalysisService { DebounceDelay = debounce.DelayAsync };
+
+        var first = svc.AnalyzeAsync(uri, srcA, 1);
+        var second = svc.AnalyzeAsync(uri, srcB, 2);
+
+        // Awaiting the canceled call runs its finally — the point at which the bug wiped
+        // the second call's registration — before the third arrives.
+        await first.WaitAsync(CancellationTimeout);
+
+        var third = svc.AnalyzeAsync(uri, srcC, 3);
+        var secondResult = await second.WaitAsync(CancellationTimeout);
+
+        // The second call was canceled by the third, so it never reached the pipeline.
+        Assert.Null(secondResult.Ast);
+
+        debounce.Release();
+        var thirdResult = await third;
+
+        Assert.NotNull(thirdResult.Ast);
+        Assert.Equal(3, thirdResult.Version);
+        Assert.Same(thirdResult, svc.GetDocument(uri));
+    }
+
+    [Fact]
     public async Task ScanAdditionalRoots_IndexesFilesUnderTheNewRoot()
     {
         using var ws = new TestFixtures.TempPackageWorkspace(
@@ -322,33 +364,19 @@ public sealed class AnalysisServiceTests
     }
 
     /// <summary>
-    ///     A debounce that sequences two <see cref="AnalysisService.AnalyzeAsync" /> calls
-    ///     deterministically: the first waits until it is canceled, the second until
-    ///     <see cref="Release" /> is called, and any further call passes straight through.
+    ///     A debounce driven by the test rather than by the clock: every
+    ///     <see cref="AnalysisService.AnalyzeAsync" /> call parks in its debounce window
+    ///     until either that call is canceled or <see cref="Release" /> lets every
+    ///     remaining waiter through. Which call cancels which is therefore decided by the
+    ///     order the test makes them in, not by how loaded the machine is.
     /// </summary>
     private sealed class ScriptedDebounce
     {
-        private readonly TaskCompletionSource _gate = new(
+        private readonly TaskCompletionSource _release = new(
             TaskCreationOptions.RunContinuationsAsynchronously
         );
-        private int _calls;
 
         public Task DelayAsync(TimeSpan _, CancellationToken token)
-        {
-            return Interlocked.Increment(ref _calls) switch
-            {
-                1 => UntilCanceledAsync(token),
-                2 => _gate.Task,
-                _ => Task.CompletedTask,
-            };
-        }
-
-        public void Release()
-        {
-            _gate.TrySetResult();
-        }
-
-        private static Task UntilCanceledAsync(CancellationToken token)
         {
             // RunContinuationsAsynchronously so the canceling caller does not run the
             // canceled analysis's continuation inline, on its own stack.
@@ -356,7 +384,12 @@ public sealed class AnalysisServiceTests
                 TaskCreationOptions.RunContinuationsAsynchronously
             );
             token.Register(() => canceled.TrySetCanceled(token));
-            return canceled.Task;
+            return Task.WhenAny(canceled.Task, _release.Task).Unwrap();
+        }
+
+        public void Release()
+        {
+            _release.TrySetResult();
         }
     }
 }
