@@ -2312,16 +2312,13 @@ public sealed partial class IlEmitter
             {
                 Log.Debug("EmitCall: resolved {FuncName} as sibling instance method", v.Name);
 
-                // Load 'this' — from __this field if inside async state machine, else Ldarg_0
-                if (ctx.MoveNextCtx?.ThisField is { } siblingThisField)
-                {
-                    il.Add(CilOpCodes.Ldarg_0);
-                    il.Add(CilOpCodes.Ldfld, siblingThisField);
-                }
-                else
-                {
-                    il.Add(CilOpCodes.Ldarg_0);
-                }
+                // The receiver is the enclosing class instance, wherever it currently lives:
+                // `ldarg.0` in an ordinary instance method, `this.__this` inside an async
+                // state machine, or the captured local inside a lambda that took `<>this`.
+                // This used to open-code only the first two, so a lambda calling a sibling
+                // (or a class-hosted letrec/nested-define member) passed its own first
+                // argument as the receiver.
+                EmitLoadClassThis(il, ctx);
 
                 foreach (var arg in call.Args)
                     EmitNode(arg, il, outerParams, locals, ctx);
@@ -3760,6 +3757,40 @@ public sealed partial class IlEmitter
 
             if (!needsThisCapture)
                 needsThisCapture = BodyContainsClassFieldSet(funcDef.Body, ctx.CurrentClassFields);
+        }
+
+        // A call to a sibling instance method needs `this` just as much as a field access
+        // does, and it can be the lambda's *only* instance dependency: LetrecLifter hosts a
+        // `letrec`/nested-`define` group on the declaring class whenever it needs a real
+        // instance, so a lambda whose body only calls such a member touches no field and
+        // would otherwise be emitted as a bare static with nothing to pass as the receiver.
+        // Checked outside the class-field block above because a fieldless class can host a
+        // group too (a sibling call or a `super/` call reaches the same hosting decision).
+        if (
+            !needsThisCapture
+            && ctx.CurrentTypeDefinition is not null
+            && ctx.CurrentClassMethods is { Count: > 0 } classMethods
+        )
+        {
+            var calledRefs = new Dictionary<string, List<IrNode.Var>>();
+            CollectCalledVarRefs(funcDef.Body, calledRefs);
+            foreach (var (name, refs) in calledRefs)
+            {
+                // Same shadowing rule as the field scan: a called name that binds to an
+                // outer local/param is captured by value, and one bound inside the lambda
+                // is not free at all. Neither reaches the sibling-method branch of EmitCall.
+                if (capturedNames.Contains(name) || !freeVars.Contains(name))
+                    continue;
+                if (!classMethods.ContainsKey(name))
+                    continue;
+                // EmitCall only falls through to sibling instance methods once nothing
+                // module-level has claimed the name; if every reference is claimed earlier
+                // the call is static and wants no receiver.
+                if (refs.All(ResolvesBeforeSiblingInstanceMethods))
+                    continue;
+                needsThisCapture = true;
+                break;
+            }
         }
 
         if (needsThisCapture)

@@ -851,6 +851,34 @@ public class EndToEndTests
     }
 
     [Fact]
+    public void IlAsync_LambdaCallingAHostedGroupMember_LoadsTheCapturedThis()
+    {
+        // The async half of the class-hosted-group receiver bug. `#:mutable` hosts the group
+        // on the class, so the lambda's only instance dependency is a call to a private
+        // instance method — which EmitLambda's capture analysis did not count, leaving the
+        // lambda a bare static whose `ldarg.0` is its own int parameter. Inside a state
+        // machine the receiver has a third home (`this.__this`), so this pins that the call
+        // site asks EmitLoadClassThis rather than picking a home itself: the captured local
+        // must win over the MoveNext field, since the lambda body is no longer in MoveNext.
+        var source =
+            @"(namespace IlAsyncHostedGroupReg)
+(module m)
+(define (apply1 [f : (Int -> Int)] [n : Int]) : Int (f n))
+(define-async (tick [x : Int]) : (Task Int) x)
+(define-class Counter
+  [state : Int #:mutable]
+  (define-async (Run [n : Int]) : (Task Int)
+    (define (go [k : Int]) : Int
+      (if (= k 0) state (begin (set! state (+ state 1)) (go (- k 1)))))
+    (let ([z (await (tick n))])
+      (apply1 (lambda ([x : Int]) : Int (go x)) z))))
+(define-async (compute) : (Task Int) (await (Counter/Run (new Counter 0) 3)))";
+
+        // state 0 -> 3 over three iterations, so `go 3` returns 3.
+        Assert.Equal(3, CompileIlAndAwaitInt(source));
+    }
+
+    [Fact]
     public void AwaitNonGenericTask()
     {
         var source =

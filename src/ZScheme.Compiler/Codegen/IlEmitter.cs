@@ -1299,7 +1299,37 @@ public sealed partial class IlEmitter(
             return;
         }
 
-        IEnumerable<IrNode> children = node switch
+        foreach (var child in ChildNodes(node))
+            CollectVarRefs(child, acc);
+    }
+
+    /// <summary>
+    ///     Collects the <see cref="IrNode.Var" /> in the callee position of every
+    ///     <see cref="IrNode.Call" /> inside <paramref name="node" />, grouped by name. The
+    ///     call-position counterpart of <see cref="CollectVarRefs" />, and binder-blind for the
+    ///     same reason: callers intersect the result with <see cref="FindFreeVars" />.
+    /// </summary>
+    private static void CollectCalledVarRefs(IrNode node, Dictionary<string, List<IrNode.Var>> acc)
+    {
+        if (node is IrNode.Call { Function: IrNode.Var v })
+        {
+            if (!acc.TryGetValue(v.Name, out var refs))
+                acc[v.Name] = refs = [];
+            refs.Add(v);
+        }
+
+        foreach (var child in ChildNodes(node))
+            CollectCalledVarRefs(child, acc);
+    }
+
+    /// <summary>
+    ///     The sub-expressions of <paramref name="node" />, for the binder-blind body walks that
+    ///     capture analysis runs. Descends into nested <see cref="IrNode.FuncDef" /> bodies, since
+    ///     an inner lambda's instance dependency is also its enclosing lambda's.
+    /// </summary>
+    private static IEnumerable<IrNode> ChildNodes(IrNode node)
+    {
+        return node switch
         {
             IrNode.Let let => [let.Value, let.Body],
             IrNode.Use use => [use.Value, use.Body],
@@ -1328,9 +1358,6 @@ public sealed partial class IlEmitter(
             IrNode.Closure cl => cl.CapturedValues,
             _ => [],
         };
-
-        foreach (var child in children)
-            CollectVarRefs(child, acc);
     }
 
     /// <summary>
@@ -1417,6 +1444,36 @@ public sealed partial class IlEmitter(
             || !_methods.ContainsKey(Emitted(v.EmitName, name))
             || TypeSigComparer.Equals(classField.Signature!.FieldType, MapToClr(v.Type, ctx))
         );
+    }
+
+    /// <summary>
+    ///     Whether a call to <paramref name="v" /> would be resolved by one of the probes
+    ///     <see cref="EmitCall" /> runs *before* it consults <c>CurrentClassMethods</c> — a
+    ///     module-level method, a precompiled method, or a function-typed static field. Those all
+    ///     emit a receiver-less call, so such a name is no reason for a lambda to capture
+    ///     <c>&lt;&gt;this</c>. The local/parameter probes are not repeated here: capture analysis
+    ///     already excludes names bound in an enclosing or inner scope.
+    /// </summary>
+    private bool ResolvesBeforeSiblingInstanceMethods(IrNode.Var v)
+    {
+        var sanitized = Emitted(v.EmitName, v.Name);
+        var qualifiedKey = v.ModuleName is not null
+            ? $"{NameConverter.ClassNameFromModuleName(v.ModuleName)}.{sanitized}"
+            : null;
+
+        return _methods.ContainsKey(sanitized)
+            || _precompiledMethods.ContainsKey(sanitized)
+            || (
+                qualifiedKey is not null
+                && (
+                    _methods.ContainsKey(qualifiedKey)
+                    || _precompiledMethods.ContainsKey(qualifiedKey)
+                )
+            )
+            || (
+                _staticFields.ContainsKey(v.Name)
+                && v.Type is ZType.ZFuncType or ZType.ZDelegateType
+            );
     }
 
     /// <summary>

@@ -554,6 +554,78 @@ public class NestedDefineTests
         Assert.Contains("this.__letrec_test_0_first(1)", cs);
     }
 
+    // --- A lambda that calls a class-hosted group member ---
+
+    // Found by the differential fuzzer. The `#:mutable` field hosts the group on the class, so
+    // `go` is a private *instance* method — but the lambda's only instance dependency is that
+    // call, which the IL backend's capture analysis did not count. The lambda was emitted as a
+    // bare static and the call loaded `ldarg.0`, i.e. the lambda's own `int` argument, as the
+    // receiver: unverifiable IL that reinterprets an int as an object reference and throws a
+    // NullReferenceException at run time, for a program the C# backend compiles correctly.
+    // state 0 -> 3 over three iterations, so `go 3` returns 3.
+    private const string LambdaCallsHostedGroupSource =
+        @"(module test)
+(define (apply1 [f : (Int -> Int)] [n : Int]) : Int (f n))
+(define-class Counter
+  [state : Int #:mutable]
+  (define (Run [n : Int]) : Int
+    (define (go [k : Int]) : Int
+      (if (= k 0) state (begin (set! state (+ state 1)) (go (- k 1)))))
+    (apply1 (lambda ([x : Int]) : Int (go x)) n)))
+(define (compute) : Int (Counter/Run (new Counter 0) 3))";
+
+    [Fact]
+    public void ALambdaCallingAHostedGroupMember_CSharp() =>
+        Assert.Equal(3, CompileCSharpAndRunInt(LambdaCallsHostedGroupSource));
+
+    [Fact]
+    public void ALambdaCallingAHostedGroupMember_Il() =>
+        Assert.Equal(3, CompileIlAndRunInt(LambdaCallsHostedGroupSource));
+
+    // The same defect reached through the other hosting trigger: no `#:mutable` field anywhere,
+    // the group is hosted only because it calls a sibling method. `go` deliberately names no
+    // field — one would be passed as a by-value capture parameter, and the resulting field read
+    // at the call site would force `<>this` through the field scan and mask the defect.
+    // go 4 = 8 + 6 + 4 + 2 = 20.
+    private const string LambdaCallsHostedGroupViaSiblingSource =
+        @"(module test)
+(define (apply1 [f : (Int -> Int)] [n : Int]) : Int (f n))
+(define-class Counter
+  [start : Int]
+  (define (Twice [n : Int]) : Int (* n 2))
+  (define (Run [n : Int]) : Int
+    (define (go [k : Int]) : Int (if (= k 0) 0 (+ (Twice k) (go (- k 1)))))
+    (apply1 (lambda ([x : Int]) : Int (go x)) n)))
+(define (compute) : Int (Counter/Run (new Counter 0) 4))";
+
+    [Fact]
+    public void ALambdaCallingAGroupHostedForASiblingCall_CSharp() =>
+        Assert.Equal(20, CompileCSharpAndRunInt(LambdaCallsHostedGroupViaSiblingSource));
+
+    [Fact]
+    public void ALambdaCallingAGroupHostedForASiblingCall_Il() =>
+        Assert.Equal(20, CompileIlAndRunInt(LambdaCallsHostedGroupViaSiblingSource));
+
+    // No group at all: a lambda calling an ordinary sibling instance method takes the same
+    // branch of EmitCall and lost its receiver the same way. Twice 4 = 8.
+    private const string LambdaCallsSiblingMethodSource =
+        @"(module test)
+(define (apply1 [f : (Int -> Int)] [n : Int]) : Int (f n))
+(define-class Counter
+  [start : Int]
+  (define (Twice [n : Int]) : Int (* n 2))
+  (define (Run [n : Int]) : Int
+    (apply1 (lambda ([x : Int]) : Int (Twice x)) n)))
+(define (compute) : Int (Counter/Run (new Counter 0) 4))";
+
+    [Fact]
+    public void ALambdaCallingASiblingMethod_CSharp() =>
+        Assert.Equal(8, CompileCSharpAndRunInt(LambdaCallsSiblingMethodSource));
+
+    [Fact]
+    public void ALambdaCallingASiblingMethod_Il() =>
+        Assert.Equal(8, CompileIlAndRunInt(LambdaCallsSiblingMethodSource));
+
     [Fact]
     public void InsideAnOpenClassMethod_HelperIsPrivateAndNotVirtual()
     {
