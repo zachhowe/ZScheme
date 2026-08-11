@@ -187,6 +187,36 @@ public class TailRecursionDriftTests
                     """,
                 false
             },
+            // --- looped: a nested define in a method body, hosted on the class because it
+            // reaches instance state. The analyzer judges it as a letrec binding, with no
+            // container veto, so silence here has to mean IsTcoLoop on the helper.
+            {
+                """
+                    (define-class C
+                      [start : Int #:mutable]
+                      (define (Run [n : Int]) : Int
+                        (define (f [k : Int]) : Int
+                          (if (= k 0) start (begin (set! start k) (f (- k 1)))))
+                        (f n)))
+                    """,
+                true
+            },
+            // The same on an `#:open` class. The methods the source wrote there are virtual and
+            // deliberately do not loop, but a synthesized helper is private and non-virtual, so
+            // it does — and this row is what pins that: without it the analyzer would be silent
+            // (it has no container veto for a letrec binding) while IsTcoLoop stayed false,
+            // which is a stack overflow at depth with nothing warning about it.
+            {
+                """
+                    (define-class #:open C
+                      [start : Int #:mutable]
+                      (define (Run [n : Int]) : Int
+                        (define (f [k : Int]) : Int
+                          (if (= k 0) start (begin (set! start k) (f (- k 1)))))
+                        (f n)))
+                    """,
+                true
+            },
             // --- not looped: sealed, but the call is not in tail position ---
             {
                 """
@@ -383,8 +413,16 @@ public class TailRecursionDriftTests
     {
         switch (node)
         {
+            // As in FindFunc, a nested define carries IsTcoLoop under a `__letrec_{id}_`
+            // prefix — but here the group reached instance state, so it was hosted on the
+            // class as a private method rather than lifted to a static. An exact match wins,
+            // so a corpus row naming a real method never resolves to a helper instead.
             case IrNode.ClassDecl cls:
-                return cls.Methods.FirstOrDefault(m => m.Name == name);
+                return cls.Methods.FirstOrDefault(m => m.Name == name)
+                    ?? cls.Methods.FirstOrDefault(m =>
+                        m.Name.StartsWith("__letrec_", StringComparison.Ordinal)
+                        && m.Name.EndsWith($"_{name}", StringComparison.Ordinal)
+                    );
             case IrNode.Seq seq:
                 return seq
                     .Nodes.Select(n => FindMethod(n, name))

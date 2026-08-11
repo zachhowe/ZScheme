@@ -1,3 +1,4 @@
+using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Types;
 
@@ -45,6 +46,14 @@ namespace ZScheme.Compiler.Ir;
 public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix = null)
 {
     private readonly List<IrNode.FuncDef> _liftedFunctions = [];
+
+    /// <summary>
+    ///     Where a group that needs <c>this</c> puts its lifted members while the enclosing
+    ///     <see cref="IrNode.ClassDecl" /> is being rewritten. Non-null only inside that
+    ///     rewrite, and drained by it, so a group in one class can never leak a method into
+    ///     another. Mirrors <see cref="ObjectLifter" />'s sink for synthesized classes.
+    /// </summary>
+    private List<IrObjectMethod>? _methodSink;
 
     /// <summary>Every class in the program by name, so a method's instance state can include
     ///     the fields it inherits. Populated by <see cref="Lift" /> before rewriting.</summary>
@@ -233,6 +242,19 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                             + "variables, and it is used here as a value. Such a function is lifted "
                             + "to a generic top-level static function, which cannot be turned into "
                             + "a delegate. Call it directly instead, or move it to a top-level "
+                            + "'define'",
+                        v.Span
+                    );
+                // Same shape of limit, different carrier: a group that reaches instance state
+                // is hosted on the class as a method, and IrNode.Closure names a top-level
+                // static with no slot for a receiver. Calls are unaffected — a bare name in a
+                // method body already resolves to `this.M` on both backends.
+                else if (target.IsInstanceMethod)
+                    diagnostics.Error(
+                        $"'{v.Name}' is a recursive local function that reaches the enclosing "
+                            + "instance, and it is used here as a value. Such a function is hosted "
+                            + "on the class as a private method, which cannot be turned into a "
+                            + "delegate. Call it directly instead, or move it to a top-level "
                             + "'define'",
                         v.Span
                     );
@@ -476,11 +498,15 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                 var fields = InstanceState(cd);
                 var methods = InstanceMethods(cd);
                 var capturable = CapturableInstanceState(cd);
-                return cd with
+
+                // Saved and restored rather than just assigned: a ClassDecl nested inside
+                // another class's method body must not drain into its parent's list.
+                var savedSink = _methodSink;
+                _methodSink = [];
+                try
                 {
-                    Methods =
-                    [
-                        .. cd.Methods.Select(m =>
+                    var rewritten = cd
+                        .Methods.Select(m =>
                             m with
                             {
                                 Body = Rewrite(
@@ -490,13 +516,27 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                                         InstanceState = fields,
                                         InstanceMethods = methods,
                                         CapturableInstanceState = capturable,
+                                        InstanceHost = cd,
+                                        InInstanceInitializer = false,
                                     }
                                 ),
                             }
-                        ),
-                    ],
-                    Constructor = RewriteConstructor(cd.Constructor, scope),
-                };
+                        )
+                        .ToList();
+
+                    // Appended after the user's own, so their indices are unchanged; both
+                    // emitters register every method before emitting any body, so a sibling
+                    // call resolves whichever order they appear in.
+                    return cd with
+                    {
+                        Methods = [.. rewritten, .. _methodSink],
+                        Constructor = RewriteConstructor(cd.Constructor, scope),
+                    };
+                }
+                finally
+                {
+                    _methodSink = savedSink;
+                }
 
             default:
                 // Leaves (literals, Var, TypeOf) and childless declaration nodes. ObjectExpr is
@@ -527,6 +567,8 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
         {
             InstanceState = [],
             InstanceMethods = [],
+            CapturableInstanceState = [],
+            InInstanceInitializer = true,
         };
         return constructor with
         {
@@ -577,17 +619,30 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
 
         var captures = ComputeCaptures(letrec, functionNames, valueNames, scope);
 
-        var unliftable = Unliftable(letrec, functionNames, scope);
-        if (unliftable is not null)
+        // A group that reaches instance state cannot be a static function. It can still be a
+        // private method of the class it was written in, which reaches fields and siblings by
+        // bare name exactly as the method around it does — so the refusal only stands when
+        // there is no class to host it on.
+        var onInstance = false;
+        var staticRefusal = Unliftable(letrec, functionNames, scope);
+        if (staticRefusal is not null)
         {
-            diagnostics.Error(unliftable, letrec.Span);
-            // Emit a plain (non-recursive) spine so the rest of lowering has a well-formed
-            // tree to walk; the error above already fails the compilation.
-            return BuildSpine(
-                letrec.Bindings.Select(b => (b.Name, Rewrite(b.Value, siteScope), b.VarType)),
-                Rewrite(letrec.Body, siteScope),
-                letrec
-            );
+            var instanceRefusal = InstanceHostRefusal(letrec, scope, staticRefusal);
+            if (instanceRefusal is null)
+            {
+                onInstance = true;
+            }
+            else
+            {
+                diagnostics.Error(instanceRefusal, letrec.Span);
+                // Emit a plain (non-recursive) spine so the rest of lowering has a well-formed
+                // tree to walk; the error above already fails the compilation.
+                return BuildSpine(
+                    letrec.Bindings.Select(b => (b.Name, Rewrite(b.Value, siteScope), b.VarType)),
+                    Rewrite(letrec.Body, siteScope),
+                    letrec
+                );
+            }
         }
 
         var groupId = _groupId++;
@@ -599,7 +654,7 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
 
             var captureVars = captures[binding.Name];
             lifted[binding.Name] = new GroupRef(
-                LiftedName(groupId, binding.Name),
+                HelperName(groupId, binding.Name, onInstance ? scope.InstanceHost : null),
                 // Inside a lifted body the captures are parameters, so a sibling's closure is
                 // rebuilt from same-named locals.
                 // captureVars are the Var nodes ComputeCaptures collected from the body, so
@@ -614,7 +669,8 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                 new ZType.ZFuncType(
                     [.. captureVars.Select(v => v.Type), .. func.Params.Select(p => p.Type)],
                     func.ReturnType
-                )
+                ),
+                onInstance
             );
         }
 
@@ -627,8 +683,10 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
             var captureParams = captures[binding.Name]
                 .Select(v => new IrParam(v.Name, v.Type))
                 .ToList();
-            // The lifted function is top-level, so it has no instance context — clearing it
-            // also stops a nested group from being blamed for the enclosing class's fields.
+            // A static has no instance context — clearing it also stops a nested group from
+            // being blamed for the enclosing class's fields. A helper hosted on the class is
+            // itself a method of it, so there the context carries straight through and a group
+            // nested inside the helper can reach instance state just as this one did.
             // The enclosing substitutions are kept so a nested group can still reach an outer
             // group's members; the constraints are kept because the same type-var IDs survive.
             var bodyScope = new Scope(
@@ -637,9 +695,35 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                     captureParams.Concat(func.Params).Select(p => p.Name)
                 ),
                 Shadow(Merge(scope.Substitutions, lifted), func.Params.Select(p => p.Name)),
-                [],
+                onInstance ? scope.InstanceState : [],
                 scope.ConstraintsByVarId
-            );
+            )
+            {
+                InstanceMethods = onInstance ? scope.InstanceMethods : [],
+                CapturableInstanceState = onInstance ? scope.CapturableInstanceState : [],
+                InstanceHost = onInstance ? scope.InstanceHost : null,
+            };
+
+            var body = Rewrite(func.Body, bodyScope);
+
+            if (onInstance)
+            {
+                // No TypeParams or TypeParamConstraints: IrObjectMethod has nowhere to put
+                // them, which is why InstanceHostRefusal turns a generic group away.
+                _methodSink!.Add(
+                    new IrObjectMethod(
+                        target.LiftedName,
+                        [.. captureParams, .. func.Params],
+                        func.ReturnType,
+                        body,
+                        IsAsync: func.IsAsync
+                    )
+                    {
+                        IsSynthesizedHelper = true,
+                    }
+                );
+                continue;
+            }
 
             var typeParams = IrLowering.ExtractFuncTypeParams(target.LiftedType);
             _liftedFunctions.Add(
@@ -647,7 +731,7 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                 {
                     Name = target.LiftedName,
                     Params = [.. captureParams, .. func.Params],
-                    Body = Rewrite(func.Body, bodyScope),
+                    Body = body,
                     // The lifted function is an ordinary static function typed by its own
                     // signature; the delegate type stays on the Closure node at the site.
                     ClrDelegateTypeName = null,
@@ -849,6 +933,17 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
             if (binding.Value is not IrNode.FuncDef)
                 continue;
 
+            // Checked first and unconditionally: `set!` on a field and a `super/` call name
+            // their target implicitly, so neither reaches the free-variable set and neither
+            // depends on the name sets below. Both are instance-only by construction —
+            // IrNode.SetField has no receiver because there is only ever one — so finding
+            // either means this group needs a `this`, wherever it was written.
+            if (TouchesInstanceImplicitly(binding.Value))
+                return $"'letrec' binding '{binding.Name}' assigns a field or calls a 'super/' "
+                    + "method: a recursive group is lifted to top-level static functions, which "
+                    + "have no instance to reach them through. Move the definition to a "
+                    + "top-level 'define', or do the assignment in the enclosing method";
+
             if (scope.InstanceState.Count == 0 && scope.InstanceMethods.Count == 0)
                 continue;
 
@@ -884,24 +979,17 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                     + "instance to call methods on. Pass the result in as a parameter instead, "
                     + "or move the definition to a top-level 'define'";
 
-            // A `set!` on a field, and a `super/M` call, both name their target implicitly:
-            // neither puts it in the free-variable set, so only a scan can see them. Left
-            // unreported they reach codegen as `this.X = …` in a static (C#) or dereference a
-            // null class-field map (IL).
-            if (TouchesInstanceImplicitly(binding.Value, scope.InstanceState))
-                return $"'letrec' binding '{binding.Name}' assigns a field or calls a 'super/' "
-                    + "method: a recursive group is lifted to top-level static functions, which "
-                    + "have no instance to reach them through. Move the definition to a "
-                    + "top-level 'define', or do the assignment in the enclosing method";
         }
 
         return null;
     }
 
     /// <summary>
-    ///     Whether <paramref name="node" /> writes one of <paramref name="fields" /> or makes a
-    ///     <c>super/</c> call — the two IR shapes whose receiver is an implicit <c>this</c> and
-    ///     so cannot appear in <see cref="ClosureConverter.CollectFreeVars" />'s result.
+    ///     Whether <paramref name="node" /> writes a field or makes a <c>super/</c> call — the
+    ///     two IR shapes whose receiver is an implicit <c>this</c> and so cannot appear in
+    ///     <see cref="ClosureConverter.CollectFreeVars" />'s result. No field set is consulted:
+    ///     <see cref="IrNode.SetField" /> has no receiver because the enclosing instance is the
+    ///     only thing it can ever mean.
     ///     <para>
     ///         The default arm answers "no", which is only safe because every arm that can hold
     ///         one of the two is listed. <c>LetrecLifterInstanceScanTests</c> pins that by
@@ -909,26 +997,25 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
     ///         fails a test rather than silently escaping the scan.
     ///     </para>
     /// </summary>
-    private static bool TouchesInstanceImplicitly(IrNode node, HashSet<string> fields)
+    private static bool TouchesInstanceImplicitly(IrNode node)
     {
-        bool Any(IEnumerable<IrNode> nodes) => nodes.Any(n => TouchesInstanceImplicitly(n, fields));
+        bool Any(IEnumerable<IrNode> nodes) => nodes.Any(TouchesInstanceImplicitly);
 
         return node switch
         {
-            IrNode.SetField sf => fields.Contains(sf.FieldName)
-                || TouchesInstanceImplicitly(sf.Value, fields),
+            IrNode.SetField => true,
             IrNode.SuperMethodCall => true,
 
             IrNode.Let let => Any([let.Value, let.Body]),
             IrNode.Use use => Any([use.Value, use.Body]),
             IrNode.If i => Any([i.Condition, i.Then, i.Else]),
             IrNode.Seq seq => Any(seq.Nodes),
-            IrNode.FuncDef f => TouchesInstanceImplicitly(f.Body, fields),
+            IrNode.FuncDef f => TouchesInstanceImplicitly(f.Body),
             IrNode.Match m => Any([m.Scrutinee, .. m.Arms.Select(a => a.Body)]),
             IrNode.WithHandlers wh => Any([wh.Body, .. wh.Handlers.Select(h => h.HandlerBody)]),
             IrNode.Call call => Any([call.Function, .. call.Args]),
             IrNode.BinOp b => Any([b.Left, b.Right]),
-            IrNode.UnaryOp u => TouchesInstanceImplicitly(u.Operand, fields),
+            IrNode.UnaryOp u => TouchesInstanceImplicitly(u.Operand),
             IrNode.MethodCall mc => Any([mc.Receiver, .. mc.Args]),
             IrNode.ClrCall cc => Any(cc.Args),
             IrNode.ClrNew cn => Any(cn.Args),
@@ -936,10 +1023,10 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
             IrNode.TupleNew tn => Any(tn.Elements),
             IrNode.RecordNew rn => Any(rn.Fields.Select(f => f.Value)),
             IrNode.RecordWith rw => Any([rw.Record, .. rw.Updates.Select(u => u.Value)]),
-            IrNode.FieldGet fg => TouchesInstanceImplicitly(fg.Record, fields),
+            IrNode.FieldGet fg => TouchesInstanceImplicitly(fg.Record),
             IrNode.MutableArrayNew man => Any(man.Elements),
-            IrNode.Throw th => TouchesInstanceImplicitly(th.Expr, fields),
-            IrNode.Await aw => TouchesInstanceImplicitly(aw.Expr, fields),
+            IrNode.Throw th => TouchesInstanceImplicitly(th.Expr),
+            IrNode.Await aw => TouchesInstanceImplicitly(aw.Expr),
             IrNode.Closure cl => Any(cl.CapturedValues),
             IrNode.LetRec lr => Any([lr.Body, .. lr.Bindings.Select(b => b.Value)]),
             IrNode.ObjectExpr oe => Any(oe.Methods.Select(m => m.Body)),
@@ -978,6 +1065,74 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
             : $"__letrec_{modulePrefix}_{groupId}_{bindingName}";
     }
 
+    /// <summary>
+    ///     <see cref="LiftedName" />, made unique among <paramref name="host" />'s own members
+    ///     when the group is hosted on a class. Group ids are unique across the whole pass, so
+    ///     two groups never collide with each other and a static and a helper never share a
+    ///     name — which matters because the IL backend resolves a bare call against the
+    ///     top-level method table before the class's. What is not ruled out is a *source*
+    ///     member spelled like a lifted name, which the lexer permits.
+    /// </summary>
+    private string HelperName(int groupId, string bindingName, IrNode.ClassDecl? host)
+    {
+        var name = LiftedName(groupId, bindingName);
+        if (host is null)
+            return name;
+
+        var taken = new HashSet<string>(
+            host.Methods.Select(m => NameConverter.SanitizeIdentifier(m.Name))
+                .Concat(InstanceState(host).Select(NameConverter.SanitizeIdentifier))
+                .Concat(InstanceMethods(host).Select(NameConverter.SanitizeIdentifier)),
+            StringComparer.Ordinal
+        );
+
+        var candidate = name;
+        var suffix = 0;
+        while (taken.Contains(NameConverter.SanitizeIdentifier(candidate)))
+            candidate = $"{name}_{++suffix}";
+        return candidate;
+    }
+
+    /// <summary>
+    ///     Why the group cannot be hosted on the enclosing class as a private method, or null
+    ///     when it can. <paramref name="staticRefusal" /> is what to say when there is no class
+    ///     in sight — the group simply needed an instance and there is none.
+    /// </summary>
+    private static string? InstanceHostRefusal(
+        IrNode.LetRec letrec,
+        Scope scope,
+        string staticRefusal
+    )
+    {
+        if (scope.InstanceHost is null)
+            return staticRefusal;
+
+        // A constructor's own scope has no `this` to speak of for a super-argument, and
+        // neither emitter has the class's method map live while emitting one, so a call to a
+        // helper from there would not resolve.
+        if (scope.InInstanceInitializer)
+            return staticRefusal;
+
+        foreach (var binding in letrec.Bindings)
+        {
+            if (binding.Value is not IrNode.FuncDef func)
+                continue;
+
+            // IrObjectMethod carries no type parameters and neither emitter writes them on a
+            // method, so a group generalized over its own type variables has nowhere to
+            // declare them. Annotating the helper's parameter and return types resolves the
+            // variables and takes this branch out of play.
+            if (Substitution.FreeVars(func.Type).Count > 0)
+                return $"'letrec' binding '{binding.Name}' reaches the enclosing instance and "
+                    + "its type mentions type variables. Such a group is hosted on the class as "
+                    + "a private method, which cannot declare its own type parameters. Annotate "
+                    + "the definition's parameter and return types, or move it to a top-level "
+                    + "'define'";
+        }
+
+        return null;
+    }
+
     /// <summary>Adds <paramref name="inner" />'s entries on top of <paramref name="outer" />'s,
     ///     so a nested group's members shadow a same-named member of an enclosing one.</summary>
     private static Dictionary<string, GroupRef> Merge(
@@ -1003,10 +1158,18 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
     }
 
     /// <summary>A sibling reference target inside a lifted body.</summary>
+    /// <param name="IsInstanceMethod">
+    ///     True when the member was hosted on the enclosing class rather than lifted to a
+    ///     static. The call sites need no distinction — a bare name resolves to
+    ///     <c>this.M</c> in a method body on both backends, which is exactly what a call to a
+    ///     static resolves to at module level — but a member used as a <em>value</em> does:
+    ///     <see cref="IrNode.Closure" /> names a top-level static and has no receiver slot.
+    /// </param>
     private sealed record GroupRef(
         string LiftedName,
         IReadOnlyList<IrNode> CaptureArgs,
-        ZType LiftedType
+        ZType LiftedType,
+        bool IsInstanceMethod = false
     );
 
     private sealed record Scope(
@@ -1031,6 +1194,20 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
         ///     alongside the other two wherever there is no instance to read from.
         /// </summary>
         public HashSet<string> CapturableInstanceState { get; init; } = [];
+
+        /// <summary>
+        ///     The class whose <c>this</c> is reachable here, or null outside any instance
+        ///     body. A group that needs an instance is hosted on it as a private method
+        ///     instead of being refused.
+        /// </summary>
+        public IrNode.ClassDecl? InstanceHost { get; init; }
+
+        /// <summary>
+        ///     True inside a constructor. Fields are not in bare-name scope there, and neither
+        ///     emitter has the class's method map live while emitting one, so a helper on the
+        ///     class is unavailable even though <see cref="InstanceHost" /> is set.
+        /// </summary>
+        public bool InInstanceInitializer { get; init; }
 
         public Scope Bind(string name)
         {

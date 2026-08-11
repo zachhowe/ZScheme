@@ -484,11 +484,12 @@ public class LetrecLifterTests
     }
 
     [Fact]
-    public void GroupReadingAMutableClassField_ReportsError()
+    public void GroupReadingAMutableClassField_IsHostedOnTheClass()
     {
-        // Capturing a `#:mutable` field would freeze the value at the group's entry while the
-        // source can still observe a write through `this`, so this one keeps the refusal — the
-        // field has nowhere to come from and no safe stand-in.
+        // A `#:mutable` field cannot be captured by value — that would freeze what the loop
+        // sees while the source can still observe a write through `this`. Hosting the group on
+        // the class reads it through `this` on every iteration instead, which is what the
+        // source says.
         var group = Group(
             [
                 (
@@ -516,23 +517,67 @@ public class LetrecLifterTests
 
         var diagnostics = new DiagnosticBag();
         var lifter = new LetrecLifter(diagnostics);
-        lifter.Lift(classDecl);
+        var result = Assert.IsType<IrNode.ClassDecl>(lifter.Lift(classDecl));
 
-        Assert.True(diagnostics.HasErrors);
-        Assert.Contains(
-            diagnostics.Diagnostics,
-            d => d.Message.Contains("reads the mutable field 'state'")
-        );
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        Assert.Empty(lifter.LiftedFunctions);
+        var helper = result.Methods[^1];
+        Assert.True(helper.IsSynthesizedHelper);
+        // Read through `this`, not frozen into a parameter.
+        Assert.DoesNotContain(helper.Params, p => p.Name == "state");
+        Assert.Contains(Walk(helper.Body), n => n is IrNode.Var { Name: "state" });
     }
 
     [Fact]
-    public void GroupCallingASiblingMethod_ReportsError()
+    public void GroupNeedingAnInstanceOutsideAnyClass_ReportsError()
+    {
+        // The refusal only stands when there is no class to host the group on. Here the
+        // sibling-method name is not a method of anything.
+        var group = Group(
+            [
+                (
+                    "f",
+                    Lambda(
+                        "f",
+                        [new IrParam("n", ZType.Int)],
+                        new IrNode.Seq(
+                            [
+                                new IrNode.SetField("state", V("n")),
+                                new IrNode.Call(V("f"), [V("n")]),
+                            ]
+                        )
+                    )
+                ),
+            ],
+            new IrNode.Call(V("f"), [new IrNode.IntConst(1)])
+        );
+
+        var classDecl = new IrNode.ClassDecl(
+            "C",
+            [],
+            [],
+            [new IrField("state", ZType.Int, IsMutable: true)],
+            [],
+            // In a constructor: fields are not in bare-name scope, and neither emitter has the
+            // class's method map live while emitting one, so a helper is unavailable here.
+            Constructor: new IrConstructor([], null, [], [group])
+        );
+
+        var diagnostics = new DiagnosticBag();
+        new LetrecLifter(diagnostics).Lift(classDecl);
+
+        Assert.True(diagnostics.HasErrors);
+        Assert.Contains(diagnostics.Diagnostics, d => d.Message.Contains("assigns a field"));
+    }
+
+    [Fact]
+    public void GroupCallingASiblingMethod_IsHostedOnTheClass()
     {
         // TypeInferer puts sibling methods in scope by bare name, so `(Twice n)` here type
-        // checks and arrives as Call(Var("Twice"), …). Lifted into a static there is no
-        // receiver to make that call with: the C# backend emitted a bare `twice(n)` and
-        // reported nothing at all, while the IL backend failed with "Function 'Twice' not
-        // found" — a silent miscompile on one backend and an error on the other.
+        // checks and arrives as Call(Var("Twice"), …). A static has no receiver to make that
+        // call with, but a private method of the same class does — and the call needs no
+        // rewriting at all, since a bare name in a method body is what both emitters already
+        // resolve to `this.Twice`.
         var group = Group(
             [
                 (
@@ -566,22 +611,23 @@ public class LetrecLifterTests
         );
 
         var diagnostics = new DiagnosticBag();
-        new LetrecLifter(diagnostics).Lift(classDecl);
+        var lifter = new LetrecLifter(diagnostics);
+        var result = Assert.IsType<IrNode.ClassDecl>(lifter.Lift(classDecl));
 
-        Assert.True(diagnostics.HasErrors);
-        Assert.Contains(
-            diagnostics.Diagnostics,
-            d => d.Message.Contains("calls the method 'Twice'")
-        );
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        Assert.Empty(lifter.LiftedFunctions);
+        Assert.Equal(3, result.Methods.Count);
+        var helper = result.Methods[^1];
+        Assert.True(helper.IsSynthesizedHelper);
+        Assert.StartsWith("__letrec_", helper.Name);
     }
 
     [Fact]
-    public void GroupAssigningAField_ReportsError()
+    public void GroupAssigningAField_IsHostedOnTheClass()
     {
         // A `set!` names its target implicitly — IrNode.SetField carries the field name, not a
-        // Var — so CollectFreeVars cannot see it and the field-read check above never fired.
-        // Lifted into a static, the C# backend emitted `this.State = …` in a static method and
-        // the IL backend dereferenced a null class-field map, crashing the compiler outright.
+        // Var — so only the dedicated scan sees it. Hosted on the class, the write needs no
+        // rewriting: SetField's implicit receiver is the `this` the method already has.
         var group = Group(
             [
                 (
@@ -610,10 +656,13 @@ public class LetrecLifterTests
         );
 
         var diagnostics = new DiagnosticBag();
-        new LetrecLifter(diagnostics).Lift(classDecl);
+        var lifter = new LetrecLifter(diagnostics);
+        var result = Assert.IsType<IrNode.ClassDecl>(lifter.Lift(classDecl));
 
-        Assert.True(diagnostics.HasErrors);
-        Assert.Contains(diagnostics.Diagnostics, d => d.Message.Contains("assigns a field"));
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        Assert.Empty(lifter.LiftedFunctions);
+        Assert.True(result.Methods[^1].IsSynthesizedHelper);
+        Assert.Contains(Walk(result.Methods[^1].Body), n => n is IrNode.SetField);
     }
 
     [Fact]
@@ -790,7 +839,7 @@ public class LetrecLifterTests
         );
         Assert.NotNull(scan);
 
-        var fields = new HashSet<string>(StringComparer.Ordinal) { "state" };
+
         var setField = new IrNode.SetField("state", new IrNode.IntConst(1) { Type = ZType.Int });
 
         var missing = new List<string>();
@@ -825,10 +874,8 @@ public class LetrecLifterTests
         );
 
         // And the scan really does find one, so the reflection above is not vacuous.
-        Assert.True((bool)scan.Invoke(null, [setField, fields])!);
-        Assert.False(
-            (bool)scan.Invoke(null, [new IrNode.IntConst(1) { Type = ZType.Int }, fields])!
-        );
+        Assert.True((bool)scan.Invoke(null, [setField])!);
+        Assert.False((bool)scan.Invoke(null, [new IrNode.IntConst(1) { Type = ZType.Int }])!);
 
         static bool ScanHasArmFor(Type nodeType)
         {

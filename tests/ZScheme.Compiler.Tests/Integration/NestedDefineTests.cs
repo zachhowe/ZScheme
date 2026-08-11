@@ -443,28 +443,88 @@ public class NestedDefineTests
         Assert.Contains("while (true)", cs);
     }
 
-    [Fact]
-    public void InsideAClassMethod_ReadingAMutableField_ReportsError()
-    {
-        // Capturing a `#:mutable` field would freeze the value at entry while the source can
-        // still observe a write through `this`, so this one stays refused.
-        var result = CompileWith(
-            @"(module test)
+    // A `#:mutable` field cannot be captured by value, so the group is hosted on the class as a
+    // private method and reads it through `this` on every iteration. Writing it from the loop
+    // works for the same reason: `set!`'s receiver is the `this` the method already has. The
+    // loop below counts down, doubling the field each step: 1 -> 2 -> 4 -> 8.
+    private const string MutableFieldLoopSource =
+        @"(module test)
 (define-class Counter
-  [start : Int #:mutable]
+  [state : Int #:mutable]
+  (define (Run [n : Int]) : Int
+    (define (go [k : Int]) : Int
+      (if (= k 0) state (begin (set! state (* state 2)) (go (- k 1)))))
+    (go n)))
+(define (compute) : Int (Counter/Run (new Counter 1) 3))";
+
+    [Fact]
+    public void InsideAClassMethod_UsingAMutableField_CSharp() =>
+        Assert.Equal(8, CompileCSharpAndRunInt(MutableFieldLoopSource));
+
+    [Fact]
+    public void InsideAClassMethod_UsingAMutableField_Il() =>
+        Assert.Equal(8, CompileIlAndRunInt(MutableFieldLoopSource));
+
+    [Fact]
+    public void InsideAClassMethod_UsingAMutableField_EmitsAPrivateMethodThatLoops()
+    {
+        var cs = CompileCSharp(MutableFieldLoopSource);
+
+        Assert.Contains("private int __letrec_test_0_go(int k)", cs);
+        Assert.Contains("return this.__letrec_test_0_go(n);", cs);
+        Assert.Contains("this.State = (this.State * 2);", cs);
+        Assert.Contains("while (true)", cs);
+    }
+
+    // A sibling method call from inside the loop: a bare `(Twice i)` resolves to `this.Twice`
+    // in a method body, which is exactly what the helper is.
+    private const string SiblingCallLoopSource =
+        @"(module test)
+(define-class Counter
+  [start : Int]
+  (define (Twice [n : Int]) : Int (* n 2))
   (define (Run [n : Int]) : Int
     (define (go [k : Int] [acc : Int]) : Int
-      (if (= k 0) acc (go (- k 1) (+ acc start))))
+      (if (= k 0) acc (go (- k 1) (+ acc (Twice k)))))
     (go n 0)))
-(define (compute) : Int (Counter/Run (new Counter 5) 4))",
-            OutputMode.CSharp
-        );
+(define (compute) : Int (Counter/Run (new Counter 0) 4))";
 
-        Assert.False(result.Success);
-        Assert.Contains(
-            result.Diagnostics.Diagnostics,
-            d => d.Message.Contains("reads the mutable field 'start'")
-        );
+    [Fact]
+    public void InsideAClassMethod_CallingASiblingMethod_CSharp() =>
+        Assert.Equal(20, CompileCSharpAndRunInt(SiblingCallLoopSource));
+
+    [Fact]
+    public void InsideAClassMethod_CallingASiblingMethod_Il() =>
+        Assert.Equal(20, CompileIlAndRunInt(SiblingCallLoopSource));
+
+    // An `#:open` class: the helper is private and non-virtual, so it still loops even though
+    // the methods the source wrote are virtual and deliberately do not.
+    private const string OpenClassMutableLoopSource =
+        @"(module test)
+(define-class #:open Counter
+  [state : Int #:mutable]
+  (define (Run [n : Int]) : Int
+    (define (go [k : Int]) : Int
+      (if (= k 0) state (begin (set! state (+ state 1)) (go (- k 1)))))
+    (go n)))
+(define (compute) : Int (Counter/Run (new Counter 0) 1000000))";
+
+    [Fact]
+    public void InsideAnOpenClassMethod_RunsInConstantStack_CSharp() =>
+        Assert.Equal(1000000, CompileCSharpAndRunInt(OpenClassMutableLoopSource));
+
+    [Fact]
+    public void InsideAnOpenClassMethod_RunsInConstantStack_Il() =>
+        Assert.Equal(1000000, CompileIlAndRunInt(OpenClassMutableLoopSource));
+
+    [Fact]
+    public void InsideAnOpenClassMethod_HelperIsPrivateAndNotVirtual()
+    {
+        var cs = CompileCSharp(OpenClassMutableLoopSource);
+
+        Assert.Contains("public virtual int Run(int n)", cs);
+        Assert.Contains("private int __letrec_test_0_go(int k)", cs);
+        Assert.DoesNotContain("virtual int __letrec_test_0_go", cs);
     }
 
     // Every field of a class lifted from an `(object ...)` stands for a captured local, so it
