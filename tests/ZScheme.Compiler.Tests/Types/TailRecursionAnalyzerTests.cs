@@ -224,16 +224,58 @@ public class TailRecursionAnalyzerTests
     }
 
     [Fact]
-    public void NestedDefine_Warns()
+    public void NestedDefine_TailSelfCall_IsSilent()
     {
-        var warning = Single(
+        // A run of nested defines is a `letrec` group, and LetrecLifter lifts each function
+        // binding to a top-level static that TailCallLowering then loops. Being nested is not a
+        // reason on its own any more — only the body's shape is.
+        AssertSilent(
             """
             (define (outer x)
               (define (inner n) (if (= n 0) 0 (inner (- n 1))))
               (inner x))
             """
         );
-        Assert.Equal(["inner", "not-top-level"], warning.Data);
+    }
+
+    [Fact]
+    public void NestedDefine_NonTailSelfCall_Warns()
+    {
+        var warning = Single(
+            """
+            (define (outer x)
+              (define (inner n) (if (= n 0) 1 (* n (inner (- n 1)))))
+              (inner x))
+            """
+        );
+        Assert.Equal(["inner", "not-tail"], warning.Data);
+    }
+
+    [Fact]
+    public void NestedDefine_MarkedRecursive_IsSilent()
+    {
+        // The `#:recursive` opt-out survives the desugar into a letrec binding.
+        AssertSilent(
+            """
+            (define (outer x)
+              (define #:recursive (inner n) (if (= n 0) 1 (* n (inner (- n 1)))))
+              (inner x))
+            """
+        );
+    }
+
+    [Fact]
+    public void NestedDefine_TailCallToEnclosingFunction_IsSilent()
+    {
+        // The group's bindings lift away, leaving the letrec body where the group stood — so a
+        // tail call in it is still a back-edge for `outer`.
+        AssertSilent(
+            """
+            (define (outer x)
+              (define (inner n) (* n 2))
+              (if (= x 0) 0 (outer (- x (inner 1)))))
+            """
+        );
     }
 
     // ---- Async: an awaited tail self-call is a back-edge --------------------------------

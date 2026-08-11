@@ -2755,7 +2755,8 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 return new AstNode.LetrecBinding(
                     d.FnName,
                     new AstNode.Lambda(d.Params, d.ReturnTypeAnnotation, d.Body, d.Span),
-                    NameSpan: d.NameSpan
+                    NameSpan: d.NameSpan,
+                    AllowsUnloopedRecursion: d.AllowsUnloopedRecursion
                 );
 
             case AstNode.DefineValue dv:

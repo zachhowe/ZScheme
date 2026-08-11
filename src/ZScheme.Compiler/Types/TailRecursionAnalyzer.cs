@@ -9,8 +9,8 @@ namespace ZScheme.Compiler.Types;
 ///     into a loop, as <see cref="DiagnosticCodes.NonLoopedSelfRecursion" /> warnings. The
 ///     message names the reason, because that is what makes it actionable: the recursive call
 ///     is not in tail position, it is behind a <c>with-handlers</c>/<c>use</c> frame, the
-///     function is not a top-level <c>define</c>, or it is a method of an <c>#:open</c> class
-///     and so has to dispatch virtually.
+///     function is not a definition the pass can loop at all, or it is a method of an
+///     <c>#:open</c> class and so has to dispatch virtually.
 ///
 ///     This mirrors <see cref="Ir.TailCallLowering" />'s rules on the AST, one stage earlier,
 ///     so the warning reaches the language server. The AST tail spine — <c>if</c> branches,
@@ -18,6 +18,12 @@ namespace ZScheme.Compiler.Types;
 ///     and <c>cond</c>/<c>when</c>/<c>begin</c>/multi-body have all desugared into that spine by
 ///     the time this runs. <c>tests/Pipeline/TailRecursionDriftTests.cs</c> pins the two
 ///     together: silence here must mean <c>IsTcoLoop</c> there.
+///
+///     Nested definitions are candidates on the same footing: a run of them is a <c>letrec</c>
+///     group by the time this runs, and <see cref="Ir.LetrecLifter" /> lifts each function
+///     binding to a top-level static the pass then loops like any other. Only the bindings of a
+///     group that fails to lift — a body reading a class field — stay un-looped, and that is
+///     already a compile error, so there is nothing to warn about.
 ///
 ///     Class and object methods are candidates too, on the same footing as a top-level
 ///     <c>define</c>: a bare <c>(M …)</c> in a method body <em>does</em> resolve to the
@@ -53,10 +59,14 @@ public sealed class TailRecursionAnalyzer(
     private const string ReasonNotTopLevel = "not-top-level";
     private const string ReasonVirtual = "virtual";
 
-    /// <summary>The container itself rules a loop out, whatever shape the body has.</summary>
+    /// <summary>The container itself rules a loop out, whatever shape the body has. Reached by a
+    ///     definition that cannot nest — <c>define-async</c> — which is an error in its own right;
+    ///     a nested <c>define</c> lifts out of its body and is checked as a <c>letrec</c> binding
+    ///     instead.</summary>
     private static readonly (string Reason, string Explanation) NotTopLevelBlock = (
         ReasonNotTopLevel,
-        "only top-level 'define' forms and sealed-class methods become loops"
+        "only top-level 'define' forms, nested 'define' forms and sealed-class methods "
+            + "become loops"
     );
 
     private static readonly (string Reason, string Explanation) VirtualBlock = (
@@ -78,12 +88,46 @@ public sealed class TailRecursionAnalyzer(
             CheckMethods(form);
         }
 
-        // Nested definitions: never looped, wherever they appear.
         foreach (var form in topLevel)
         foreach (var nested in Descendants(form))
         {
             CheckCandidate(nested, isTopLevel: false);
+            CheckLetrecBindings(nested);
             CheckMethods(nested);
+        }
+    }
+
+    /// <summary>
+    ///     Checks a <c>letrec</c> group's function bindings — which is what a run of nested
+    ///     <c>define</c>s is by the time this runs. <see cref="Ir.LetrecLifter" /> lifts each one
+    ///     to a top-level static function with its captures prepended, and
+    ///     <see cref="Ir.TailCallLowering" /> then loops its tail self-calls exactly as it does a
+    ///     top-level <c>define</c>'s, so the same body-shape rules decide the verdict and there is
+    ///     no container veto. Value bindings are not candidates, for the reason a
+    ///     <c>(define f (lambda …))</c> is not.
+    /// </summary>
+    private void CheckLetrecBindings(AstNode node)
+    {
+        if (node is not AstNode.Letrec letrec)
+            return;
+
+        foreach (var binding in letrec.Bindings)
+        {
+            if (binding.Value is not AstNode.Lambda lambda)
+                continue;
+            if (binding.AllowsUnloopedRecursion)
+                continue;
+            // Desugared / macro-synthesized bindings have no name token to point at.
+            if (binding.NameSpan.Length == 0)
+                continue;
+
+            Report(
+                binding.Name,
+                binding.NameSpan,
+                lambda.Body,
+                lambda.Params.Any(p => p.Name == binding.Name),
+                blocked: null
+            );
         }
     }
 
@@ -307,6 +351,20 @@ public sealed class TailRecursionAnalyzer(
                 Walk(let.Value, name, sites, false, barrier, false);
                 Walk(let.Body, name, sites, tail, barrier, let.VarName == name);
                 return;
+
+            // A `letrec` group — a run of nested `define`s — lifts its function bindings out
+            // entirely, leaving its body where the group stood. So the body keeps this node's
+            // tail-ness, while each binding's value is a separate function body. Every name in
+            // the group is in scope over all of it, so any of them shadows a same-named
+            // enclosing function.
+            case AstNode.Letrec letrec:
+            {
+                var groupShadows = letrec.Bindings.Any(b => b.Name == name);
+                foreach (var binding in letrec.Bindings)
+                    Walk(binding.Value, name, sites, false, barrier, groupShadows);
+                Walk(letrec.Body, name, sites, tail, barrier, groupShadows);
+                return;
+            }
 
             case AstNode.Match match:
                 Walk(match.Scrutinee, name, sites, false, barrier, false);

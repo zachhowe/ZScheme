@@ -68,11 +68,15 @@ public abstract record AstNode(SourceSpan Span)
     ) : AstNode(Span);
 
     // NameSpan points at the bound-name atom, so unused-binding analysis can underline it.
+    // AllowsUnloopedRecursion carries the `#:recursive` marker of the nested `define` this
+    // binding came from: the binding is lifted to a top-level function and looped on the same
+    // rules, so it takes the same ZS0005 opt-out. See Define.
     public sealed record LetrecBinding(
         string Name,
         AstNode Value,
         ZType? TypeAnnotation = null,
-        SourceSpan NameSpan = default
+        SourceSpan NameSpan = default,
+        bool AllowsUnloopedRecursion = false
     );
 
     // (use ([x expr]) body) — binds a disposable resource, disposed when the body's scope exits.

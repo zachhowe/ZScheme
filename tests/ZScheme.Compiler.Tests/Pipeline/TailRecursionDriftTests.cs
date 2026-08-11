@@ -72,11 +72,20 @@ public class TailRecursionDriftTests
                     """,
                 false
             },
-            // --- not looped: not a top-level define ---
+            // --- looped: a nested define lifts to a top-level static and loops there ---
             {
                 """
                     (define (outer [x : Int]) : Int
                       (define (f [n : Int]) : Int (if (= n 0) 0 (f (- n 1))))
+                      (f x))
+                    """,
+                true
+            },
+            // ...on the body's shape alone, same as at the top level.
+            {
+                """
+                    (define (outer [x : Int]) : Int
+                      (define (f [n : Int]) : Int (if (= n 0) 1 (* n (f (- n 1)))))
                       (f x))
                     """,
                 false
@@ -115,16 +124,8 @@ public class TailRecursionDriftTests
                     """,
                 false
             },
-            // async, not a top-level define
-            {
-                """
-                    (define-async (outer [x : Int]) : Task
-                      (define-async (f [n : Int]) : Task
-                        (if (= n 0) (begin ()) (await (f (- n 1)))))
-                      (await (f x)))
-                    """,
-                false
-            },
+            // No async counterpart to the nested-define rows above: `define-async` cannot nest
+            // (it is rejected in a body), so there is nothing to lower and compare.
         };
 
     /// <summary>
@@ -361,7 +362,15 @@ public class TailRecursionDriftTests
     {
         switch (node)
         {
-            case IrNode.FuncDef func when func.Name == name:
+            // A nested define is lifted out of its body under a `__letrec_{id}_` prefix, and it
+            // is the lifted function that carries IsTcoLoop — match it by the source name so a
+            // corpus row can name `f` wherever `f` was written.
+            case IrNode.FuncDef func
+                when func.Name == name
+                    || (
+                        func.Name.StartsWith("__letrec_", StringComparison.Ordinal)
+                        && func.Name.EndsWith($"_{name}", StringComparison.Ordinal)
+                    ):
                 return func;
             case IrNode.Seq seq:
                 return seq.Nodes.Select(n => FindFunc(n, name)).FirstOrDefault(f => f is not null);

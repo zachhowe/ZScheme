@@ -344,7 +344,8 @@ into a loop by [`TailCallLowering`](../src/ZScheme.Compiler/Ir/TailCallLowering.
 (Stage 6), so the recursion consumes stack. The message names the reason, carried in
 `Diagnostic.Data[1]`: `not-tail` (the recursive call isn't in tail position), `barrier` (a
 syntactically tail call inside a `with-handlers`/`use` body, whose frame outlives the body),
-`not-top-level` (only top-level `define` forms and sealed-class methods become loops), or
+`not-top-level` (only top-level `define` forms, nested `define` forms and sealed-class
+methods become loops — reached by a `define-async`, the one definition that cannot nest), or
 `virtual` (a method of an `#:open` class, whose self-call must dispatch to any subclass
 override).
 
@@ -356,6 +357,13 @@ operand is a *direct* self-call joins that spine, matching the pass's `Await` ca
 anything else under an `await` (e.g. `(await (if … (f …) …))`) does not.
 [`TailRecursionDriftTests`](../tests/ZScheme.Compiler.Tests/Pipeline/TailRecursionDriftTests.cs)
 pins the two together: silence here must mean `FuncDef.IsTcoLoop` there.
+
+Nested definitions are candidates on the same footing too: a run of them is a `letrec` group
+by the time this runs, and `LetrecLifter` lifts each function binding to a top-level static
+that the pass then loops like any other — so only the body's shape decides the verdict, and
+the binding inherits its define's `#:recursive` marker. A group's bindings lift away entirely,
+leaving its body where the group stood, so a tail call to the *enclosing* function from after
+a nested definition is still a back-edge.
 
 Class and object methods are candidates on the same footing as a top-level `define`: a bare
 `(M …)` in a method body *does* resolve to the enclosing class's `M` (the type inferer puts

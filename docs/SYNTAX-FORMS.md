@@ -70,7 +70,9 @@ A nested definition is compiled exactly like a `letrec` binding — lifted to a 
 function with its captures as leading parameters — so it inherits `letrec`'s guarantees and its one
 restriction:
 
-- A tail-recursive nested definition compiles to a loop and runs in constant stack on both backends.
+- A tail-recursive nested definition compiles to a loop and runs in constant stack on both
+  backends. One that recurses off the tail spine warns (`ZS0005`) exactly as a top-level
+  definition would, and takes the same `#:recursive` opt-out.
 - It may be generic, including in the enclosing function's type parameters.
 - It may not read a class field, because the lifted function has no `this` (see the `letrec`
   limitation below). Pass the field in as a parameter.
