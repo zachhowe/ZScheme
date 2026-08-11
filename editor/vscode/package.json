@@ -2,7 +2,7 @@
   "name": "zscheme",
   "displayName": "ZScheme",
   "description": "ZScheme language support with syntax highlighting and Language Server Protocol integration",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "publisher": "zscheme",
   "engines": {
     "vscode": "^1.82.0"

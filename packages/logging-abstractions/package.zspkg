@@ -1,6 +1,6 @@
 (package
   (name "zscheme-logging-abstractions")
-  (version "0.2.0")
+  (version "0.4.0")
   (import-prefix "logging-abstractions")
   (description "ILogger acquisition and structured log verbs over Microsoft.Extensions.Logging.Abstractions")
   (license "MIT")
