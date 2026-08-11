@@ -971,6 +971,53 @@ public sealed partial class Compilation(CompilerOptions? options = null)
     }
 
     /// <summary>
+    ///     Registers imported <see cref="IrNode.UnionDecl" />/<see cref="IrNode.RecordDecl" /> IR
+    ///     into the lowering's <see cref="UnionCaseRegistry" /> — the field-type templates that
+    ///     <see cref="PatternResolver" /> reads to annotate a constructor pattern with its owning
+    ///     union and per-field types. The flat <c>ExportedUnionCtors</c>/<c>ExportedRecordCtors</c>
+    ///     maps carry only case → union names, not field types.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         <paramref name="modules" /> is the whole compiled-module closure, not just the
+    ///         compilation unit's direct imports: a pattern over a value handed back by a direct
+    ///         import can name a case declared in *that* import's own dependency. Matching on the
+    ///         <c>Option</c> from <c>(hash-ref …)</c> while importing only
+    ///         <c>stdlib/mutable/hash</c> is the everyday shape — <c>Option</c> lives in
+    ///         <c>stdlib/option</c>, which hash imports. Annotating that pattern against a registry
+    ///         missing <c>Option</c> yields a null field type, and every consumer of the annotation
+    ///         degrades silently: the async binder hoist skips the binder (it survives no
+    ///         suspension and reads back as its type's default), and the IL backend emits no test
+    ///         for a literal field sub-pattern.
+    ///     </para>
+    ///     <para>
+    ///         Both compile paths route through here so they cannot drift apart again — the module
+    ///         path having quietly kept a narrower scope than the whole-program path is exactly
+    ///         what produced that bug.
+    ///     </para>
+    ///     <para>
+    ///         Registration is keyed by bare union name, and
+    ///         <see cref="UnionCaseRegistry.ResolveUnion" /> falls back to a global case → union
+    ///         map, so two same-named cases in unrelated modules resolve last-write-wins. That has
+    ///         always been true of the whole-program path; this makes the module path agree with it
+    ///         rather than inventing a third rule.
+    ///     </para>
+    /// </remarks>
+    private static void RegisterImportedTypeMetadata(
+        IrLowering lowering,
+        IEnumerable<CompiledModule> modules
+    )
+    {
+        foreach (var mod in modules)
+        {
+            foreach (var union in mod.ExportedIrDefinitions.OfType<IrNode.UnionDecl>())
+                lowering.RegisterImportedUnion(union);
+            foreach (var record in mod.ExportedIrDefinitions.OfType<IrNode.RecordDecl>())
+                lowering.RegisterImportedRecord(record);
+        }
+    }
+
+    /// <summary>
     ///     Stage 5: Lower typed AST to IR — inject imported CLR bindings and lower.
     /// </summary>
     private (IrNode Ir, IrLowering Lowering, bool HasErrors) CompileLowerToIr(
@@ -1009,16 +1056,14 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             if (mod.ExportedUnionCtors is not null)
                 foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
                     lowering.RegisterUnionCtor(caseName, unionName);
-            // Field-type metadata for pattern resolution — carried by the UnionDecl/RecordDecl IR,
-            // which the flat ExportedUnionCtors/ExportedRecordCtors maps above lack.
-            foreach (var union in mod.ExportedIrDefinitions.OfType<IrNode.UnionDecl>())
-                lowering.RegisterImportedUnion(union);
-            foreach (var record in mod.ExportedIrDefinitions.OfType<IrNode.RecordDecl>())
-                lowering.RegisterImportedRecord(record);
             if (mod.ExportedRecordCtors is not null)
                 foreach (var (recordName, fieldNames) in mod.ExportedRecordCtors)
                     lowering.RegisterRecordCtor(recordName, fieldNames);
         }
+
+        // compiledModules is already the whole closure here (direct imports + transitive deps,
+        // see CompileResolveAndCompileImports), which is the scope this metadata needs.
+        RegisterImportedTypeMetadata(lowering, compiledModules);
 
         var clrImportCount = compiledModules.Sum(m => m.ExportedClrImports.Count);
         var unionCtorCount = compiledModules.Sum(m => m.ExportedUnionCtors?.Count ?? 0);

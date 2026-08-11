@@ -258,16 +258,18 @@ public sealed partial class Compilation
                 if (mod.ExportedUnionCtors is not null)
                     foreach (var (caseName, unionName) in mod.ExportedUnionCtors)
                         lowering.RegisterUnionCtor(caseName, unionName);
-                // Field-type metadata for pattern resolution — carried by the UnionDecl/RecordDecl
-                // IR, which the flat ExportedUnionCtors/ExportedRecordCtors maps above lack.
-                foreach (var union in mod.ExportedIrDefinitions.OfType<IrNode.UnionDecl>())
-                    lowering.RegisterImportedUnion(union);
-                foreach (var record in mod.ExportedIrDefinitions.OfType<IrNode.RecordDecl>())
-                    lowering.RegisterImportedRecord(record);
                 if (mod.ExportedRecordCtors is not null)
                     foreach (var (recordName, fieldNames) in mod.ExportedRecordCtors)
                         lowering.RegisterRecordCtor(recordName, fieldNames);
             }
+
+            // Pattern field-type metadata takes the *transitive* closure, unlike the bindings
+            // above: those govern which names this module may reference, so they stay scoped to
+            // what it actually imports, while a pattern can legitimately name a case from a
+            // dependency's dependency (see RegisterImportedTypeMetadata). _moduleCache holds this
+            // module's fully-resolved closure by now — CompileModule recursed through every import
+            // above — so the set is complete regardless of the order modules were compiled in.
+            RegisterImportedTypeMetadata(lowering, _moduleCache.Values);
 
             var modClrImports = transModules.Sum(m => m.ExportedClrImports.Count);
             var modUnionCtors = transModules.Sum(m => m.ExportedUnionCtors?.Count ?? 0);

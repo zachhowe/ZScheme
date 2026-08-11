@@ -1,3 +1,4 @@
+using Serilog;
 using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Ir;
@@ -22,6 +23,8 @@ namespace ZScheme.Compiler.Ir;
 /// </summary>
 public sealed class PatternResolver(UnionCaseRegistry registry, TypeAliasRegistry typeAliases)
 {
+    private static readonly ILogger _log = Log.ForContext<PatternResolver>();
+
     public IrNode Resolve(IrNode node)
     {
         return Rewrite(node);
@@ -278,10 +281,26 @@ public sealed class PatternResolver(UnionCaseRegistry registry, TypeAliasRegistr
                 for (var i = 0; i < c.Fields.Count; i++)
                     fieldTypes.Add(registry.FieldType(scrutineeType, c.Name, i));
                 var fields = c.Fields.Select((f, i) => AnnotatePattern(f, fieldTypes[i])).ToList();
+                var resolvedUnion = registry.ResolveUnion(scrutineeType, c.Name);
+
+                // A type-checked program that reaches here with an unresolvable case has broken
+                // this pass's invariant — the registry was not given the union's declaration.
+                // Every consumer of the annotation then degrades *silently*: the async binder
+                // hoist drops the binder, and the IL backend emits no test for a literal field
+                // sub-pattern. Debug-sink only, deliberately: which patterns can legitimately
+                // fail to resolve (bare type-var scrutinees, generic contexts) has not been
+                // established, so this must not fail a build until it has.
+                if (resolvedUnion is null)
+                    _log.Warning(
+                        "PatternResolver: constructor pattern '{Case}' did not resolve against scrutinee type {ScrutineeType} — its union is missing from the registry, so its binders carry no field types",
+                        c.Name,
+                        scrutineeType
+                    );
+
                 return c with
                 {
                     Fields = fields,
-                    ResolvedUnion = registry.ResolveUnion(scrutineeType, c.Name),
+                    ResolvedUnion = resolvedUnion,
                     FieldTypes = fieldTypes,
                 };
             }

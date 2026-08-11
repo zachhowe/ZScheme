@@ -406,6 +406,20 @@ sub-passes over the whole program, in order:
   Runs last, so it also resolves patterns inside the lifted closure functions and
   descends into the `IrNode.Closure` nodes `ClosureConverter` produced.
 
+The union registry `PatternResolver` reads is populated before `Lower` runs, from local
+`define-union`/`define-record` declarations plus imported `UnionDecl`/`RecordDecl` IR.
+Both compile paths inject the imported half through the one shared
+`Compilation.RegisterImportedTypeMetadata`, and both give it the **whole compiled-module
+closure** — not just the compilation unit's direct imports. A pattern may legitimately
+name a case from a dependency's dependency: matching `(Some v)` on the result of
+`hash-ref` while importing only `stdlib/mutable/hash` needs `stdlib/option`'s declaration.
+Annotating against a registry that lacks it yields a null field type, which every consumer
+degrades on silently — the async state machine skips hoisting the binder (so it does not
+survive a suspension) and the IL backend emits no test for a literal field sub-pattern.
+This is distinct from the *binding* registrations beside it (`RegisterClrImport`,
+`RegisterUnionCtor`, `RegisterRecordCtor`), which stay scoped to actual imports because
+they govern which names the unit may reference.
+
 Tail-call optimization is a separate shared rewrite,
 [`TailCallLowering`](../src/ZScheme.Compiler/Ir/TailCallLowering.cs), that is deliberately
 **not** part of `IrLowering`. It runs just before code generation — at each emitter's entry,
