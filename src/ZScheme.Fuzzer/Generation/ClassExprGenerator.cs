@@ -73,8 +73,9 @@ public sealed class ClassExprGenerator
     {
         // Everything generated inside a class declaration — method bodies, mutator bodies,
         // explicit-constructor bodies, and any object expression nested in them — sees the
-        // class's fields by bare name. Flagging the whole declaration is what keeps forms that
-        // cannot close over instance state (letrec) out of all of those at once.
+        // class's fields by bare name. Flagging the whole declaration is what tells the group
+        // generators (letrec, nested define) to drop their value-position shape across all of
+        // those at once; see GeneratorContext.InInstanceContext.
         var wasInstance = _ctx.InInstanceContext;
         _ctx.InInstanceContext = true;
         try
@@ -387,7 +388,7 @@ public sealed class ClassExprGenerator
         var paramsPart = paramTypes.Count == 0 ? "" : $" {paramSig}";
 
         // InInstanceContext is already set for the whole class declaration by GenerateClass /
-        // GenerateDerivedClass, which is what keeps letrec out of these bodies.
+        // GenerateDerivedClass, which is what keeps a group member out of value position here.
         if (isAsync)
         {
             if (retType != ExprType.Int)

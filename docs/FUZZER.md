@@ -218,10 +218,12 @@ Later additions to the expression surface:
   `IntFn` can be applied to an arbitrary Int by `GenIntFnApply`, and an
   unbounded non-tail recursion would overflow the stack — which kills the
   fuzzer process outright instead of being reported as a case failure.
-  Suppressed inside class/object declarations (`GeneratorContext
-  .InInstanceContext`): fields are in bare-name scope there, and a group that
-  closed over one cannot be lifted, so it would be a both-backends compile
-  error rather than useful coverage.
+  Generated inside class/object declarations too, where fields are in bare-name
+  scope (`GeneratorContext.InInstanceContext`): a group that reads instance state
+  is hosted on the declaring class as a private method instead of being lifted to
+  a static, so the capture shape draws from a scope including the fields. Only the
+  value-position shape is dropped there — a private method has no delegate form,
+  so leaving a member in value position is a compile error by design.
 - **Nested `define`s** (`NestedDefineExprGenerator`, per-program
   `GeneratorContext.EnableNestedDefines`, rolled at 0.20) — a definition inside
   another function's body. `AstBuilder` desugars a run of adjacent body-level
@@ -239,8 +241,9 @@ Later additions to the expression surface:
   body a define needs comes from a randomly chosen wrapper — `begin`, a `let`
   body, or an immediately-invoked `lambda` — because all three reach
   `BuildExprSequence` from different callers. Termination is bounded inside each
-  function for exactly the reason the `letrec` generator does it. Suppressed
-  inside class/object declarations for the same reason too. This found a real
+  function for exactly the reason the `letrec` generator does it, and it is
+  generated inside class/object declarations — minus the value-position shape —
+  on the same terms too. This found a real
   capture bug: a nested group referencing an *enclosing* group's member has to
   inherit that member's captures, because the retargeted call must supply them.
 - **Symbols** — `'lit` literals, `string->symbol` / `symbol->string`
@@ -356,12 +359,14 @@ Newly documented *language-level* limits (constructs the generator cannot emit):
 - **`let` binds exactly one variable** (multiple bindings are `let*`, and a
   recursive binding group is `letrec`), so parallel multi-binding `let` is not
   a form the language has.
-- **`letrec` and nested `define`s inside a class or object declaration are not
-  generated** — the compiler lifts a group to top-level static functions, which
-  have no instance to read a field through, so any group that closed over a field
-  would be a compile error on both backends rather than a divergence probe. (A
-  class/object *method* body is also a single expression, so a nested definition
-  there needs a wrapper anyway.)
+- **A group member cannot be left in *value* position inside a class or object
+  declaration.** `letrec` and nested `define`s themselves *are* generated there —
+  a group that reads instance state is hosted on the declaring class as a private
+  method rather than lifted to a static — but a private method has no delegate
+  form, so both group generators drop their value-position shape under
+  `GeneratorContext.InInstanceContext` (`LetrecExprGenerator.Gen`,
+  `NestedDefineExprGenerator.Gen`). Passing an instance-using group member around
+  as a value is a compile error by design, not a divergence probe.
 - **Generic nested `define`s are not generated.** Everything the generator emits
   bottoms out at `Int`, so a lifted function is never generic and the
   generic-lifting path — the lifted static declaring its own type parameters and
