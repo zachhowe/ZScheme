@@ -2614,16 +2614,22 @@ public sealed partial class CSharpEmitter
                 method.Params.Select(p => $"{TypeToCs(p.Type)} {SanitizeParam(p.Name)}")
             );
 
-            // Determine virtual/override modifiers
-            var isOverride = inheritedMethodNames.Contains(method.Name);
+            // Determine virtual/override modifiers. A synthesized helper is private and plain:
+            // both tests below key off the *name*, and a helper that happened to match an
+            // inherited member would silently become an override of it. Its whole point is
+            // that nothing can reach or replace it, which is also what lets TailCallLowering
+            // loop it on an open class.
+            var isOverride =
+                !method.IsSynthesizedHelper && inheritedMethodNames.Contains(method.Name);
             var methodModifier =
                 isOverride ? "override "
-                : classDecl.IsOpen ? "virtual "
+                : classDecl.IsOpen && !method.IsSynthesizedHelper ? "virtual "
                 : "";
+            var accessModifier = method.IsSynthesizedHelper ? "private" : "public";
             var asyncModifier = method.IsAsync ? "async " : "";
 
             EmitLine(
-                $"public {asyncModifier}{methodModifier}{retTypeStr} {Sanitize(method.Name)}({parms})"
+                $"{accessModifier} {asyncModifier}{methodModifier}{retTypeStr} {Sanitize(method.Name)}({parms})"
             );
             EmitLine("{");
             _indent++;
@@ -2651,7 +2657,12 @@ public sealed partial class CSharpEmitter
             classDecl.IsOpen,
             classDecl.BaseClassName,
             classDecl.Fields,
-            classDecl.Methods.Select(m => m.Name).ToList()
+            // Synthesized helpers are private, so a subclass can neither override one nor
+            // reach it by bare name. Listing them here would feed both inheritedMethodNames
+            // (turning a same-named derived method into an `override` of an inaccessible
+            // member) and the derived class's bare-name scope, which would then emit
+            // `this.__letrec_…` against a private base member.
+            classDecl.Methods.Where(m => !m.IsSynthesizedHelper).Select(m => m.Name).ToList()
         );
     }
 

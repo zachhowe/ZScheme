@@ -5707,4 +5707,63 @@ public class IlEmitterTests
         Assert.NotNull(bytes);
         Assert.True(bytes.Length > 0);
     }
+
+    [Fact]
+    public void SynthesizedHelperMethod_IsPrivateAndNeverVirtual()
+    {
+        // Phase 1 keys both the override and the interface-implementation decision off the
+        // method *name*. A helper matching an inherited member would silently override it; one
+        // matching an interface member would claim the slot with NewSlot|Virtual|Final and fail
+        // at assembly load. And on an open class a virtual helper could be replaced by a
+        // subclass — precisely what TailCallLowering relies on being impossible when it turns
+        // the helper's self-call into a back-edge.
+        var classDecl = new IrNode.ClassDecl(
+            "C",
+            [],
+            [],
+            [],
+            [
+                new IrObjectMethod(
+                    "Visible",
+                    [],
+                    ZType.Int,
+                    new IrNode.IntConst(1) { Type = ZType.Int }
+                ),
+                new IrObjectMethod(
+                    "Helper",
+                    [],
+                    ZType.Int,
+                    new IrNode.IntConst(2) { Type = ZType.Int }
+                )
+                {
+                    IsSynthesizedHelper = true,
+                },
+            ],
+            IsOpen: true
+        );
+
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter(
+            "TestAssembly_SynthesizedHelper",
+            diag,
+            "TestClass",
+            typeAliases: BuildStdlibRegistry()
+        );
+        var bytes = emitter.Emit(new IrNode.Seq([classDecl]) { Type = ZType.Unit });
+
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        var type = Assembly.Load(bytes!).GetTypes().First(t => t.Name == "C");
+
+        var visible = type.GetMethod(
+            "Visible",
+            BindingFlags.Public | BindingFlags.Instance
+        );
+        Assert.NotNull(visible);
+        Assert.True(visible.IsVirtual);
+
+        var helper = type.GetMethod("Helper", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(helper);
+        Assert.True(helper.IsPrivate);
+        Assert.False(helper.IsVirtual);
+    }
 }

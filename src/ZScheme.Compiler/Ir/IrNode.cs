@@ -334,11 +334,27 @@ public sealed record IrObjectMethod(
     /// <summary>
     ///     Set by TailCallLowering when this method's tail self-calls have been rewritten
     ///     into <see cref="IrNode.TcoJump" /> nodes — the method-body counterpart of
-    ///     <see cref="IrNode.FuncDef.IsTcoLoop" />, consumed by the same loop emitters. Only
-    ///     ever set on a method of a sealed class, where <c>this.M(…)</c> binds statically
-    ///     and a back-edge is therefore the same target as the call it replaces.
+    ///     <see cref="IrNode.FuncDef.IsTcoLoop" />, consumed by the same loop emitters. Set
+    ///     only where <c>this.M(…)</c> binds statically, so the back-edge and the call it
+    ///     replaces are one target: any method of a sealed class, and a
+    ///     <see cref="IsSynthesizedHelper" /> of an open one.
     /// </summary>
     public bool IsTcoLoop { get; init; }
+
+    /// <summary>
+    ///     Set by <see cref="LetrecLifter" /> on a method it synthesized to host a recursive
+    ///     group that reads instance state. Both backends emit such a method <c>private</c>
+    ///     and never virtual, override or interface-implementing.
+    ///     <para>
+    ///         That is what lets <see cref="TailCallLowering" /> loop it even on an
+    ///         <c>#:open</c> class, where a user method's self-call has to stay a real call
+    ///         because a subclass may override it. Nothing can override a private method and
+    ///         no source name can reach one, so its self-call binds statically like a sealed
+    ///         class's. The flag therefore has to mean private <em>and</em> non-virtual, not
+    ///         merely "compiler-generated".
+    ///     </para>
+    /// </summary>
+    public bool IsSynthesizedHelper { get; init; }
 }
 
 public sealed record IrInterfaceMethodSignature(

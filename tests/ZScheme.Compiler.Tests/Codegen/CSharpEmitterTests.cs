@@ -1719,6 +1719,55 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitClassDecl_SynthesizedHelper_IsPrivateAndNeverVirtual()
+    {
+        // The helper LetrecLifter adds to host an instance-state-reading group. Both the
+        // override and the virtual decision key off the method *name*, so a helper colliding
+        // with an inherited member would silently override it — and on an open class a virtual
+        // helper could be replaced by a subclass, which is exactly what TailCallLowering relies
+        // on being impossible when it loops one. Driven through the IR because no source form
+        // sets the flag.
+        var ir = new IrNode.Seq(
+            [
+                new IrNode.ClassDecl(
+                    "C",
+                    [],
+                    [],
+                    [],
+                    [
+                        new IrObjectMethod(
+                            "Visible",
+                            [],
+                            ZType.Int,
+                            new IrNode.IntConst(1) { Type = ZType.Int }
+                        ),
+                        new IrObjectMethod(
+                            "__letrec_0_go",
+                            [],
+                            ZType.Int,
+                            new IrNode.IntConst(2) { Type = ZType.Int }
+                        )
+                        {
+                            IsSynthesizedHelper = true,
+                        },
+                    ],
+                    IsOpen: true
+                ),
+            ]
+        )
+        {
+            Type = ZType.Unit,
+        };
+
+        var (cs, diagnostics) = EmitDirect(ir);
+
+        Assert.False(diagnostics.HasErrors, string.Join("\n", diagnostics.Diagnostics));
+        Assert.Contains("public virtual int Visible()", cs);
+        Assert.Contains("private int __letrec_0_go()", cs);
+        Assert.DoesNotContain("virtual int __letrec_0_go", cs);
+    }
+
+    [Fact]
     public void EmitClassDecl_OpenClass_NotSealed()
     {
         var source =

@@ -5984,13 +5984,21 @@ public sealed partial class IlEmitter
                     : MapToClr(method.ReturnType, ctx);
             var methodParamTypes = method.Params.Select(p => MapToClr(p.Type, ctx)).ToArray();
 
-            var isOverride = inheritedMethodNames.Contains(method.Name);
+            // A synthesized helper is private and plain. Both tests below match on the *name*,
+            // so a helper colliding with an inherited or interface member would otherwise be
+            // given a virtual slot — silently overriding it, or claiming the interface slot
+            // with NewSlot|Virtual|Final and failing at assembly load with a TypeLoadException.
+            var isOverride =
+                !method.IsSynthesizedHelper && inheritedMethodNames.Contains(method.Name);
             // interfaceMethodNames holds sanitized member names (collected from the emitted
             // interface TypeDefinition), so compare against the sanitized method name. The raw
             // IR name can differ in case (e.g. an interface method `get` -> `Get`), which would
             // otherwise leave the interface slot unimplemented (TypeLoadException at load).
-            var isInterfaceImpl = interfaceMethodNames.Contains(Sanitize(method.Name));
-            var methodAttrs = MethodAttributes.Public;
+            var isInterfaceImpl =
+                !method.IsSynthesizedHelper && interfaceMethodNames.Contains(Sanitize(method.Name));
+            var methodAttrs = method.IsSynthesizedHelper
+                ? MethodAttributes.Private | MethodAttributes.HideBySig
+                : MethodAttributes.Public;
             if (isOverride)
                 methodAttrs |= MethodAttributes.Virtual | MethodAttributes.HideBySig;
             else if (isInterfaceImpl)
@@ -5999,7 +6007,7 @@ public sealed partial class IlEmitter
                     | MethodAttributes.NewSlot
                     | MethodAttributes.HideBySig
                     | MethodAttributes.Final;
-            else if (classDecl.IsOpen)
+            else if (classDecl.IsOpen && !method.IsSynthesizedHelper)
                 methodAttrs |=
                     MethodAttributes.Virtual
                     | MethodAttributes.NewSlot
@@ -6199,7 +6207,10 @@ public sealed partial class IlEmitter
             classDecl.IsOpen,
             classDecl.BaseClassName,
             classDecl.Fields,
-            classDecl.Methods.Select(m => m.Name).ToList()
+            // Private, so a subclass can neither override a helper nor name one. Listing them
+            // would make a same-named derived method an override of an inaccessible member and
+            // put the name into the derived class's bare-name scope.
+            classDecl.Methods.Where(m => !m.IsSynthesizedHelper).Select(m => m.Name).ToList()
         );
     }
 
