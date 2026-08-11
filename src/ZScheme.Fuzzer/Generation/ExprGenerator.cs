@@ -161,14 +161,12 @@ public sealed class ExprGenerator
         };
         if (_letStar is not null)
             weights.Add((2, () => _letStar.LetStarToInt(scope, depth)));
-        // Gated on !InInstanceContext: inside a method body the class's fields are in bare-name
-        // scope, and a letrec function that closed over one could not be lifted (see
-        // Ir/LetrecLifter).
-        if (_letrec is not null && !_ctx.InInstanceContext)
+        // Allowed inside a method body: a group that reads instance state is hosted on the
+        // class as a private method rather than refused. The generators drop their
+        // value-position shape there, which is the one thing that still cannot be expressed.
+        if (_letrec is not null)
             weights.Add((2, () => _letrec.LetrecToInt(scope, depth)));
-        // Same gate as letrec, and for the same reason: a body-level `define` desugars to a
-        // letrec group, so one that closed over a field could not be lifted either.
-        if (_nestedDefine is not null && _ctx.EnableNestedDefines && !_ctx.InInstanceContext)
+        if (_nestedDefine is not null && _ctx.EnableNestedDefines)
             weights.Add((2, () => _nestedDefine.NestedDefineToInt(scope, depth)));
         if (_use is not null)
         {
@@ -743,9 +741,9 @@ public sealed class ExprGenerator
         };
         if (_letStar is not null)
             weights.Add((1, () => _letStar.LetStarToBool(scope, depth)));
-        if (_letrec is not null && !_ctx.InInstanceContext)
+        if (_letrec is not null)
             weights.Add((1, () => _letrec.LetrecToBool(scope, depth)));
-        if (_nestedDefine is not null && _ctx.EnableNestedDefines && !_ctx.InInstanceContext)
+        if (_nestedDefine is not null && _ctx.EnableNestedDefines)
             weights.Add((1, () => _nestedDefine.NestedDefineToBool(scope, depth)));
         if (_stdlibGens is not null)
         {

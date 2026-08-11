@@ -61,14 +61,18 @@ public sealed class NestedDefineExprGenerator
 
     private string Gen(ExprType resultType, Scope scope, int depth)
     {
-        return _ctx.Rng.Next(7) switch
+        // See LetrecExprGenerator.Gen: inside a method body a group that reads instance state
+        // becomes a private method of the class, which has no delegate form, so leaving a member
+        // in value position there is a compile error by design rather than a bug to find.
+        var shapes = _ctx.InInstanceContext ? 6 : 7;
+        return _ctx.Rng.Next(shapes) switch
         {
             0 => Mutual(resultType, scope, depth),
             1 => Capture(resultType, scope, depth),
             2 => ValueAndFunc(resultType, scope, depth),
             3 => MidBody(resultType, scope, depth),
             4 => TwoGroups(resultType, scope, depth),
-            5 => ValuePosition(resultType, scope, depth),
+            5 when shapes == 7 => ValuePosition(resultType, scope, depth),
             _ => SelfRecursive(resultType, scope, depth),
         };
     }

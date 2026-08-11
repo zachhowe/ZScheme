@@ -93,10 +93,13 @@ public sealed class GeneratorContext
     public bool InAuxModule { get; set; }
 
     // True while generating a class/object method or constructor body, where fields are in
-    // bare-name scope. `letrec` is suppressed there: the compiler lifts a recursive group to
-    // top-level static functions, which have no instance to read a field through, so a group
-    // that happened to close over a field would be a compile error on both backends. Toggled
-    // within a case like InAuxModule, so it is not reset in ResetPerCase.
+    // bare-name scope. A recursive group is allowed there — one that reads instance state is
+    // hosted on the class as a private method rather than lifted to a static — but the two
+    // group generators drop their value-position shape, since a private method has no delegate
+    // form and leaving a member in value position is a compile error by design. Constructor
+    // bodies never reach the expression generator at all (their field initializers are built
+    // directly), so they need no separate flag. Toggled within a case like InAuxModule, so it
+    // is not reset in ResetPerCase.
     public bool InInstanceContext { get; set; }
 
     public IEnumerable<UserFunc> SyncUserFuncs => UserFuncs.Where(f => !f.IsAsync);

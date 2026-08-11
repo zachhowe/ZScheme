@@ -50,12 +50,18 @@ public sealed class LetrecExprGenerator
 
     private string Gen(ExprType resultType, Scope scope, int depth)
     {
-        return _ctx.Rng.Next(5) switch
+        // Inside a method body a group that reads instance state is hosted on the class as a
+        // private method, which has no delegate form — so a member used as a *value* there is a
+        // compile error by design. Capture draws from a scope that includes the class's fields,
+        // so the shape is reachable; dropping ValuePosition keeps the generator to programs
+        // that are meant to compile.
+        var shapes = _ctx.InInstanceContext ? 4 : 5;
+        return _ctx.Rng.Next(shapes) switch
         {
             0 => Mutual(resultType, scope, depth),
             1 => Capture(resultType, scope, depth),
             2 => Mixed(resultType, scope, depth),
-            3 => ValuePosition(resultType, scope, depth),
+            3 when shapes == 5 => ValuePosition(resultType, scope, depth),
             _ => SelfRecursive(resultType, scope, depth),
         };
     }
