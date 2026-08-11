@@ -39,6 +39,21 @@ function Update-JsonVersion {
     Write-Host "    $old -> $Version"
 }
 
+function Update-ManifestVersion {
+    param([string]$Path)
+    $content = Get-Content $Path -Raw
+    $match = [regex]::Match($content, '\(version\s+"([^"]+)"\)')
+    if (-not $match.Success) {
+        Write-Error "Could not find (version ""..."") in $Path"
+        exit 1
+    }
+    $old = $match.Groups[1].Value
+    $newContent = $content -replace '\(version\s+"[^"]+"\)', "(version ""$Version"")"
+    Set-Content $Path -Value $newContent -NoNewline
+    Write-Host "  $Path"
+    Write-Host "    $old -> $Version"
+}
+
 Write-Host "Bumping ZScheme version to $Version"
 Write-Host ""
 
@@ -49,5 +64,15 @@ Update-XmlVersion "$RepoRoot/Directory.Build.props"
 Update-JsonVersion "$RepoRoot/editor/vscode/package.json"
 Update-JsonVersion "$RepoRoot/editor/zed/tree-sitter-zscheme/package.json"
 
+# 3. Every package manifest. Package versions are kept in sync with the compiler
+#    version while the packages live in this repo -- see CLAUDE.md.
+$manifests = Get-ChildItem "$RepoRoot/packages" -Directory |
+    ForEach-Object { Join-Path $_.FullName 'package.zspkg' } |
+    Where-Object { Test-Path $_ } |
+    Sort-Object
+foreach ($manifest in $manifests) {
+    Update-ManifestVersion $manifest
+}
+
 Write-Host ""
-Write-Host "Done. Updated 3 files."
+Write-Host "Done. Updated $(3 + $manifests.Count) files ($($manifests.Count) package manifests)."

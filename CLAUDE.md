@@ -57,6 +57,26 @@ pwsh ./build-examples.ps1 -Debug -Examples factorial    # Debug logging for a sp
 
 The solution file is `ZScheme.slnx`. Target framework is .NET 10.0 with C# preview features. `TreatWarningsAsErrors` is enabled globally via `Directory.Build.props`.
 
+## Versioning
+
+**The compiler and every package share one version number.** While the packages live in this
+repo they are versioned together, not independently: `Directory.Build.props`, both editor
+`package.json` files, and all eight `packages/*/package.zspkg` manifests must always read the
+same version.
+
+Bump them with the one script that moves all of them together:
+
+```bash
+pwsh ./bump-version.ps1 0.4.0     # compiler + editors + every package manifest
+```
+
+`bump-package-version.ps1` bumps a single manifest and therefore *breaks* this invariant — it
+warns when it leaves a package out of step with the compiler. Reach for it only to correct a
+manifest that drifted, never as the normal way to version a package.
+
+The version bumps at the **start** of a cycle, in its own commit right after the release tag,
+so every commit in a cycle already carries the version it will ship as.
+
 ## Formatting
 
 **Never run `format-all-cs.ps1`.** Formatting happens on commit. Running it by hand reformats the whole repo — hundreds of files nobody touched — and buries the actual change.

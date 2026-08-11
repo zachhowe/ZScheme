@@ -150,12 +150,13 @@ pushing a tag is effectively irreversible and is their call.
 This repo bumps immediately after tagging, so the next cycle's commits carry
 the next version. As a **separate commit after the tag**:
 
-- `pwsh ./bump-version.ps1 <next-version>` — updates `Directory.Build.props`
-  and the two editor `package.json` files.
-- Bump any package whose contents changed this cycle, one at a time:
-  `pwsh ./bump-package-version.ps1 -Package <name> -Version <next-version>`.
-  Packages are versioned independently — only `stdlib` moved to 0.3.0 during
-  the 0.3.0 cycle, for instance. Leave untouched packages alone.
+- `pwsh ./bump-version.ps1 <next-version>` — updates `Directory.Build.props`,
+  the two editor `package.json` files, and every `packages/*/package.zspkg`
+  manifest. That one command is the whole bump: the compiler and all packages
+  share a single version number (CLAUDE.md, "Versioning"), so no package is
+  bumped on its own and none is left behind because its contents happened not
+  to change. Don't use `bump-package-version.ps1` here — it moves one manifest
+  out of step and warns that it did.
 - Create a fresh `docs/changelog/unreleased.md` with the
   `# <next-version> (unreleased)` heading and nothing under it yet.
 - Commit as e.g. `Bump version to <next-version>`.

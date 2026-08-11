@@ -42,3 +42,14 @@ Set-Content $ManifestPath -Value $newContent -NoNewline
 Write-Host "Bumped package '$Package' version"
 Write-Host "  $ManifestPath"
 Write-Host "    $oldVersion -> $Version"
+
+# Package versions are kept in sync with the compiler version while the packages live in
+# this repo (see CLAUDE.md), so a single-package bump is normally the wrong tool: use
+# ./bump-version.ps1, which moves the compiler, the editors and every manifest together.
+$compilerVersion = ([xml](Get-Content "$RepoRoot/Directory.Build.props")).Project.PropertyGroup |
+    ForEach-Object { $_.Version } | Where-Object { $_ } | Select-Object -First 1
+if ($compilerVersion -and $compilerVersion.Trim() -ne $Version) {
+    Write-Host ""
+    Write-Warning "Package '$Package' is now $Version but the compiler is $($compilerVersion.Trim())."
+    Write-Warning "These are meant to stay in sync -- prefer ./bump-version.ps1 $Version."
+}
