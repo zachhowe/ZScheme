@@ -1284,6 +1284,56 @@ public sealed partial class IlEmitter(
     }
 
     /// <summary>
+    ///     Collects every <see cref="IrNode.Var" /> reference inside <paramref name="node" />,
+    ///     grouped by name, so capture analysis can ask how a name was actually resolved rather
+    ///     than guessing from the name alone. Deliberately binder-blind: callers intersect the
+    ///     result with <see cref="FindFreeVars" />, which already accounts for shadowing.
+    /// </summary>
+    private static void CollectVarRefs(IrNode node, Dictionary<string, List<IrNode.Var>> acc)
+    {
+        if (node is IrNode.Var v)
+        {
+            if (!acc.TryGetValue(v.Name, out var refs))
+                acc[v.Name] = refs = [];
+            refs.Add(v);
+            return;
+        }
+
+        IEnumerable<IrNode> children = node switch
+        {
+            IrNode.Let let => [let.Value, let.Body],
+            IrNode.Use use => [use.Value, use.Body],
+            IrNode.If @if => [@if.Condition, @if.Then, @if.Else],
+            IrNode.Call call => [call.Function, .. call.Args],
+            IrNode.BinOp binop => [binop.Left, binop.Right],
+            IrNode.UnaryOp unary => [unary.Operand],
+            IrNode.FuncDef func => [func.Body],
+            IrNode.Match match => [match.Scrutinee, .. match.Arms.Select(a => a.Body)],
+            IrNode.MethodCall mc => [mc.Receiver, .. mc.Args],
+            IrNode.UnionCaseNew ucn => ucn.Args,
+            IrNode.ClrNew cn => cn.Args,
+            IrNode.ClrCall cc => cc.Args,
+            IrNode.TupleNew tn => tn.Elements,
+            IrNode.RecordNew rn => rn.Fields.Select(f => f.Value),
+            IrNode.RecordWith rw => [rw.Record, .. rw.Updates.Select(u => u.Value)],
+            IrNode.MutableArrayNew man => man.Elements,
+            IrNode.Seq seq => seq.Nodes,
+            IrNode.Throw th => [th.Expr],
+            IrNode.WithHandlers wh => [wh.Body, .. wh.Handlers.Select(h => h.HandlerBody)],
+            IrNode.Await aw => [aw.Expr],
+            IrNode.SetField sf => [sf.Value],
+            IrNode.FieldGet fg => [fg.Record],
+            IrNode.SuperMethodCall smc => smc.Args,
+            IrNode.TcoJump tj => tj.NewArgs,
+            IrNode.Closure cl => cl.CapturedValues,
+            _ => [],
+        };
+
+        foreach (var child in children)
+            CollectVarRefs(child, acc);
+    }
+
+    /// <summary>
     ///     Returns true if <paramref name="node" /> contains a <see cref="IrNode.SetField" />
     ///     that writes to any class field name in <paramref name="classFields" />. Var reads
     ///     are not scanned here — FindFreeVars already surfaces those as free vars of the
@@ -1342,6 +1392,31 @@ public sealed partial class IlEmitter(
             ),
             _ => false,
         };
+    }
+
+    /// <summary>
+    ///     Whether any reference to <paramref name="name" /> in a lambda body would read
+    ///     <paramref name="classField" /> off the enclosing instance — the question that decides
+    ///     whether the lambda has to capture <c>&lt;&gt;this</c>. Mirrors the class-field branch of
+    ///     <see cref="EmitLoadVar" />: the field wins unless the reference is function-typed, a
+    ///     module-level method of that name exists, and the field's slot cannot hold that
+    ///     function. With no recorded reference (a write-only use), assume the field.
+    /// </summary>
+    private bool AnyRefResolvesToClassField(
+        string name,
+        FieldDefinition classField,
+        IReadOnlyDictionary<string, List<IrNode.Var>> varRefs,
+        EmitContext ctx
+    )
+    {
+        if (!varRefs.TryGetValue(name, out var refs))
+            return true;
+
+        return refs.Any(v =>
+            v.Type is not ZType.ZFuncType
+            || !_methods.ContainsKey(Emitted(v.EmitName, name))
+            || TypeSigComparer.Equals(classField.Signature!.FieldType, MapToClr(v.Type, ctx))
+        );
     }
 
     /// <summary>

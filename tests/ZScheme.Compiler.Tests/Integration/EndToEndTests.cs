@@ -5750,6 +5750,74 @@ public class EndToEndTests
         Assert.Equal(42, compute.Invoke(null, null));
     }
 
+    // Regression (fuzzer seed 0x5c1a55e5, 206 of 220 failures): the flip side of
+    // the test above. EmitLambda decided "this free var names a top-level
+    // function, so no `<>this` is needed" from the name alone, but inside a class
+    // body the field shadows the function for every reference the field's slot can
+    // hold — so the body emitter read the field off the instance while the lambda
+    // stayed a bare static with no instance to read it from. `ldarg.0` in that
+    // static is the lambda's own int parameter, so the emitted IL reinterpreted an
+    // int as an object reference: ilverify [StackUnexpected] and, at runtime, a
+    // NullReferenceException where the C# backend returns a value. The capture
+    // analysis now asks the same question EmitLoadVar answers at the use site.
+    [Fact]
+    public void LambdaInClassMethod_CapturesThis_WhenFieldNameIsAlsoATopLevelFunction()
+    {
+        var source =
+            @"(module test)
+(define (apply1 [f : (Int -> Int)] [n : Int]) : Int (f n))
+(define-class FCls_0
+  [f0 : Int]
+  (define (M0_0) : Int (apply1 (lambda ([x : Int]) : Int (+ x f0)) 1)))
+(define (f0 [a : Int]) : Int a)
+(define (compute) : Int (FCls_0/M0_0 (FCls_0 5)))";
+        Assert.Equal(6, RunComputeOnIl(source));
+    }
+
+    // Same defect, second shape: the lambda also captures an enclosing local, so a
+    // display class is built — but without a `<>this` field, leaving the field read
+    // to run `ldarg.0` against the display instance instead of the class instance.
+    [Fact]
+    public void LambdaCapturingLocal_AlsoCapturesThis_WhenFieldNameIsAlsoATopLevelFunction()
+    {
+        var source =
+            @"(module test)
+(define (apply1 [f : (Int -> Int)] [n : Int]) : Int (f n))
+(define-class FCls_0
+  [f0 : Int]
+  (define (M0_0) : Int
+    (let ([k 7]) (apply1 (lambda ([x : Int]) : Int (+ (+ x k) f0)) 1))))
+(define (f0 [a : Int]) : Int a)
+(define (compute) : Int (FCls_0/M0_0 (FCls_0 5)))";
+        Assert.Equal(13, RunComputeOnIl(source));
+    }
+
+    // Third shape: a nested lambda inside a lambda that did capture `<>this`. Both
+    // levels reference a shadowed field name, and the inner one used to inherit the
+    // outer's `CurrentClassThisLocal` — a local in the *enclosing* method's frame —
+    // while being emitted as its own static method, producing `ldloc` against a
+    // slot that method does not have (ilverify [UnrecognizedLocalNumber]).
+    [Fact]
+    public void NestedLambda_DoesNotInheritEnclosingLambdaThisLocal_WhenFieldNamesShadow()
+    {
+        var source =
+            @"(module test)
+(define (apply1 [f : (Int -> Int)] [n : Int]) : Int (f n))
+(define-class FCls_0
+  [f0 : Int]
+  [f1 : Int]
+  (define (M0_0) : Int
+    (let ([k 7])
+      (apply1
+        (lambda ([x : Int]) : Int
+          (+ (+ x k) (apply1 (lambda ([y : Int]) : Int (+ y f1)) f0)))
+        1))))
+(define (f0 [a : Int]) : Int a)
+(define (f1 [a : Int]) : Int a)
+(define (compute) : Int (FCls_0/M0_0 (FCls_0 5 3)))";
+        Assert.Equal(16, RunComputeOnIl(source));
+    }
+
     // Regression: the IL backend used to lower (and a b) and (or a b) to the
     // bitwise `and`/`or` opcodes, which evaluate both operands eagerly. The C#
     // backend already used `&&` / `||`, so a fuzz case that wrote

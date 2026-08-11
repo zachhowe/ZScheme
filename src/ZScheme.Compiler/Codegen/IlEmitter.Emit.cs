@@ -3733,19 +3733,26 @@ public sealed partial class IlEmitter
         var needsThisCapture = false;
         if (ctx.CurrentClassFields is { Count: > 0 } && ctx.CurrentTypeDefinition is not null)
         {
+            var varRefs = new Dictionary<string, List<IrNode.Var>>();
+            CollectVarRefs(funcDef.Body, varRefs);
             foreach (var fv in freeVars)
             {
-                if (capturedNames.Contains(fv) || !ctx.CurrentClassFields.ContainsKey(fv))
+                if (
+                    capturedNames.Contains(fv)
+                    || !ctx.CurrentClassFields.TryGetValue(fv, out var shadowedField)
+                )
                     continue;
-                // A free var that names a class field but also names a top-level
-                // function resolves to the function at the call site (EmitCall
-                // checks `_methods` first), so the lambda doesn't actually need
-                // `<>this` for it. Capturing `<>this` here is wasteful and, when
-                // this lambda lives inside a nested object's ctor where `this`
-                // refers to a different type than the enclosing class, produces
-                // a stack-unexpected (the wrong-typed `ldarg.0` flows into the
-                // `<>this` field of the enclosing-class type).
-                if (_methods.ContainsKey(Sanitize(fv)) || _staticFields.ContainsKey(fv))
+                // A name can be both a class field and a top-level definition, and which
+                // one a reference means is decided by its inferred type, not by the name:
+                // inside the class body the field shadows the function for every reference
+                // the field's slot can hold. Ask the same question EmitLoadVar answers at
+                // the use site — if no reference resolves to the field, this lambda needs
+                // no `<>this` for it, and capturing one anyway is wasteful and, inside a
+                // nested object's ctor where `this` is a different type than the enclosing
+                // class, produces a stack-unexpected. Deciding this on the name alone made
+                // capture analysis and body emission disagree: the body emitted `ldfld` on
+                // the instance while the lambda stayed a static with no instance to load.
+                if (!AnyRefResolvesToClassField(fv, shadowedField, varRefs, ctx))
                     continue;
                 needsThisCapture = true;
                 break;
@@ -3822,7 +3829,21 @@ public sealed partial class IlEmitter
             // lambda-local `let` whose name collides with a hoisted async local emit
             // `stfld` against an int argument, which fails ilverify (StackUnexpected).
             // The closure path below clears it for the same reason.
-            EmitFuncDef(emitFunc, ctx.CurrentTypeDefinition!, ctx with { MoveNextCtx = null });
+            //
+            // CurrentClassThisLocal goes for the same reason: it names a local in the
+            // *enclosing* method's frame, so an enclosing lambda that captured `<>this`
+            // would otherwise leave this nested static emitting `ldloc` against a slot
+            // it does not have (ilverify UnrecognizedLocalNumber). A capture-less lambda
+            // has no instance by construction, so null is the right answer here.
+            EmitFuncDef(
+                emitFunc,
+                ctx.CurrentTypeDefinition!,
+                ctx with
+                {
+                    MoveNextCtx = null,
+                    CurrentClassThisLocal = null,
+                }
+            );
 
             var lambdaMethod = _methods[Sanitize(lambdaName)];
             il.Add(CilOpCodes.Ldnull);

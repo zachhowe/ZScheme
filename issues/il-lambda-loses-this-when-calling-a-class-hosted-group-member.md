@@ -4,9 +4,10 @@
 (`fuzz-runs/20260811-205845-seed5c1a55e5/`)
 
 **Affects:** 40 of the 220 failures in this run, all `ilverify`. 13 of those carry
-*only* this defect; the other 27 also carry the field/top-level-function shadowing
-bug (`il-lambda-loses-this-when-a-class-field-shadows-a-top-level-function.md`),
-which is an independent trigger with the same symptom.
+*only* this defect; the other 27 also carried the field/top-level-function shadowing
+bug, an independent trigger with the same symptom, which has since been fixed (its
+issue file is gone; see the "capture analysis mirrors EmitLoadVar" commit). Re-running
+300 iterations of this seed after that fix leaves 7 failures, all of them this bug.
 
 **Representative seeds:** `1c900912`, `3d13a8e5`, `5645c2b3`, `c4a7c7f3` (these four
 have *only* this defect), plus `08f7df9f`, `0befa5eb`, `1004d995`.
@@ -164,8 +165,9 @@ and was never extended to cover it.
 
 ## Priority note
 
-Second of the three bugs found in this run, behind the field-shadowing bug only on
-blast radius (40 cases vs 206) — the severity is identical: silently invalid IL that
+Now the highest-priority open issue: with the field-shadowing bug fixed, this is the
+only remaining source of `ilverify` failures in the run, and the severity is
+unchanged — silently invalid IL that
 reinterprets an `int` as an object reference, for a program the C# backend compiles
 correctly. Unlike the shadowing bug this one is *not* pre-existing; it ships with the
 feature this branch is adding, so it should not land as-is.
