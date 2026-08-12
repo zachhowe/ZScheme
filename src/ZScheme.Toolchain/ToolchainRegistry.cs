@@ -12,6 +12,36 @@ namespace ZScheme.Toolchain;
 /// </remarks>
 public sealed class ToolchainRegistry(string home)
 {
+    /// <summary>
+    ///     Thrown when a toolchain was removed but the settings file that still records it as the
+    ///     default could not be rewritten.
+    /// </summary>
+    /// <remarks>
+    ///     Its own type because the two halves of <see cref="Remove" /> and <see cref="Unlink" />
+    ///     fail for the same reasons and mean opposite things: a read-only home or a full disk stops
+    ///     the delete, and the toolchain is still there, or it stops the settings write afterwards,
+    ///     and the toolchain is gone. Reporting the second as
+    ///     <c>could not remove toolchain 'x'</c> would tell the user to retry something that has
+    ///     already happened. Derived from <see cref="IOException" /> so a caller that has not been
+    ///     taught the difference still catches it where it catches every other write failure.
+    /// </remarks>
+    public sealed class DefaultNotClearedException(string name, Exception inner)
+        : IOException(
+            $"removed '{name}', but it is still recorded as the default toolchain: {inner.Message}",
+            inner
+        )
+    {
+        /// <summary>The toolchain that was removed and is still named as the default.</summary>
+        public string ToolchainName { get; } = name;
+    }
+
+    /// <summary>
+    ///     How old a leftover settings staging file must be before a later write sweeps it. Long
+    ///     enough that a concurrent zsup's slot -- written and renamed in milliseconds -- is never
+    ///     mistaken for debris and unlinked out from under it.
+    /// </summary>
+    private static readonly TimeSpan StagingMaxAge = TimeSpan.FromHours(1);
+
     /// <summary>The resolved home this registry operates on.</summary>
     public string Home { get; } = ZSchemeHome.GetHome(home);
 
@@ -146,6 +176,9 @@ public sealed class ToolchainRegistry(string home)
         File.WriteAllText(ZSchemeHome.GetToolchainLinkFile(name, Home), full + Environment.NewLine);
     }
 
+    /// <exception cref="DefaultNotClearedException">
+    ///     The link was deleted, but the settings file still names it as the default.
+    /// </exception>
     public void Unlink(string name)
     {
         var linkFile = ZSchemeHome.GetToolchainLinkFile(name, Home);
@@ -157,6 +190,9 @@ public sealed class ToolchainRegistry(string home)
     }
 
     /// <summary>Removes an installed toolchain's directory, or the link file if it is linked.</summary>
+    /// <exception cref="DefaultNotClearedException">
+    ///     The toolchain was removed, but the settings file still names it as the default.
+    /// </exception>
     public void Remove(string name)
     {
         var dir = ZSchemeHome.GetToolchainDir(name, Home);
@@ -174,8 +210,20 @@ public sealed class ToolchainRegistry(string home)
 
     private void ClearDefaultIf(string name)
     {
-        if (ToolchainName.AreSame(GetDefault(), name))
+        if (!ToolchainName.AreSame(GetDefault(), name))
+            return;
+
+        try
+        {
             ClearDefault();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Re-typed rather than left as-is: by this point the removal has already happened, and
+            // the caller's error path for "could not remove" would otherwise claim a toolchain that
+            // is gone is still installed.
+            throw new DefaultNotClearedException(name, e);
+        }
     }
 
     private InstalledToolchain Installed(string name, string dir)
@@ -285,6 +333,8 @@ public sealed class ToolchainRegistry(string home)
         // wrote -- reporting its own toolchain as the new default while the file says otherwise --
         // and the loser's rename then throws FileNotFoundException. Distinct slots make this a
         // genuine last-writer-wins, which is the right semantics for setting a default.
+        SweepStaleStaging(path);
+
         var temp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
         try
         {
@@ -296,6 +346,39 @@ public sealed class ToolchainRegistry(string home)
             // Nothing else ever would: these sit in the home root, and SweepTransients only walks
             // downloads/. Without this, every write that failed before the rename leaks one.
             TryDeleteFile(temp);
+        }
+    }
+
+    /// <summary>
+    ///     Deletes settings staging files older than <see cref="StagingMaxAge" />.
+    /// </summary>
+    /// <remarks>
+    ///     The <c>finally</c> around the rename only covers a failure. A kill between the write and
+    ///     the rename -- Ctrl-C, a power loss -- leaves a slot behind, and since every write now
+    ///     stages under its own name they would accumulate in the home root forever rather than
+    ///     being reused. Age-gated because the point of the private slot is that a concurrent zsup
+    ///     has one too: unlinking a live one on Unix would leave that process renaming a path that
+    ///     no longer exists, which is the race this staging scheme exists to remove.
+    /// </remarks>
+    private void SweepStaleStaging(string settingsPath)
+    {
+        var cutoff = DateTime.UtcNow - StagingMaxAge;
+
+        try
+        {
+            foreach (
+                var stale in Directory.EnumerateFiles(
+                    Home,
+                    Path.GetFileName(settingsPath) + ".tmp-*"
+                )
+            )
+                if (File.GetLastWriteTimeUtc(stale) < cutoff)
+                    TryDeleteFile(stale);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort. Leftover slots cost disk, not correctness, and must never be the reason
+            // a default could not be recorded.
         }
     }
 

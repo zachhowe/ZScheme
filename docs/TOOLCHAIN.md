@@ -54,8 +54,11 @@ so a name never ends up with an installed directory and a link at once.
 invoked and hands off to the real executable. `zsup install` and `zsup self update` re-stamp both
 names so they can never lag behind the `zsup` beside them. On Windows a name that is locked by a
 process still running it cannot be replaced; the other names are stamped anyway, and each one that
-was skipped is named in a warning telling you to close what is holding it and re-run
-`zsup install --force`. A skipped shim keeps working — it is just the previous version.
+was skipped is named in a warning telling you to close what is holding it and re-run the command
+that stamped them — `zsup install <version> --force` after an install, or
+`zsup self update <version>` after a self update, which names the version because a bare
+`zsup self update` would find itself already current and stamp nothing. A skipped shim keeps
+working — it is just the previous version.
 
 Selection order, highest first:
 

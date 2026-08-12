@@ -53,6 +53,9 @@ internal static class UninstallCommand
                 name
             );
 
+        // Set when the toolchain went but the settings file recording it as the default did not.
+        string? defaultNotCleared = null;
+
         try
         {
             registry.Remove(name);
@@ -60,6 +63,14 @@ internal static class UninstallCommand
         catch (DirectoryNotFoundException)
         {
             return ZsupHelpers.Error($"error: toolchain '{name}' is not installed");
+        }
+        catch (ToolchainRegistry.DefaultNotClearedException e)
+        {
+            // Caught ahead of the general handler below, which it would otherwise match: the
+            // toolchain is already gone here, so reporting "could not remove" would send the user
+            // back to retry something that has happened. Deferred rather than returned, because the
+            // rest of this command -- the cache purge, the note about the default -- still applies.
+            defaultNotCleared = e.Message;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -112,6 +123,21 @@ internal static class UninstallCommand
         if (wasDefault)
         {
             var remaining = registry.List();
+
+            if (defaultNotCleared is not null)
+            {
+                // The one step past the commit point that can fail -- a read-only home, a full
+                // disk. Every later `zs` resolves the default and finds a toolchain that is not
+                // there, so the user needs to know, but the removal itself did happen.
+                ZsupHelpers.Warn(defaultNotCleared);
+                Console.Error.WriteLine(
+                    remaining.Count > 0
+                        ? $"help: run `zsup use <toolchain>` once that is fixed ({string.Join(", ", remaining.Select(t => t.Name))})"
+                        : "help: run `zsup install latest` once that is fixed"
+                );
+                return 0;
+            }
+
             Console.WriteLine("note: that was the default toolchain");
             Console.WriteLine(
                 remaining.Count > 0

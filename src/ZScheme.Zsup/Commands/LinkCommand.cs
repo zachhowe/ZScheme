@@ -86,6 +86,23 @@ internal static class LinkCommand
         {
             return ZsupHelpers.Error($"error: no linked toolchain named '{name}'");
         }
+        catch (ToolchainRegistry.DefaultNotClearedException e)
+        {
+            // Ahead of the handler below, which it would otherwise match. The link is already gone
+            // by this point, so this is the settings write that failed after it -- a warning on top
+            // of a completed unlink, not a failure that contradicts it.
+            Console.WriteLine($"unlinked '{name}'");
+            ZsupHelpers.Warn(e.Message);
+            Console.Error.WriteLine("help: run `zsup use <toolchain>` once that is fixed");
+            return 0;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // A read-only home, or a link file held open. Without this the exception escapes Main,
+            // and zsup is built with StackTraceSupport=false, so all the user would see is a bare
+            // unhandled-exception line.
+            return ZsupHelpers.Error($"error: could not unlink '{name}': {e.Message}");
+        }
 
         Console.WriteLine($"unlinked '{name}'");
         return 0;

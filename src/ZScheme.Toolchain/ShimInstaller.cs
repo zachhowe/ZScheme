@@ -19,6 +19,11 @@ public static partial class ShimInstaller
     public static readonly string[] ShimNames = ["zs", "zs-lsp"];
 
     /// <summary>
+    ///     Suffix of the private slot a Windows shim is staged in before it is renamed into place.
+    /// </summary>
+    private const string StagingSuffix = ".tmp-";
+
+    /// <summary>
     ///     The canonical shim name matching <paramref name="invokedAs" />, or <c>null</c> when it is
     ///     not one of them.
     /// </summary>
@@ -97,10 +102,26 @@ public static partial class ShimInstaller
             // Symlinks need admin or Developer Mode, and a hardlink would be silently orphaned by
             // `zsup self update`'s rename-then-replace. A copy always works.
             //
-            // Overwritten in place rather than deleted first: against a locked shim the copy fails
-            // exactly as the delete would, but it fails without having destroyed what was already
-            // there, so a locked name degrades to "still the old zsup" instead of "gone".
-            File.Copy(zsupPath, shimPath, overwrite: true);
+            // Staged beside the shim and renamed over it, rather than copied straight onto it:
+            // CopyFile truncates the destination before it writes, so a copy that dies part-way --
+            // a full disk, a network home dropping out -- would leave a zs.exe that is neither the
+            // old zsup nor the new one, and the "still points at the previous zsup" warning would
+            // then be describing a binary that no longer launches at all. The rename is the only
+            // step that touches the shim, and against a locked one it fails exactly as the copy
+            // would, so a locked name still degrades to "still the old zsup" instead of "gone".
+            SweepStaging(shimPath);
+
+            var staged = shimPath + StagingSuffix + Guid.NewGuid().ToString("N")[..8];
+            try
+            {
+                File.Copy(zsupPath, staged, overwrite: true);
+                File.Move(staged, shimPath, overwrite: true);
+            }
+            finally
+            {
+                TryDeleteFile(staged);
+            }
+
             return;
         }
 
@@ -123,6 +144,44 @@ public static partial class ShimInstaller
         // have to be the one sitting next to it.
         var relative = Path.GetRelativePath(Path.GetDirectoryName(shimPath)!, zsupPath);
         File.CreateSymbolicLink(shimPath, relative);
+    }
+
+    /// <summary>Deletes staging slots a killed run left beside <paramref name="shimPath" />.</summary>
+    /// <remarks>
+    ///     The <c>finally</c> around the rename covers a failure, but not a kill between the copy
+    ///     and the rename. Nothing else walks the bin directory looking for these, so without a
+    ///     sweep they would pile up one zsup-sized file at a time.
+    /// </remarks>
+    private static void SweepStaging(string shimPath)
+    {
+        try
+        {
+            foreach (
+                var stale in Directory.EnumerateFiles(
+                    Path.GetDirectoryName(shimPath)!,
+                    Path.GetFileName(shimPath) + StagingSuffix + "*"
+                )
+            )
+                TryDeleteFile(stale);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort: a stale slot costs disk, not correctness, and must never be the reason
+            // a shim was left un-stamped.
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Either the rename already consumed it, or something else holds it and the sweep on
+            // the next stamp picks it up.
+        }
     }
 
     /// <summary>Sets mode 0755 on Unix; a no-op on Windows.</summary>

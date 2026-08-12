@@ -11,6 +11,12 @@ public sealed class ToolchainInstaller(string? home = null)
     /// </summary>
     private static readonly TimeSpan TransientMaxAge = TimeSpan.FromHours(6);
 
+    /// <summary>
+    ///     Prefixes of the directories <c>downloads/</c> is staged under: an install's extraction
+    ///     tree, the installation it moved aside, and <c>zsup self update</c>'s own staging tree.
+    /// </summary>
+    private static readonly string[] TransientDirPrefixes = [".staging-", ".trash-", ".zsup-"];
+
     private readonly string _home = ZSchemeHome.GetHome(home);
 
     /// <param name="Name">Toolchain name, normally the version.</param>
@@ -307,8 +313,8 @@ public sealed class ToolchainInstaller(string? home = null)
     }
 
     /// <summary>
-    ///     Removes the debris of an interrupted install: staging and trash directories, and partial
-    ///     downloads.
+    ///     Removes the debris of an interrupted install or self-update: staging and trash
+    ///     directories, partial downloads, and downloaded release archives.
     /// </summary>
     /// <remarks>
     ///     Only entries older than <see cref="TransientMaxAge" /> are swept. A blanket delete would
@@ -319,17 +325,29 @@ public sealed class ToolchainInstaller(string? home = null)
     ///     produced by renaming an installed toolchain, and a rename carries the original
     ///     timestamps, so an entry moved aside seconds ago would otherwise be as old as the
     ///     toolchain itself.
+    ///     <para>
+    ///         Public because <c>zsup self update</c> stages in this same directory and never
+    ///         reaches <see cref="InstallFrom" />. Both paths delete their own archive and staging
+    ///         tree when they finish; this is what covers the times they cannot — a scanner holding
+    ///         a freshly written file, or a kill before the cleanup runs at all — which without a
+    ///         sweep leaves hundreds of megabytes in <c>downloads/</c> permanently.
+    ///     </para>
     /// </remarks>
-    private static void SweepTransients(string downloads)
+    public static void SweepTransients(string downloads)
     {
+        if (!Directory.Exists(downloads))
+            return;
+
         var cutoff = DateTime.UtcNow - TransientMaxAge;
 
         foreach (var dir in Directory.EnumerateDirectories(downloads))
         {
             var name = Path.GetFileName(dir);
             if (
-                !name.StartsWith(".staging-", StringComparison.Ordinal)
-                && !name.StartsWith(".trash-", StringComparison.Ordinal)
+                !Array.Exists(
+                    TransientDirPrefixes,
+                    p => name.StartsWith(p, StringComparison.Ordinal)
+                )
             )
                 continue;
 
@@ -337,12 +355,39 @@ public sealed class ToolchainInstaller(string? home = null)
                 TryDelete(dir);
         }
 
-        // A download that was interrupted or failed verification leaves one of these behind. They
-        // are never resumed -- the next attempt starts a fresh .part -- so nothing else would ever
-        // remove them.
-        foreach (var file in Directory.EnumerateFiles(downloads, "*.part"))
+        // A download that was interrupted or failed verification leaves a .part behind, and one
+        // that completed leaves the archive itself whenever the delete that follows it could not
+        // run. Neither is ever reused -- the next attempt starts a fresh .part and re-hashes what
+        // it wrote -- so nothing else would ever remove them.
+        foreach (var file in Directory.EnumerateFiles(downloads))
+        {
+            var name = Path.GetFileName(file);
+            if (!name.EndsWith(".part", StringComparison.Ordinal) && !IsReleaseArchive(name))
+                continue;
+
             if (IsOlderThan(file, cutoff, File.GetLastWriteTimeUtc))
                 TryDeleteFile(file);
+        }
+    }
+
+    /// <summary>
+    ///     Whether a file in <c>downloads/</c> is a release asset zsup put there itself.
+    /// </summary>
+    /// <remarks>
+    ///     Matched on the exact shape <see cref="GitHubReleaseClient.ToolchainAssetName" /> and
+    ///     <see cref="GitHubReleaseClient.ZsupAssetName" /> produce rather than sweeping every
+    ///     archive, so a file the user parked here to install with <c>--from</c> is left alone.
+    /// </remarks>
+    private static bool IsReleaseArchive(string name)
+    {
+        return (
+                name.StartsWith("zscheme-", StringComparison.Ordinal)
+                || name.StartsWith("zsup-", StringComparison.Ordinal)
+            )
+            && (
+                name.EndsWith(".zip", StringComparison.Ordinal)
+                || name.EndsWith(".tar.gz", StringComparison.Ordinal)
+            );
     }
 
     private static bool IsOlderThan(string path, DateTime cutoff, Func<string, DateTime> writeTime)

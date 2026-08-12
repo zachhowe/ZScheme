@@ -171,6 +171,45 @@ public sealed class ShimInstallerTests
     }
 
     [Fact]
+    public void Install_LeavesNoStagingFileBehind()
+    {
+        using var home = new TempHome();
+        var zsup = MakeZsup(home);
+        var binDir = ZSchemeHome.GetBinDir(home.Path);
+
+        ShimInstaller.Install(binDir, zsup);
+
+        // The Windows path stages beside the shim before renaming over it. Nothing else walks the
+        // bin directory looking for those, so one left per stamp would pile up zsup-sized files.
+        Assert.Empty(Directory.GetFiles(binDir, "*.tmp-*"));
+    }
+
+    [Fact]
+    public void Install_SweepsAStagingFileAKilledRunLeftBehind()
+    {
+        // Only the Windows path stages; elsewhere the shim is hardlinked or symlinked in one step.
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var home = new TempHome();
+        var zsup = MakeZsup(home);
+        var binDir = ZSchemeHome.GetBinDir(home.Path);
+
+        // The try/finally around the rename covers a failure but not a kill between the copy and
+        // the rename, which is what leaves one of these.
+        var abandoned = Path.Combine(binDir, ZSchemeHome.ExeName("zs") + ".tmp-deadbeef");
+        File.WriteAllText(abandoned, "an interrupted stamp");
+
+        ShimInstaller.Install(binDir, zsup);
+
+        Assert.False(File.Exists(abandoned));
+        Assert.Equal(
+            "zsup binary",
+            File.ReadAllText(Path.Combine(binDir, ZSchemeHome.ExeName("zs")))
+        );
+    }
+
+    [Fact]
     public void MatchName_ReturnsTheCanonicalName()
     {
         Assert.Equal("zs", ShimInstaller.MatchName("zs"));

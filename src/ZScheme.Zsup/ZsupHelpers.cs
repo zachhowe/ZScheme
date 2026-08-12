@@ -32,10 +32,18 @@ internal static class ZsupHelpers
     ///     order, so a lock on <c>zs</c> leaves <c>zs-lsp</c> on the previous zsup, and the next
     ///     thing the user sees is a language-server bug that was fixed two releases ago. Whether the
     ///     name is stale or gone is read back off the filesystem rather than assumed --
-    ///     <c>zsup install</c> overwrites in place, so the old shim survives a failure, while
-    ///     <c>zsup self update</c> renames every shim aside first, so a failure leaves nothing.
+    ///     <c>zsup install</c> renames the new shim over the old one, so the old shim survives a
+    ///     failure, while <c>zsup self update</c> renames every shim aside first, so a failure
+    ///     leaves nothing.
     /// </remarks>
-    internal static void WarnAboutUnstampedShims(ShimInstaller.Result stamped)
+    /// <param name="recovery">
+    ///     The command that re-stamps the shims from where the caller stands, spelled exactly as the
+    ///     user has to type it. It differs per caller and neither form is a default: after an
+    ///     install only that toolchain's <c>--force</c> reinstall stamps them again, and after a
+    ///     self update a bare <c>zsup self update</c> would report itself already current and do
+    ///     nothing at all.
+    /// </param>
+    internal static void WarnAboutUnstampedShims(ShimInstaller.Result stamped, string recovery)
     {
         foreach (var failure in stamped.Failed)
         {
@@ -43,9 +51,9 @@ internal static class ZsupHelpers
             Console.Error.WriteLine(
                 File.Exists(failure.Path)
                     ? $"help: {failure.Path} still points at the previous zsup; close whatever is "
-                        + "using it and run `zsup install --force`"
+                        + $"using it and run `{recovery}`"
                     : $"help: {failure.Path} is missing; close whatever is holding it and run "
-                        + "`zsup install --force`"
+                        + $"`{recovery}`"
             );
         }
     }
@@ -58,8 +66,9 @@ internal static class ZsupHelpers
     ///     fed has committed or alongside the error that rejected it. In both positions the delete
     ///     is the least important thing happening, so it must not become the reported outcome --
     ///     an antivirus scanner still holding a freshly written file is routine on Windows. A
-    ///     leftover is swept by <c>ToolchainInstaller</c> on a later run and is never trusted in
-    ///     the meantime: the next download overwrites it and hashes what it wrote.
+    ///     leftover is swept by <see cref="ToolchainInstaller.SweepTransients" /> on a later run
+    ///     and is never trusted in the meantime: the next download overwrites it and hashes what
+    ///     it wrote.
     /// </remarks>
     internal static void TryDeleteDownload(string path)
     {

@@ -289,6 +289,54 @@ public sealed class ToolchainInstallerTests
     }
 
     [Fact]
+    public void SweepTransients_RemovesAnAbandonedSelfUpdateStagingTree()
+    {
+        // `zsup self update` stages under .zsup- in this same directory and never reaches
+        // InstallFrom, so before this prefix was swept an interrupted self update left its
+        // extracted tree in downloads/ with nothing that would ever remove it.
+        using var home = new TempHome();
+        var downloads = ZSchemeHome.GetDownloadsDir(home.Path);
+        var stale = Path.Combine(downloads, ".zsup-oldrun");
+        var inFlight = Path.Combine(downloads, ".zsup-concurrent");
+        Directory.CreateDirectory(stale);
+        Directory.CreateDirectory(inFlight);
+        Directory.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddDays(-2));
+
+        ToolchainInstaller.SweepTransients(downloads);
+
+        Assert.False(Directory.Exists(stale));
+        Assert.True(Directory.Exists(inFlight), "a self update in progress must not be swept");
+    }
+
+    [Fact]
+    public void SweepTransients_RemovesAnAbandonedReleaseArchive()
+    {
+        // The archive is deleted as soon as the install or self update that downloaded it is done.
+        // A scanner holding the file at that moment is routine on Windows, and the delete is
+        // deliberately best-effort there -- so without this the hundreds of megabytes stay.
+        using var home = new TempHome();
+        var downloads = ZSchemeHome.GetDownloadsDir(home.Path);
+        Directory.CreateDirectory(downloads);
+
+        var staleToolchain = Path.Combine(downloads, "zscheme-0.3.0-win-x64.zip");
+        var staleZsup = Path.Combine(downloads, "zsup-0.3.0-linux-x64.tar.gz");
+        var inFlight = Path.Combine(downloads, "zscheme-0.4.0-win-x64.zip");
+        // Not one of ours: a file the user parked here to install with --from.
+        var userSupplied = Path.Combine(downloads, "my-build.zip");
+        foreach (var path in new[] { staleToolchain, staleZsup, inFlight, userSupplied })
+            File.WriteAllText(path, "archive");
+        foreach (var path in new[] { staleToolchain, staleZsup, userSupplied })
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-2));
+
+        ToolchainInstaller.SweepTransients(downloads);
+
+        Assert.False(File.Exists(staleToolchain));
+        Assert.False(File.Exists(staleZsup));
+        Assert.True(File.Exists(inFlight), "a download in progress must not be swept");
+        Assert.True(File.Exists(userSupplied), "only zsup's own release assets are swept");
+    }
+
+    [Fact]
     public void InstallFrom_LeavesARecentStagingDirectoryAlone()
     {
         // A staging directory that was created moments ago belongs to a concurrent install --

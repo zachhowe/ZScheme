@@ -92,6 +92,11 @@ internal static class SelfCommand
         var downloads = ZSchemeHome.GetDownloadsDir(home);
         var archivePath = Path.Combine(downloads, assetName);
 
+        // This command stages in downloads/ but never reaches ToolchainInstaller, so without this
+        // a user who only ever self-updates never sweeps: every archive and staging tree its own
+        // cleanup could not remove would sit there forever.
+        ToolchainInstaller.SweepTransients(downloads);
+
         var expected = Checksums.Find(
             await client.GetTextAssetAsync(release, Checksums.FileName),
             assetName
@@ -138,7 +143,8 @@ internal static class SelfCommand
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                // Swept by a later run.
+                // Swept by a later run: the `.zsup-` prefix is one of the transient directory
+                // prefixes ToolchainInstaller.SweepTransients ages out of downloads/.
             }
 
             ZsupHelpers.TryDeleteDownload(archivePath);
@@ -148,7 +154,9 @@ internal static class SelfCommand
 
         // zsup itself is updated, so this is a warning rather than a failure -- but a shim left
         // behind here is one the user has to restore by hand, so it is named rather than swallowed.
-        ZsupHelpers.WarnAboutUnstampedShims(stamped);
+        // The recovery names the version explicitly: zsup is already at it, so a bare `zsup self
+        // update` would print "already the latest release" and return without stamping anything.
+        ZsupHelpers.WarnAboutUnstampedShims(stamped, $"zsup self update {release.Version}");
         return 0;
     }
 

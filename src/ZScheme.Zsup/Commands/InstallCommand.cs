@@ -97,7 +97,7 @@ internal static class InstallCommand
         foreach (var warning in result.Warnings)
             ZsupHelpers.Warn(warning);
 
-        StampShims(home);
+        StampShims(home, result.Name);
 
         // A freshly installed toolchain becomes the default; `--no-default` is how you install one
         // without switching to it.
@@ -211,7 +211,12 @@ internal static class InstallCommand
     ///     Re-stamps <c>zs</c>/<c>zs-lsp</c> next to whichever zsup is running, so the shims and the
     ///     manager can never drift apart.
     /// </summary>
-    private static void StampShims(string home)
+    /// <param name="name">
+    ///     The toolchain just installed, only so a shim that could not be stamped can name the
+    ///     command that stamps it -- which needs a version, since <c>zsup install</c> on its own
+    ///     rejects the invocation.
+    /// </param>
+    private static void StampShims(string home, string name)
     {
         var binDir = ZSchemeHome.GetBinDir(home);
         var installedZsup = Path.Combine(binDir, ZSchemeHome.ExeName("zsup"));
@@ -236,7 +241,10 @@ internal static class InstallCommand
             // warning can say which shim is stale instead of "the shims" -- see
             // ZsupHelpers.WarnAboutUnstampedShims. What is left to throw here is the bin directory
             // itself being unusable, which is every name at once.
-            ZsupHelpers.WarnAboutUnstampedShims(ShimInstaller.Install(binDir, installedZsup));
+            ZsupHelpers.WarnAboutUnstampedShims(
+                ShimInstaller.Install(binDir, installedZsup),
+                $"zsup install {name} --force"
+            );
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

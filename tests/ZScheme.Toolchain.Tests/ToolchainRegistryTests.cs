@@ -210,6 +210,77 @@ public sealed class ToolchainRegistryTests
     }
 
     [Fact]
+    public void SetDefault_SweepsAStagingFileAKilledRunLeftBehind()
+    {
+        // The finally around the rename only covers a failure, not a kill between the write and
+        // the rename. Every write stages under its own name, so without a sweep those pile up in
+        // the home root one per interrupted run and nothing ever removes them.
+        using var home = new TempHome();
+        home.AddInstalled("0.4.0");
+
+        var settings = ZSchemeHome.GetSettingsFile(home.Path);
+        var abandoned = settings + ".tmp-deadbeef";
+        File.WriteAllText(abandoned, "{}");
+        File.SetLastWriteTimeUtc(abandoned, DateTime.UtcNow.AddDays(-2));
+
+        new ToolchainRegistry(home.Path).SetDefault("0.4.0");
+
+        Assert.False(File.Exists(abandoned));
+        Assert.Equal("0.4.0", new ToolchainRegistry(home.Path).GetDefault());
+    }
+
+    [Fact]
+    public void SetDefault_LeavesAConcurrentProcessesStagingFileAlone()
+    {
+        // The private slot exists so a second zsup can be writing one of its own. Unlinking a live
+        // one would leave that process renaming a path that no longer exists -- the very race the
+        // per-process suffix was introduced to remove.
+        using var home = new TempHome();
+        home.AddInstalled("0.4.0");
+
+        var inFlight = ZSchemeHome.GetSettingsFile(home.Path) + ".tmp-concurrent";
+        File.WriteAllText(inFlight, "half-written");
+
+        new ToolchainRegistry(home.Path).SetDefault("0.4.0");
+
+        Assert.True(File.Exists(inFlight));
+    }
+
+    [Fact]
+    public void Remove_SettingsWriteFails_ReportsThatRatherThanAFailedRemoval()
+    {
+        // Only Windows refuses to rename over a read-only file; elsewhere the containing
+        // directory's permissions govern, so the write simply succeeds.
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var home = new TempHome();
+        home.AddInstalled("0.4.0");
+        var registry = new ToolchainRegistry(home.Path);
+        registry.SetDefault("0.4.0");
+
+        // Stands in for the read-only home or full disk that stops the settings write. The delete
+        // still succeeds, so the two halves of Remove fail for the same reasons and mean opposite
+        // things -- reporting this one as "could not remove" would send the user back to retry
+        // something that has already happened.
+        var settings = ZSchemeHome.GetSettingsFile(home.Path);
+        File.SetAttributes(settings, FileAttributes.ReadOnly);
+        try
+        {
+            var thrown = Assert.Throws<ToolchainRegistry.DefaultNotClearedException>(() =>
+                registry.Remove("0.4.0")
+            );
+
+            Assert.Equal("0.4.0", thrown.ToolchainName);
+            Assert.Null(registry.TryGet("0.4.0"));
+        }
+        finally
+        {
+            File.SetAttributes(settings, FileAttributes.Normal);
+        }
+    }
+
+    [Fact]
     public void GetDefault_MalformedSettings_DegradesToNoDefault()
     {
         using var home = new TempHome();
