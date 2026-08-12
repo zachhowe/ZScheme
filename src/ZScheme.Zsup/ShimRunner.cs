@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.Versioning;
 using ZScheme.Toolchain;
 
 namespace ZScheme.Zsup;
@@ -81,7 +82,12 @@ internal static class ShimRunner
         foreach (var (key, value) in ChildEnvironment(toolchain))
             psi.Environment[key] = value;
 
-        using var job = WindowsJobObject.TryCreate();
+        // Joined before the child exists, so the child is inside the job from the moment it is
+        // created and so is anything it spawns while starting up. The handle is held for the rest of
+        // this process's life on purpose -- see the class remarks.
+        var job = WindowsJobObject.TryCreate();
+        var contained = job is not null && job.TryAssignCurrentProcess();
+
         using var child = Process.Start(psi);
         if (child is null)
         {
@@ -89,14 +95,13 @@ internal static class ShimRunner
             return CannotExecute;
         }
 
-        try
-        {
-            job?.TryAssign(child.Handle);
-        }
-        catch (InvalidOperationException)
-        {
-            // The child exited before we could assign it, so there is nothing left to reap.
-        }
+        // Where this process could not join the job, assigning the child still gets the child itself
+        // reaped; only the startup window reopens. A job that could not be created at all is the
+        // documented tolerated degradation and stays quiet, but one that exists and refuses both
+        // assignments reaps nothing -- and an editor leaving a zs-lsp behind on every restart is
+        // invisible unless it is said out loud.
+        if (job is not null && !contained && !TryContain(job, child))
+            ZsupHelpers.Warn($"could not tie {toolName} to this process; it may outlive the shim");
 
         // Ctrl+C reaches the child too, since it shares our console process group. Cancelling the
         // shim's own handling keeps it waiting, so the shell does not print a prompt over output
@@ -111,6 +116,27 @@ internal static class ShimRunner
         finally
         {
             Console.CancelKeyPress -= onCancel;
+        }
+    }
+
+    /// <summary>
+    ///     Fallback for a shim that could not join the job itself: assigns the running child to it.
+    /// </summary>
+    /// <remarks>
+    ///     A child that has already exited counts as contained, not as a failure — there is nothing
+    ///     left to reap, and reading <see cref="Process.Handle" /> for one throws rather than
+    ///     returning a dead handle.
+    /// </remarks>
+    [SupportedOSPlatform("windows")]
+    private static bool TryContain(WindowsJobObject job, Process child)
+    {
+        try
+        {
+            return job.TryAssign(child.Handle);
+        }
+        catch (InvalidOperationException)
+        {
+            return true;
         }
     }
 
