@@ -201,6 +201,37 @@ public sealed class ToolchainInstallerTests
     }
 
     [Fact]
+    public void InstallFrom_WithoutForce_RefusesToShadowALinkedToolchain()
+    {
+        // The reciprocal of the guard in ToolchainRegistry.Link. Both entries existing for one name
+        // is what makes `zsup list` show it twice and `zsup uninstall` only half remove it.
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+        home.AddLink("dev", home.Dir("devtree"));
+
+        Assert.Throws<IOException>(() =>
+            new ToolchainInstaller(home.Path).InstallFrom(payload, "dev")
+        );
+    }
+
+    [Fact]
+    public void InstallFrom_WithForce_ReplacesALinkedToolchainOutright()
+    {
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+        home.AddLink("dev", home.Dir("devtree"));
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(payload, "dev", force: true);
+
+        Assert.False(File.Exists(ZSchemeHome.GetToolchainLinkFile("dev", home.Path)));
+        Assert.Empty(result.Warnings);
+
+        var listed = new ToolchainRegistry(home.Path).List();
+        Assert.Equal(["dev"], listed.Select(t => t.Name));
+        Assert.False(listed[0].IsLinked);
+    }
+
+    [Fact]
     public void InstallFrom_NotAToolchain_ThrowsAndLeavesNothingBehind()
     {
         using var home = new TempHome();

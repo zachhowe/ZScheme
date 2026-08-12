@@ -16,7 +16,16 @@ public sealed class ToolchainInstaller(string? home = null)
     /// <param name="Name">Toolchain name, normally the version.</param>
     /// <param name="Dir">Where it was installed.</param>
     /// <param name="PackagesSeeded">Package versions copied into the shared cache.</param>
-    public sealed record Result(string Name, string Dir, int PackagesSeeded);
+    /// <param name="Warnings">
+    ///     Best-effort steps that failed after the install had already committed. The install
+    ///     succeeded; these are for the caller to report, not to fail on.
+    /// </param>
+    public sealed record Result(
+        string Name,
+        string Dir,
+        int PackagesSeeded,
+        IReadOnlyList<string> Warnings
+    );
 
     /// <summary>
     ///     Installs from a local archive or directory.
@@ -25,7 +34,9 @@ public sealed class ToolchainInstaller(string? home = null)
     ///     Staging happens under the home rather than the system temp directory, because the commit
     ///     step is a directory rename into <c>toolchains/</c> and that requires the same volume.
     /// </remarks>
-    /// <param name="force">Replace an existing installation of the same name.</param>
+    /// <param name="force">
+    ///     Replace an existing installation of the same name, or a linked toolchain of that name.
+    /// </param>
     public Result InstallFrom(string source, string name, bool force = false, string? sha256 = null)
     {
         ToolchainName.Validate(name);
@@ -34,6 +45,15 @@ public sealed class ToolchainInstaller(string? home = null)
         if (Directory.Exists(destDir) && !force)
             throw new IOException(
                 $"toolchain '{name}' is already installed; pass --force to replace it"
+            );
+
+        // The reciprocal of the guard in ToolchainRegistry.Link. Without it a name can end up with
+        // both a directory and a .link file, which List reports twice and `zsup uninstall` only
+        // half removes -- leaving the stale link as the toolchain that name now selects.
+        var linkFile = ZSchemeHome.GetToolchainLinkFile(name, _home);
+        if (File.Exists(linkFile) && !force)
+            throw new IOException(
+                $"'{name}' is a linked toolchain; run `zsup unlink {name}` first, or pass --force to replace it"
             );
 
         var downloads = ZSchemeHome.GetDownloadsDir(_home);
@@ -81,8 +101,35 @@ public sealed class ToolchainInstaller(string? home = null)
         if (trash is not null)
             TryDelete(trash);
 
-        var seeded = PackageCacheSeeder.Seed(destDir, _home, force);
-        return new Result(name, destDir, seeded);
+        // Past the commit point everything is best-effort. Letting a failure here propagate would
+        // report an install that did happen as a failure, and the caller would then skip stamping
+        // the shims and setting the default -- the worst of both outcomes.
+        var warnings = new List<string>();
+        var seeded = 0;
+
+        try
+        {
+            seeded = PackageCacheSeeder.Seed(destDir, _home, force);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            warnings.Add($"could not seed the prebuilt package cache: {e.Message}");
+        }
+
+        // Only reachable under --force; the check above rejects the collision otherwise.
+        try
+        {
+            if (File.Exists(linkFile))
+                File.Delete(linkFile);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            warnings.Add(
+                $"'{name}' still has a link file at {linkFile}; remove it with `zsup unlink {name}`"
+            );
+        }
+
+        return new Result(name, destDir, seeded, warnings);
     }
 
     /// <summary>

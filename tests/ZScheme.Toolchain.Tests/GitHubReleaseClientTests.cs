@@ -29,6 +29,8 @@ public sealed class GitHubReleaseClientTests
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
     }
 
+    private static readonly ReleaseRef Release040 = ReleaseRef.Explicit("0.4.0");
+
     [Fact]
     public void GetAssetUrl_UsesTheReleaseDownloadPath()
     {
@@ -36,7 +38,7 @@ public sealed class GitHubReleaseClientTests
 
         Assert.Equal(
             "https://github.com/owner/repo/releases/download/0.4.0/zscheme-0.4.0-linux-x64.tar.gz",
-            client.GetAssetUrl("0.4.0", "zscheme-0.4.0-linux-x64.tar.gz")
+            client.GetAssetUrl(Release040, "zscheme-0.4.0-linux-x64.tar.gz")
         );
     }
 
@@ -47,7 +49,20 @@ public sealed class GitHubReleaseClientTests
 
         Assert.Equal(
             "https://mirror.example/dist/0.4.0/asset.zip",
-            client.GetAssetUrl("0.4.0", "asset.zip")
+            client.GetAssetUrl(Release040, "asset.zip")
+        );
+    }
+
+    [Fact]
+    public void GetAssetUrl_UsesTheTagRatherThanTheVersion()
+    {
+        // The whole reason the two are carried separately: a v-prefixed tag resolves fine, and
+        // then every asset URL built from the stripped version would 404.
+        using var client = new GitHubReleaseClient("owner/repo", baseUrlOverride: "");
+
+        Assert.Equal(
+            "https://github.com/owner/repo/releases/download/v1.2.3/asset.zip",
+            client.GetAssetUrl(new ReleaseRef("v1.2.3", "1.2.3"), "asset.zip")
         );
     }
 
@@ -77,12 +92,12 @@ public sealed class GitHubReleaseClientTests
     }
 
     [Fact]
-    public async Task GetLatestVersionAsync_ReadsTheTagName()
+    public async Task GetLatestReleaseAsync_ReadsTheTagName()
     {
         var handler = new FakeHandler(_ => Ok("""{"tag_name":"0.4.0"}"""));
         using var client = new GitHubReleaseClient("owner/repo", "", handler);
 
-        Assert.Equal("0.4.0", await client.GetLatestVersionAsync());
+        Assert.Equal(new ReleaseRef("0.4.0", "0.4.0"), await client.GetLatestReleaseAsync());
         Assert.Equal(
             "https://api.github.com/repos/owner/repo/releases/latest",
             handler.Requests[0].RequestUri!.ToString()
@@ -90,33 +105,36 @@ public sealed class GitHubReleaseClientTests
     }
 
     [Fact]
-    public async Task GetLatestVersionAsync_StripsAVPrefix()
+    public async Task GetLatestReleaseAsync_StripsAVPrefixFromTheVersionButKeepsTheTag()
     {
         var handler = new FakeHandler(_ => Ok("""{"tag_name":"v1.2.3"}"""));
         using var client = new GitHubReleaseClient("owner/repo", "", handler);
 
-        Assert.Equal("1.2.3", await client.GetLatestVersionAsync());
+        var release = await client.GetLatestReleaseAsync();
+
+        Assert.Equal("1.2.3", release.Version);
+        Assert.Equal("v1.2.3", release.Tag);
     }
 
     [Fact]
-    public async Task GetLatestVersionAsync_SendsAUserAgent()
+    public async Task GetLatestReleaseAsync_SendsAUserAgent()
     {
         // GitHub rejects API requests that do not identify themselves, so this is not optional.
         var handler = new FakeHandler(_ => Ok("""{"tag_name":"0.4.0"}"""));
         using var client = new GitHubReleaseClient("owner/repo", "", handler);
 
-        await client.GetLatestVersionAsync();
+        await client.GetLatestReleaseAsync();
 
         Assert.NotEmpty(handler.Requests[0].Headers.UserAgent);
     }
 
     [Fact]
-    public async Task GetLatestVersionAsync_NoTag_Throws()
+    public async Task GetLatestReleaseAsync_NoTag_Throws()
     {
         var handler = new FakeHandler(_ => Ok("{}"));
         using var client = new GitHubReleaseClient("owner/repo", "", handler);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetLatestVersionAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetLatestReleaseAsync());
     }
 
     [Fact]
@@ -127,7 +145,7 @@ public sealed class GitHubReleaseClientTests
         using var home = new TempHome();
         var dest = Path.Combine(home.Path, "downloads", "asset.zip");
 
-        var digest = await client.DownloadAssetAsync("0.4.0", "asset.zip", dest);
+        var digest = await client.DownloadAssetAsync(Release040, "asset.zip", dest);
 
         Assert.Equal("payload", File.ReadAllText(dest));
         Assert.Equal(Checksums.ComputeSha256(dest), digest);
@@ -141,7 +159,7 @@ public sealed class GitHubReleaseClientTests
         using var home = new TempHome();
         var dest = Path.Combine(home.Path, "downloads", "asset.zip");
 
-        await client.DownloadAssetAsync("0.4.0", "asset.zip", dest);
+        await client.DownloadAssetAsync(Release040, "asset.zip", dest);
 
         Assert.False(File.Exists(dest + ".part"));
     }
@@ -154,7 +172,7 @@ public sealed class GitHubReleaseClientTests
         using var home = new TempHome();
 
         var error = await Assert.ThrowsAsync<FileNotFoundException>(() =>
-            client.DownloadAssetAsync("0.4.0", "missing.zip", Path.Combine(home.Path, "a.zip"))
+            client.DownloadAssetAsync(Release040, "missing.zip", Path.Combine(home.Path, "a.zip"))
         );
 
         Assert.Contains("missing.zip", error.Message);
@@ -166,7 +184,7 @@ public sealed class GitHubReleaseClientTests
         var handler = new FakeHandler(_ => Ok("digest  asset.zip"));
         using var client = new GitHubReleaseClient("owner/repo", "", handler);
 
-        var content = await client.GetTextAssetAsync("0.4.0", Checksums.FileName);
+        var content = await client.GetTextAssetAsync(Release040, Checksums.FileName);
 
         Assert.Equal("digest  asset.zip", content);
         Assert.EndsWith(

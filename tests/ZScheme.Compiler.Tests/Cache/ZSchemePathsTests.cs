@@ -17,12 +17,18 @@ public sealed class ZSchemePathsTests : IDisposable
         ZSchemePaths.SetProcessDefaultCacheRoot(null);
     }
 
+    /// <summary>
+    ///     What the cache root has to be with nothing overriding it. Built from the home rather than
+    ///     from <c>ZSchemeHome.GetCacheRoot()</c>, which is the exact call the fallback delegates to
+    ///     — comparing against that would pass even if the fallback disappeared entirely. The home
+    ///     itself stays indirect so the test still holds for a developer with ZSCHEME_HOME exported.
+    /// </summary>
+    private static string HomeDefault => Path.Combine(ZSchemeHome.GetHome(), "cache");
+
     [Fact]
     public void GetCacheRoot_NoOverrides_UsesUserProfileDefault()
     {
-        // Compared against ZSchemeHome rather than re-derived from the user profile, so the test
-        // still holds for a developer who has ZSCHEME_HOME exported.
-        Assert.Equal(ZSchemeHome.GetCacheRoot(), ZSchemePaths.GetCacheRoot());
+        Assert.Equal(HomeDefault, ZSchemePaths.GetCacheRoot());
     }
 
     [Fact]
@@ -71,7 +77,7 @@ public sealed class ZSchemePathsTests : IDisposable
         ZSchemePaths.SetProcessDefaultCacheRoot("/tmp/something");
         ZSchemePaths.SetProcessDefaultCacheRoot(null);
 
-        Assert.Equal(ZSchemeHome.GetCacheRoot(), ZSchemePaths.GetCacheRoot());
+        Assert.Equal(HomeDefault, ZSchemePaths.GetCacheRoot());
     }
 
     [Fact]
@@ -80,7 +86,7 @@ public sealed class ZSchemePathsTests : IDisposable
         ZSchemePaths.SetProcessDefaultCacheRoot("/tmp/something");
         ZSchemePaths.SetProcessDefaultCacheRoot("");
 
-        Assert.Equal(ZSchemeHome.GetCacheRoot(), ZSchemePaths.GetCacheRoot());
+        Assert.Equal(HomeDefault, ZSchemePaths.GetCacheRoot());
     }
 
     [Fact]
@@ -130,7 +136,7 @@ public sealed class ZSchemePathsTests : IDisposable
     [Fact]
     public void GetPackageCacheRoot_NoArg_UsesDefault()
     {
-        var expected = Path.Combine(ZSchemeHome.GetCacheRoot(), "pkg", CompilerInfo.BaseVersion);
+        var expected = Path.Combine(HomeDefault, "pkg", CompilerInfo.BaseVersion);
 
         Assert.Equal(expected, ZSchemePaths.GetPackageCacheRoot());
     }

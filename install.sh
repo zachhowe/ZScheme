@@ -11,7 +11,10 @@ set -eu
 REPO="${ZSCHEME_GITHUB_REPO:-zachhowe/ZScheme}"
 ZSCHEME_HOME="${ZSCHEME_HOME:-$HOME/.zscheme}"
 BIN_DIR="$ZSCHEME_HOME/bin"
-VERSION="${ZSCHEME_VERSION:-}"
+# Deliberately not ZSCHEME_VERSION: that selects which installed toolchain the `zs` shim runs, and
+# plenty of people have it exported to a name like `dev`. Reusing it here would turn a re-run of the
+# installer into a download of "zsup-dev-linux-x64.tar.gz".
+VERSION="${ZSCHEME_INSTALL_VERSION:-}"
 MODIFY_PATH=1
 
 usage() {
@@ -22,12 +25,20 @@ Options:
   --version <X.Y.Z>   Install a specific version (default: the latest release)
   --no-modify-path    Do not touch your shell profile
   -h, --help          Show this help
+
+Environment:
+  ZSCHEME_INSTALL_VERSION   Same as --version. Not ZSCHEME_VERSION, which selects the
+                            installed toolchain that \`zs\` runs.
 EOF
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --version) VERSION="${2:-}"; shift 2 ;;
+        # The count is checked first: `shift 2` with one argument left aborts under `set -eu` with
+        # the shell's own error instead of the usage message.
+        --version)
+            [ $# -ge 2 ] || { echo "error: --version needs a value" >&2; usage >&2; exit 1; }
+            VERSION="$2"; shift 2 ;;
         --no-modify-path) MODIFY_PATH=0; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "error: unknown option: $1" >&2; usage >&2; exit 1 ;;
@@ -67,13 +78,18 @@ fi
 need tar
 
 # --- Resolve the version ------------------------------------------------------------------
+# TAG is the URL segment the assets live under; VERSION is the bare version in their names. They
+# are the same today, and keeping them apart is what makes the v-prefix tolerance below work at all
+# -- stripping the prefix and then using it as the tag would 404 on every download.
 if [ -z "$VERSION" ]; then
     say "Looking up the latest ZScheme release..."
-    VERSION=$(fetch_stdout "https://api.github.com/repos/$REPO/releases/latest" \
+    TAG=$(fetch_stdout "https://api.github.com/repos/$REPO/releases/latest" \
         | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
         | head -n 1)
-    [ -n "$VERSION" ] || err "could not determine the latest release"
-    VERSION="${VERSION#v}"
+    [ -n "$TAG" ] || err "could not determine the latest release"
+    VERSION="${TAG#v}"
+else
+    TAG="$VERSION"
 fi
 
 BASE_URL="${ZSCHEME_DIST_BASE_URL:-https://github.com/$REPO/releases/download}"
@@ -86,7 +102,7 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 
 # --- Download and verify zsup -------------------------------------------------------------
 say "Downloading $ASSET..."
-fetch "$BASE_URL/$VERSION/$ASSET" "$tmp/$ASSET" || err "could not download $ASSET"
+fetch "$BASE_URL/$TAG/$ASSET" "$tmp/$ASSET" || err "could not download $ASSET"
 
 # Verification is mandatory. Downgrading to "warn and install anyway" would mean anyone able to
 # block or 404 a single URL could turn it off entirely -- and the warning would scroll past
@@ -94,7 +110,7 @@ fetch "$BASE_URL/$VERSION/$ASSET" "$tmp/$ASSET" || err "could not download $ASSE
 if [ "${ZSCHEME_SKIP_VERIFY:-0}" = "1" ]; then
     say "warning: ZSCHEME_SKIP_VERIFY is set; not verifying the download"
 else
-    fetch "$BASE_URL/$VERSION/SHA256SUMS" "$tmp/SHA256SUMS" 2>/dev/null \
+    fetch "$BASE_URL/$TAG/SHA256SUMS" "$tmp/SHA256SUMS" 2>/dev/null \
         || err "could not download SHA256SUMS for $VERSION; refusing to install unverified"
 
     # Exact field comparison rather than a grep pattern: asset names contain dots, which would

@@ -16,6 +16,21 @@ public static partial class ShimInstaller
     /// <summary>The names installed alongside <c>zsup</c>.</summary>
     public static readonly string[] ShimNames = ["zs", "zs-lsp"];
 
+    /// <summary>
+    ///     The canonical shim name matching <paramref name="invokedAs" />, or <c>null</c> when it is
+    ///     not one of them.
+    /// </summary>
+    /// <remarks>
+    ///     Matched the way the filesystem resolves names, because that is where the name comes from:
+    ///     typing <c>ZS</c> on Windows launches <c>zs.exe</c>, and argv[0] then carries whatever case
+    ///     the user typed. An ordinal match there would miss the shim branch entirely and drop the
+    ///     user into the manager CLI.
+    /// </remarks>
+    public static string? MatchName(string? invokedAs)
+    {
+        return Array.Find(ShimNames, name => ToolchainName.AreSame(name, invokedAs));
+    }
+
     /// <summary>Owner rwx, group/other rx — the mode a published apphost normally carries.</summary>
     internal const UnixFileMode Executable755 =
         UnixFileMode.UserRead
@@ -70,8 +85,10 @@ public static partial class ShimInstaller
         }
 
         // Different filesystem, or a filesystem without hardlinks. A relative target keeps the
-        // whole home directory movable.
-        File.CreateSymbolicLink(shimPath, Path.GetFileName(zsupPath));
+        // whole home directory movable -- relative to the shim's own directory, since zsup does not
+        // have to be the one sitting next to it.
+        var relative = Path.GetRelativePath(Path.GetDirectoryName(shimPath)!, zsupPath);
+        File.CreateSymbolicLink(shimPath, relative);
     }
 
     /// <summary>Sets mode 0755 on Unix; a no-op on Windows.</summary>

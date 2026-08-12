@@ -53,6 +53,9 @@ internal static class SelfCommand
                         or InvalidOperationException
                         or FileNotFoundException
                         or ArgumentException
+                        // ArchiveExtractor.Extract throws this for an unrecognized extension.
+                        or NotSupportedException
+                        or UnauthorizedAccessException
                         or HttpRequestException
                         or PlatformNotSupportedException
                         or TaskCanceledException
@@ -68,32 +71,34 @@ internal static class SelfCommand
         var rid = RuntimeIdentifier.Detect();
         using var client = new GitHubReleaseClient();
 
-        var version = requestedVersion ?? await client.GetLatestVersionAsync();
+        var release = requestedVersion is null
+            ? await client.GetLatestReleaseAsync()
+            : ReleaseRef.Explicit(requestedVersion);
 
         // Validated before it reaches an asset name and then a path under downloads/.
-        ToolchainName.Validate(version, nameof(requestedVersion));
+        ToolchainName.Validate(release.Version, nameof(requestedVersion));
 
-        if (requestedVersion is null && version == ZsupVersion.Base)
+        if (requestedVersion is null && release.Version == ZsupVersion.Base)
         {
             Console.WriteLine($"zsup {ZsupVersion.Base} is already the latest release");
             return 0;
         }
 
-        var assetName = GitHubReleaseClient.ZsupAssetName(version, rid);
+        var assetName = GitHubReleaseClient.ZsupAssetName(release.Version, rid);
         var downloads = ZSchemeHome.GetDownloadsDir(home);
         var archivePath = Path.Combine(downloads, assetName);
 
         var expected = Checksums.Find(
-            await client.GetTextAssetAsync(version, Checksums.FileName),
+            await client.GetTextAssetAsync(release, Checksums.FileName),
             assetName
         );
         if (expected is null)
             throw new InvalidDataException(
-                $"{Checksums.FileName} for {version} does not list {assetName}"
+                $"{Checksums.FileName} for {release.Version} does not list {assetName}"
             );
 
         Console.WriteLine($"downloading {assetName}");
-        var actual = await client.DownloadAssetAsync(version, assetName, archivePath);
+        var actual = await client.DownloadAssetAsync(release, assetName, archivePath);
         if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
         {
             File.Delete(archivePath);
@@ -129,7 +134,7 @@ internal static class SelfCommand
             }
         }
 
-        Console.WriteLine($"updated zsup to {version}");
+        Console.WriteLine($"updated zsup to {release.Version}");
         return 0;
     }
 

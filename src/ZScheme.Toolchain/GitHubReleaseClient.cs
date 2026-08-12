@@ -13,6 +13,27 @@ internal sealed class GitHubRelease
 [JsonSerializable(typeof(GitHubRelease))]
 internal sealed partial class GitHubJsonContext : JsonSerializerContext;
 
+/// <summary>
+///     A release identified both ways it gets used.
+/// </summary>
+/// <remarks>
+///     The two are the same today, and the whole point of keeping them apart is the day they are
+///     not: tolerating a <c>v</c> prefix while feeding the stripped value back in as the tag would
+///     resolve <c>latest</c> successfully and then 404 on every asset.
+/// </remarks>
+/// <param name="Tag">The tag exactly as GitHub has it — the URL segment assets live under.</param>
+/// <param name="Version">
+///     The bare version the tag names. Appears in asset names, and becomes the toolchain name.
+/// </param>
+public sealed record ReleaseRef(string Tag, string Version)
+{
+    /// <summary>A release the user named explicitly, where the tag is the version.</summary>
+    public static ReleaseRef Explicit(string version)
+    {
+        return new ReleaseRef(version, version);
+    }
+}
+
 /// <summary>Downloads release assets, resolving <c>latest</c> through the GitHub API.</summary>
 public sealed class GitHubReleaseClient : IDisposable
 {
@@ -49,8 +70,10 @@ public sealed class GitHubReleaseClient : IDisposable
         _http.Timeout = TimeSpan.FromMinutes(10);
     }
 
-    /// <summary>The tag of the newest published release.</summary>
-    public async Task<string> GetLatestVersionAsync(CancellationToken cancellationToken = default)
+    /// <summary>The newest published release.</summary>
+    public async Task<ReleaseRef> GetLatestReleaseAsync(
+        CancellationToken cancellationToken = default
+    )
     {
         var url = $"https://api.github.com/repos/{_repository}/releases/latest";
 
@@ -67,16 +90,17 @@ public sealed class GitHubReleaseClient : IDisposable
             );
 
         // Tags are bare versions (0.4.0). Tolerate a v-prefix so a future convention change does
-        // not strand this client.
-        return tag.StartsWith('v') ? tag[1..] : tag;
+        // not strand this client -- but keep the tag itself, because that is what the download URL
+        // is built from.
+        return new ReleaseRef(tag, tag.StartsWith('v') ? tag[1..] : tag);
     }
 
     /// <summary>Download URL for one asset of a release.</summary>
-    public string GetAssetUrl(string version, string assetName)
+    public string GetAssetUrl(ReleaseRef release, string assetName)
     {
         return _baseUrlOverride is not null
-            ? $"{_baseUrlOverride.TrimEnd('/')}/{version}/{assetName}"
-            : $"https://github.com/{_repository}/releases/download/{version}/{assetName}";
+            ? $"{_baseUrlOverride.TrimEnd('/')}/{release.Tag}/{assetName}"
+            : $"https://github.com/{_repository}/releases/download/{release.Tag}/{assetName}";
     }
 
     /// <summary>Asset name for a toolchain archive.</summary>
@@ -93,12 +117,12 @@ public sealed class GitHubReleaseClient : IDisposable
 
     /// <summary>Fetches a small text asset, such as <c>SHA256SUMS</c>.</summary>
     public async Task<string> GetTextAssetAsync(
-        string version,
+        ReleaseRef release,
         string assetName,
         CancellationToken cancellationToken = default
     )
     {
-        return await _http.GetStringAsync(GetAssetUrl(version, assetName), cancellationToken);
+        return await _http.GetStringAsync(GetAssetUrl(release, assetName), cancellationToken);
     }
 
     /// <summary>
@@ -110,14 +134,14 @@ public sealed class GitHubReleaseClient : IDisposable
     /// </remarks>
     /// <returns>The SHA-256 of what was downloaded.</returns>
     public async Task<string> DownloadAssetAsync(
-        string version,
+        ReleaseRef release,
         string assetName,
         string destPath,
         IProgress<long>? progress = null,
         CancellationToken cancellationToken = default
     )
     {
-        var url = GetAssetUrl(version, assetName);
+        var url = GetAssetUrl(release, assetName);
         var partPath = destPath + ".part";
 
         Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);

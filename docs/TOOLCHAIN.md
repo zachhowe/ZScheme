@@ -19,7 +19,9 @@ irm https://raw.githubusercontent.com/zachhowe/ZScheme/master/install.ps1 | iex
 
 Both scripts download `zsup`, verify it against the release's `SHA256SUMS`, install the latest
 toolchain, and put `~/.zscheme/bin` on your PATH. Pass `--no-modify-path` / `-NoModifyPath` to skip
-the PATH change.
+the PATH change, and `--version <X.Y.Z>` (or `ZSCHEME_INSTALL_VERSION`) to install something other
+than the latest release. That is deliberately not `ZSCHEME_VERSION`, which selects the installed
+toolchain `zs` runs and is commonly exported to a name like `dev`.
 
 `zs` and `zs-lsp` are framework-dependent and need the [.NET 10 runtime](https://dotnet.microsoft.com/download).
 `zsup` itself is a native binary with no such dependency, so it can tell you when the runtime is
@@ -41,8 +43,9 @@ missing. It warns rather than failing, so you can install the runtime afterwards
 | `zsup self update` | Replace `zsup` with the latest release |
 | `zsup self uninstall --yes` | Delete `~/.zscheme` |
 
-`install` also takes `--force` (replace an existing installation) and `--no-default` (install
-without changing the default).
+`install` also takes `--force` (replace an existing installation, or a linked toolchain of the same
+name) and `--no-default` (install without changing the default). Without `--force` it refuses both,
+so a name never ends up with an installed directory and a link at once.
 
 ## How a toolchain is selected
 
@@ -144,6 +147,7 @@ Two settings bypass the shim by design, for pointing an editor at a specific bui
 | `ZSCHEME_TOOLCHAIN` | Set *by* the shim for the child process; not an input |
 | `ZSCHEME_GITHUB_REPO` | Repository releases are fetched from |
 | `ZSCHEME_DIST_BASE_URL` | Base URL for downloads, for mirrors and offline testing |
+| `ZSCHEME_INSTALL_VERSION` | Version the bootstrap scripts install; read by them only, not by `zsup` |
 
 ## Release assets
 

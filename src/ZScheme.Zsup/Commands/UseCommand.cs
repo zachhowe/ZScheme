@@ -58,7 +58,7 @@ internal static class UseCommand
         // A pin above the current directory silently outranks the default we just set, which would
         // otherwise look like the command did nothing.
         var overriding = VersionFileLocator.Find(Directory.GetCurrentDirectory());
-        if (overriding is not null && overriding.ToolchainName != name)
+        if (overriding is not null && !ToolchainName.AreSame(overriding.ToolchainName, name))
             ZsupHelpers.Warn(
                 $"{overriding.FilePath} pins '{overriding.ToolchainName}', which takes precedence here"
             );
@@ -66,7 +66,7 @@ internal static class UseCommand
         if (
             Environment.GetEnvironmentVariable(ZSchemeHome.VersionEnvironmentVariable) is { } env
             && env.Trim().Length > 0
-            && env.Trim() != name
+            && !ToolchainName.AreSame(env.Trim(), name)
         )
             ZsupHelpers.Warn(
                 $"{ZSchemeHome.VersionEnvironmentVariable} is set to '{env.Trim()}', which takes precedence"

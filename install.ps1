@@ -30,13 +30,22 @@ switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
 }
 
 # --- Resolve the version --------------------------------------------------------------------
-if (-not $Version) { $Version = $env:ZSCHEME_VERSION }
+# Deliberately not ZSCHEME_VERSION: that selects which installed toolchain the `zs` shim runs, so
+# anyone who has it set to a name like `dev` would re-run this installer and get a download of
+# "zsup-dev-win-x64.zip".
+if (-not $Version) { $Version = $env:ZSCHEME_INSTALL_VERSION }
+
+# $tag is the URL segment the assets live under; $Version is the bare version in their names. They
+# are the same today, and keeping them apart is what makes the v-prefix tolerance below work at all
+# -- stripping the prefix and then using it as the tag would 404 on every download.
 if (-not $Version) {
     Write-Host "Looking up the latest ZScheme release..."
     $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/latest" -UseBasicParsing -Headers @{ 'User-Agent' = 'zscheme-installer' }
-    $Version = $latest.tag_name
-    if (-not $Version) { throw "Could not determine the latest release." }
-    if ($Version.StartsWith('v')) { $Version = $Version.Substring(1) }
+    $tag = $latest.tag_name
+    if (-not $tag) { throw "Could not determine the latest release." }
+    if ($tag.StartsWith('v')) { $Version = $tag.Substring(1) } else { $Version = $tag }
+} else {
+    $tag = $Version
 }
 
 $baseUrl = if ($env:ZSCHEME_DIST_BASE_URL) { $env:ZSCHEME_DIST_BASE_URL } else { "https://github.com/$repo/releases/download" }
@@ -51,7 +60,7 @@ try {
     # --- Download and verify zsup -----------------------------------------------------------
     $assetPath = Join-Path $tmp $asset
     Write-Host "Downloading $asset..."
-    Invoke-WebRequest -Uri "$baseUrl/$Version/$asset" -OutFile $assetPath -UseBasicParsing
+    Invoke-WebRequest -Uri "$baseUrl/$tag/$asset" -OutFile $assetPath -UseBasicParsing
 
     # Verification is mandatory. Downgrading to "warn and install anyway" would let anyone able to
     # block or 404 a single URL turn it off entirely. Set ZSCHEME_SKIP_VERIFY=1 to override.
@@ -59,7 +68,7 @@ try {
         Write-Warning "ZSCHEME_SKIP_VERIFY is set; not verifying the download."
     } else {
         try {
-            $sums = (Invoke-WebRequest -Uri "$baseUrl/$Version/SHA256SUMS" -UseBasicParsing).Content
+            $sums = (Invoke-WebRequest -Uri "$baseUrl/$tag/SHA256SUMS" -UseBasicParsing).Content
         } catch {
             throw "Could not download SHA256SUMS for ${Version}; refusing to install unverified."
         }

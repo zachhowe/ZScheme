@@ -115,6 +115,32 @@ public sealed class ShimInstallerTests
     }
 
     [Fact]
+    public void MatchName_ReturnsTheCanonicalName()
+    {
+        Assert.Equal("zs", ShimInstaller.MatchName("zs"));
+        Assert.Equal("zs-lsp", ShimInstaller.MatchName("zs-lsp"));
+    }
+
+    [Fact]
+    public void MatchName_RejectsNamesThatAreNotShims()
+    {
+        Assert.Null(ShimInstaller.MatchName("zsup"));
+        Assert.Null(ShimInstaller.MatchName(""));
+        Assert.Null(ShimInstaller.MatchName(null));
+    }
+
+    [Fact]
+    public void MatchName_MatchesTheWayTheFilesystemResolvesNames()
+    {
+        // Typing `ZS` on Windows launches zs.exe, and argv[0] then carries the case the user typed.
+        // An ordinal match there would drop them into the manager CLI instead of the compiler.
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+            Assert.Equal("zs", ShimInstaller.MatchName("ZS"));
+        else
+            Assert.Null(ShimInstaller.MatchName("ZS"));
+    }
+
+    [Fact]
     public void MakeExecutable_IsSafeOnEveryPlatform()
     {
         using var home = new TempHome();

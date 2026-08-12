@@ -26,12 +26,13 @@ public sealed class ToolchainRegistry(string home)
             return [];
 
         var found = new List<InstalledToolchain>();
+        var seen = new HashSet<string>(ToolchainName.Comparer);
 
         foreach (var dir in Directory.EnumerateDirectories(toolchainsDir))
         {
             var name = Path.GetFileName(dir);
             // Skips .staging-*/.trash-* as well as anything else unselectable.
-            if (ToolchainName.IsValid(name))
+            if (ToolchainName.IsValid(name) && seen.Add(name))
                 found.Add(Installed(name, dir));
         }
 
@@ -40,7 +41,10 @@ public sealed class ToolchainRegistry(string home)
         )
         {
             var name = Path.GetFileNameWithoutExtension(file);
-            if (!ToolchainName.IsValid(name))
+            // A directory of the same name wins, matching TryGet. The installer refuses to create
+            // that collision, but a home predating it -- or one edited by hand -- can still have
+            // one, and listing the name twice would be worse than shadowing the link.
+            if (!ToolchainName.IsValid(name) || !seen.Add(name))
                 continue;
 
             var target = ReadLinkTarget(file);

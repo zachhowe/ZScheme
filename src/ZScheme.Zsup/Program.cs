@@ -1,3 +1,5 @@
+using ZScheme.Toolchain;
+
 namespace ZScheme.Zsup;
 
 /// <summary>
@@ -7,9 +9,6 @@ namespace ZScheme.Zsup;
 /// </summary>
 public static class Program
 {
-    /// <summary>Names this binary answers to as a shim.</summary>
-    private static readonly string[] ShimNames = ["zs", "zs-lsp"];
-
     public static int Main(string[] args)
     {
         // Explicit override, mostly for tests and for any platform where argv[0] cannot be
@@ -20,14 +19,15 @@ public static class Program
             if (rest is ["--", ..])
                 rest = rest[1..];
 
-            return ShimNames.Contains(forced)
-                ? ShimRunner.Run(forced, rest)
+            return ShimInstaller.MatchName(forced) is { } forcedShim
+                ? ShimRunner.Run(forcedShim, rest)
                 : ZsupHelpers.Error($"error: unknown shim '{forced}'");
         }
 
-        var invokedAs = GetInvokedName();
-        if (ShimNames.Contains(invokedAs))
-            return ShimRunner.Run(invokedAs, args);
+        // The canonical name rather than what was typed: the rest of the shim path turns it into a
+        // file name and an argv[0] for the child.
+        if (ShimInstaller.MatchName(GetInvokedName()) is { } shim)
+            return ShimRunner.Run(shim, args);
 
         // Only in manager mode: the shim path stays as short as possible, and a leftover binary
         // from a previous `self update` is harmless until zsup runs again anyway.

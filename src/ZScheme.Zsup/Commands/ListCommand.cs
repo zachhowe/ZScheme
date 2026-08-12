@@ -37,9 +37,12 @@ internal static class ListCommand
         foreach (var toolchain in toolchains)
         {
             var markers = new List<string>();
-            if (toolchain.Name == defaultName)
+            // AreSame, not ==: `zsup use Dev` records the default as typed while the directory
+            // enumerates as `dev`, so an ordinal match would mark neither on the toolchain that is
+            // in fact both.
+            if (ToolchainName.AreSame(toolchain.Name, defaultName))
                 markers.Add("default");
-            if (toolchain.Name == active)
+            if (ToolchainName.AreSame(toolchain.Name, active))
                 markers.Add("active");
             if (toolchain.IsLinked)
                 markers.Add(
