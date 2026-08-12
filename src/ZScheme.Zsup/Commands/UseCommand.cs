@@ -47,7 +47,16 @@ internal static class UseCommand
         if (local)
         {
             var pin = Path.Combine(Directory.GetCurrentDirectory(), ZSchemeHome.VersionFileName);
-            File.WriteAllText(pin, name + Environment.NewLine);
+
+            try
+            {
+                File.WriteAllText(pin, name + Environment.NewLine);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                return ZsupHelpers.Error($"error: could not write {pin}: {e.Message}");
+            }
+
             Console.WriteLine($"pinned '{name}' in {pin}");
             return 0;
         }

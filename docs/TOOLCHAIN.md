@@ -113,6 +113,10 @@ looks in `cache/pkg/<its own version>/`.
 The sources are still worth shipping: the cache rebuilds from them if it is ever cleared, and the
 language server uses them for go-to-definition into stdlib.
 
+Because the key is the compiler version, one `cache/pkg/<version>/` can back several installed
+toolchains. `zsup uninstall --purge-cache` therefore keeps it when any of the others still reports
+that version, and says so; the linked cache at `cache-dev/<name>/` is per-name and always goes.
+
 ## Developing on the compiler itself
 
 ```sh
@@ -147,7 +151,12 @@ Two settings bypass the shim by design, for pointing an editor at a specific bui
 | `ZSCHEME_TOOLCHAIN` | Set *by* the shim for the child process; not an input |
 | `ZSCHEME_GITHUB_REPO` | Repository releases are fetched from |
 | `ZSCHEME_DIST_BASE_URL` | Base URL for downloads, for mirrors and offline testing |
+| `ZSCHEME_GITHUB_API_URL` | API base URL `latest` is resolved from (default `https://api.github.com`) |
 | `ZSCHEME_INSTALL_VERSION` | Version the bootstrap scripts install; read by them only, not by `zsup` |
+
+A mirrored or airgapped setup needs both URL variables: `ZSCHEME_DIST_BASE_URL` covers asset
+downloads, while resolving `latest` is an API call and follows `ZSCHEME_GITHUB_API_URL`. Naming an
+explicit version avoids the API call entirely.
 
 ## Release assets
 

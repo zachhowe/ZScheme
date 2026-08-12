@@ -26,6 +26,47 @@ public sealed class ToolchainRegistryTests
     }
 
     [Fact]
+    public void UsingCompilerVersion_FindsEveryToolchainBuiltFromTheSamePayload()
+    {
+        // What makes `zsup uninstall --purge-cache` safe: cache/pkg/<version> is keyed by compiler
+        // version, so removing one of these toolchains must not delete the cache the others read.
+        using var home = new TempHome();
+        home.AddInstalled("0.4.0", compilerVersion: "0.4.0");
+        home.AddInstalled("dev-copy", compilerVersion: "0.4.0");
+        home.AddInstalled("0.3.0", compilerVersion: "0.3.0");
+
+        var names = new ToolchainRegistry(home.Path)
+            .UsingCompilerVersion("0.4.0")
+            .Select(t => t.Name)
+            .ToArray();
+
+        Assert.Equal(["0.4.0", "dev-copy"], names);
+    }
+
+    [Fact]
+    public void UsingCompilerVersion_FallsBackToTheInstallNameWithoutMetadata()
+    {
+        using var home = new TempHome();
+        home.AddInstalled("0.4.0");
+
+        Assert.Equal(
+            ["0.4.0"],
+            new ToolchainRegistry(home.Path).UsingCompilerVersion("0.4.0").Select(t => t.Name)
+        );
+    }
+
+    [Fact]
+    public void UsingCompilerVersion_IgnoresLinkedToolchains()
+    {
+        // A linked toolchain reports the released version but reads its own cache-dev/<name>/, so
+        // it is not a reason to keep the shared one.
+        using var home = new TempHome();
+        home.AddLink("dev", home.Dir("devtree"));
+
+        Assert.Empty(new ToolchainRegistry(home.Path).UsingCompilerVersion("dev"));
+    }
+
+    [Fact]
     public void List_IgnoresTransientStagingDirectories()
     {
         using var home = new TempHome();

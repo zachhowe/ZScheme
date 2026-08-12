@@ -56,6 +56,31 @@ public sealed class ToolchainRegistry(string home)
     }
 
     /// <summary>
+    ///     Installed toolchains whose payload reports <paramref name="compilerVersion" /> — that is,
+    ///     everything sharing the <c>cache/pkg/&lt;version&gt;</c> that version keys.
+    /// </summary>
+    /// <remarks>
+    ///     More than one is ordinary: <c>zsup install dev --from &lt;0.4.0 archive&gt;</c> beside
+    ///     <c>zsup install 0.4.0</c> gives two toolchains built from one payload. Linked toolchains
+    ///     are excluded because they get an isolated <see cref="ZSchemeHome.GetLinkedCacheRoot" />
+    ///     instead of sharing this one.
+    /// </remarks>
+    public IReadOnlyList<InstalledToolchain> UsingCompilerVersion(string compilerVersion)
+    {
+        return
+        [
+            .. List()
+                .Where(t =>
+                    !t.IsLinked
+                    && ToolchainName.AreSame(
+                        PackageCacheSeeder.ResolveCompilerVersion(t.Dir, t.Name),
+                        compilerVersion
+                    )
+                ),
+        ];
+    }
+
+    /// <summary>
     ///     Looks up a single toolchain by name, or <c>null</c> if neither a directory nor a
     ///     <c>.link</c> file exists for it. A link pointing at a missing directory is still
     ///     returned; callers distinguish that case by checking <see cref="IsLinkBroken" />.

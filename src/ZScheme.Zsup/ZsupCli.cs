@@ -82,6 +82,7 @@ internal static class ZsupCli
         Console.WriteLine("  ZSCHEME_VERSION         Toolchain to use for this invocation");
         Console.WriteLine("  ZSCHEME_GITHUB_REPO     Repository to fetch releases from");
         Console.WriteLine("  ZSCHEME_DIST_BASE_URL   Base URL for release downloads");
+        Console.WriteLine("  ZSCHEME_GITHUB_API_URL  API base URL used to resolve `latest`");
         return 0;
     }
 }

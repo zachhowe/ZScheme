@@ -27,10 +27,19 @@ internal sealed partial class GitHubJsonContext : JsonSerializerContext;
 /// </param>
 public sealed record ReleaseRef(string Tag, string Version)
 {
-    /// <summary>A release the user named explicitly, where the tag is the version.</summary>
-    public static ReleaseRef Explicit(string version)
+    /// <summary>
+    ///     A release the user named explicitly. What they typed is the tag; the version is that with
+    ///     any <c>v</c> prefix removed, matching how a resolved <c>latest</c> is split.
+    /// </summary>
+    /// <remarks>
+    ///     Taking the argument as the tag is what lets <c>install.sh</c> and <c>install.ps1</c> hand
+    ///     their <c>TAG</c> straight through. Reconstructing the tag from a stripped version here
+    ///     would 404 on every asset of a <c>v</c>-prefixed release, while resolving the release
+    ///     itself would appear to succeed.
+    /// </remarks>
+    public static ReleaseRef Explicit(string tag)
     {
-        return new ReleaseRef(version, version);
+        return new ReleaseRef(tag, tag.StartsWith('v') ? tag[1..] : tag);
     }
 }
 
@@ -38,19 +47,28 @@ public sealed record ReleaseRef(string Tag, string Version)
 public sealed class GitHubReleaseClient : IDisposable
 {
     public const string DefaultRepository = "zachhowe/ZScheme";
+    public const string DefaultApiBaseUrl = "https://api.github.com";
 
     private readonly HttpClient _http;
     private readonly string _repository;
     private readonly string? _baseUrlOverride;
+    private readonly string _apiBaseUrl;
     private readonly bool _ownsClient;
 
+    /// <param name="apiBaseUrlOverride">
+    ///     Where <c>latest</c> is resolved from. Separate from <paramref name="baseUrlOverride" />,
+    ///     which only covers asset downloads: a mirrored or airgapped setup that overrides the
+    ///     download base would otherwise still reach out to api.github.com and fail there, with
+    ///     every asset it needs perfectly reachable.
+    /// </param>
     /// <param name="handler">
     ///     Injected in tests so the whole client can be exercised without network access.
     /// </param>
     public GitHubReleaseClient(
         string? repository = null,
         string? baseUrlOverride = null,
-        HttpMessageHandler? handler = null
+        HttpMessageHandler? handler = null,
+        string? apiBaseUrlOverride = null
     )
     {
         _repository =
@@ -61,6 +79,12 @@ public sealed class GitHubReleaseClient : IDisposable
         _baseUrlOverride =
             Blank(baseUrlOverride)
             ?? Blank(Environment.GetEnvironmentVariable("ZSCHEME_DIST_BASE_URL"));
+
+        _apiBaseUrl = (
+            Blank(apiBaseUrlOverride)
+            ?? Blank(Environment.GetEnvironmentVariable("ZSCHEME_GITHUB_API_URL"))
+            ?? DefaultApiBaseUrl
+        ).TrimEnd('/');
 
         _ownsClient = handler is null;
         _http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
@@ -75,7 +99,7 @@ public sealed class GitHubReleaseClient : IDisposable
         CancellationToken cancellationToken = default
     )
     {
-        var url = $"https://api.github.com/repos/{_repository}/releases/latest";
+        var url = $"{_apiBaseUrl}/repos/{_repository}/releases/latest";
 
         var release = await _http.GetFromJsonAsync(
             url,
@@ -148,14 +172,14 @@ public sealed class GitHubReleaseClient : IDisposable
         if (File.Exists(partPath))
             File.Delete(partPath);
 
-        using (
-            var response = await _http.GetAsync(
+        try
+        {
+            using var response = await _http.GetAsync(
                 url,
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken
-            )
-        )
-        {
+            );
+
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 throw new FileNotFoundException(
                     $"no such release asset: {assetName} (looked at {url})",
@@ -176,6 +200,22 @@ public sealed class GitHubReleaseClient : IDisposable
                 total += read;
                 progress?.Report(total);
             }
+        }
+        catch
+        {
+            // A .part file is never resumed, so leaving one behind just accumulates dead weight in
+            // downloads/. ToolchainInstaller's sweep is the backstop for a hard kill, which cannot
+            // run this.
+            try
+            {
+                File.Delete(partPath);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // Best-effort, and the caller's failure is the interesting one.
+            }
+
+            throw;
         }
 
         var digest = Checksums.ComputeSha256(partPath);

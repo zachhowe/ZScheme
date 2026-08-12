@@ -18,11 +18,24 @@ internal sealed class TempHome : IDisposable
     public string Path { get; }
 
     /// <summary>Creates an installed toolchain with a stub <c>zs</c> executable in its bin dir.</summary>
-    public string AddInstalled(string name)
+    /// <param name="compilerVersion">
+    ///     Recorded in <c>toolchain.json</c> when given. Differs from the name whenever a payload is
+    ///     installed under another one (<c>zsup install dev --from …</c>), and it is the version
+    ///     that keys the shared package cache.
+    /// </param>
+    public string AddInstalled(string name, string? compilerVersion = null)
     {
-        var binDir = System.IO.Path.Combine(ZSchemeHome.GetToolchainDir(name, Path), "bin");
+        var toolchainDir = ZSchemeHome.GetToolchainDir(name, Path);
+        var binDir = System.IO.Path.Combine(toolchainDir, "bin");
         Directory.CreateDirectory(binDir);
         File.WriteAllText(System.IO.Path.Combine(binDir, ZSchemeHome.ExeName("zs")), "stub");
+
+        if (compilerVersion is not null)
+            File.WriteAllText(
+                System.IO.Path.Combine(toolchainDir, "toolchain.json"),
+                $$"""{"name":"{{name}}","version":"{{compilerVersion}}"}"""
+            );
+
         return binDir;
     }
 

@@ -135,8 +135,10 @@ tar -xzf "$tmp/$ASSET" -C "$BIN_DIR"
 chmod +x "$BIN_DIR/zsup"
 
 # --- Everything else is zsup's job --------------------------------------------------------
+# The tag, not the stripped version: zsup builds its own download URLs from what it is given, and
+# it applies the same v-prefix rule as above to arrive at the name it installs under.
 say "Installing the toolchain..."
-"$BIN_DIR/zsup" install "$VERSION" --force
+"$BIN_DIR/zsup" install "$TAG" --force
 
 # --- PATH ---------------------------------------------------------------------------------
 # The generated files embed the real install location rather than assuming ~/.zscheme, so a

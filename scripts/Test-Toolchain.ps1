@@ -281,11 +281,16 @@ if (-not $targetsWindows) {
     }
 }
 
-Check "uninstall removes a toolchain" {
-    & $zsup uninstall "0.0.1-e2e" | Out-Null
+# --purge-cache rather than a bare uninstall: both toolchains here were installed from the same
+# archive, so they share cache/pkg/<version>. Purging it because one of them went away would force
+# the survivor into a from-source stdlib build, which needs the SDK and the network.
+Check "uninstall removes a toolchain and keeps a cache another one shares" {
+    $shared = Join-Path $ZsHome "cache/pkg/$version"
+    & $zsup uninstall "0.0.1-e2e" --purge-cache | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "uninstall exited $LASTEXITCODE" }
     $listed = & $zsup list | Out-String
     if ($listed -match '0\.0\.1-e2e') { throw "the toolchain is still listed" }
+    if (-not (Test-Path $shared)) { throw "the package cache $version still depends on was purged" }
 }
 
 Write-Host ""

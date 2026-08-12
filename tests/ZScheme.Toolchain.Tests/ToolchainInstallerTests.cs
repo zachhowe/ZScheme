@@ -279,8 +279,8 @@ public sealed class ToolchainInstallerTests
         var staleTrash = Path.Combine(downloads, ".trash-oldrun");
         Directory.CreateDirectory(stale);
         Directory.CreateDirectory(staleTrash);
-        Directory.SetCreationTimeUtc(stale, DateTime.UtcNow.AddDays(-2));
-        Directory.SetCreationTimeUtc(staleTrash, DateTime.UtcNow.AddDays(-2));
+        Directory.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddDays(-2));
+        Directory.SetLastWriteTimeUtc(staleTrash, DateTime.UtcNow.AddDays(-2));
 
         var payload = MakeToolchainPayload(home, "payload");
         new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0");
@@ -304,6 +304,91 @@ public sealed class ToolchainInstallerTests
         new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0");
 
         Assert.True(File.Exists(Path.Combine(inFlight, "partial.bin")));
+    }
+
+    [Fact]
+    public void InstallFrom_KeepsAStampedTrashDirectoryThatWasCreatedLongAgo()
+    {
+        // A trash directory is an installed toolchain renamed aside, and a rename carries the
+        // original timestamps -- so one holding a toolchain installed months ago is born older than
+        // the cutoff. Ageing it by its creation time would let a concurrent install delete the only
+        // remaining copy of what the other install had just moved aside, which is exactly what the
+        // sweep exists to prevent. InstallFrom stamps the write time to mark it as live.
+        using var home = new TempHome();
+        var downloads = ZSchemeHome.GetDownloadsDir(home.Path);
+        Directory.CreateDirectory(downloads);
+
+        var stamped = Path.Combine(downloads, ".trash-concurrent");
+        Directory.CreateDirectory(stamped);
+        File.WriteAllText(Path.Combine(stamped, "zs"), "the previous toolchain");
+        Directory.SetCreationTimeUtc(stamped, DateTime.UtcNow.AddDays(-30));
+        Directory.SetLastWriteTimeUtc(stamped, DateTime.UtcNow);
+
+        var abandoned = Path.Combine(downloads, ".trash-oldrun");
+        Directory.CreateDirectory(abandoned);
+        Directory.SetLastWriteTimeUtc(abandoned, DateTime.UtcNow.AddDays(-2));
+
+        new ToolchainInstaller(home.Path).InstallFrom(
+            MakeToolchainPayload(home, "payload"),
+            "0.4.0"
+        );
+
+        Assert.True(File.Exists(Path.Combine(stamped, "zs")), "a live transient was swept");
+        Assert.False(Directory.Exists(abandoned));
+    }
+
+    [Fact]
+    public void InstallFrom_SweepsAStalePartialDownload()
+    {
+        using var home = new TempHome();
+        var downloads = ZSchemeHome.GetDownloadsDir(home.Path);
+        Directory.CreateDirectory(downloads);
+
+        var stale = Path.Combine(downloads, "zscheme-0.3.0-win-x64.zip.part");
+        var fresh = Path.Combine(downloads, "zscheme-0.4.0-win-x64.zip.part");
+        File.WriteAllText(stale, "abandoned");
+        File.WriteAllText(fresh, "in flight");
+        File.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddDays(-2));
+
+        new ToolchainInstaller(home.Path).InstallFrom(
+            MakeToolchainPayload(home, "payload"),
+            "0.4.0"
+        );
+
+        // Nothing ever resumes a .part, so an abandoned one would otherwise accumulate forever.
+        Assert.False(File.Exists(stale));
+        Assert.True(File.Exists(fresh), "a download in progress must not be swept");
+    }
+
+    [Fact]
+    public void InstallFrom_PayloadWithABinDirectoryThatHasNoZs_MergesRatherThanFailing()
+    {
+        // A dev staging tree, or a future layout change. Moving over the existing bin/ would throw
+        // a bare "cannot create ... already exists" that says nothing about the real cause.
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload", nested: false);
+        var strayBin = Path.Combine(payload, "bin");
+        Directory.CreateDirectory(strayBin);
+        File.WriteAllText(Path.Combine(strayBin, "runtimeconfig.json"), "{}");
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0");
+
+        Assert.True(File.Exists(Path.Combine(result.Dir, "bin", ZSchemeHome.ExeName("zs"))));
+        Assert.True(File.Exists(Path.Combine(result.Dir, "bin", "runtimeconfig.json")));
+    }
+
+    [Fact]
+    public void InstallFrom_PayloadWithAFileNamedBin_SaysWhatIsWrong()
+    {
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload", nested: false);
+        File.WriteAllText(Path.Combine(payload, "bin"), "not a directory");
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0")
+        );
+
+        Assert.Contains(payload, error.Message);
     }
 
     [Fact]

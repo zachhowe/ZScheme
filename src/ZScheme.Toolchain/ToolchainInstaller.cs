@@ -6,8 +6,8 @@ namespace ZScheme.Toolchain;
 public sealed class ToolchainInstaller(string? home = null)
 {
     /// <summary>
-    ///     How old a leftover staging/trash directory must be before it is swept. Long enough that a
-    ///     concurrently running install is never mistaken for debris.
+    ///     How old a leftover transient must be before it is swept. Long enough that a concurrently
+    ///     running install is never mistaken for debris.
     /// </summary>
     private static readonly TimeSpan TransientMaxAge = TimeSpan.FromHours(6);
 
@@ -72,7 +72,8 @@ public sealed class ToolchainInstaller(string? home = null)
             else
                 throw new FileNotFoundException($"No such archive or directory: {source}", source);
 
-            NormalizeLayout(staging);
+            Stamp(staging);
+            NormalizeLayout(staging, source);
             MarkExecutables(staging);
             WriteMetadata(staging, name, source, sha256);
 
@@ -84,6 +85,12 @@ public sealed class ToolchainInstaller(string? home = null)
                 // not leave the user with neither the old nor the new toolchain.
                 trash = Path.Combine(downloads, ".trash-" + Guid.NewGuid().ToString("N")[..12]);
                 Directory.Move(destDir, trash);
+
+                // Not optional. A rename keeps the directory's original timestamps, so a toolchain
+                // installed a month ago becomes a .trash- entry that is already a month "old" --
+                // and a concurrently running install would sweep it on its very next run, which is
+                // exactly the case the sweep exists to avoid.
+                Stamp(trash);
             }
 
             // The commit point.
@@ -136,7 +143,7 @@ public sealed class ToolchainInstaller(string? home = null)
     ///     Ensures the binaries live in <c>bin/</c>. Archives produced before the layout change —
     ///     and dev staging directories — put them at the root instead.
     /// </summary>
-    private static void NormalizeLayout(string staging)
+    private static void NormalizeLayout(string staging, string source)
     {
         var binDir = Path.Combine(staging, "bin");
         if (File.Exists(Path.Combine(binDir, ZSchemeHome.ExeName("zs"))))
@@ -146,6 +153,16 @@ public sealed class ToolchainInstaller(string? home = null)
             throw new InvalidOperationException(
                 $"the archive does not contain {ZSchemeHome.ExeName("zs")}; it does not look like a ZScheme toolchain"
             );
+
+        if (File.Exists(binDir))
+            throw new InvalidOperationException(
+                $"{source} has a file named 'bin' where the binaries directory belongs; it does not look like a ZScheme toolchain"
+            );
+
+        // A bin/ that exists but has no zs in it -- a dev staging tree, or a future layout change.
+        // Its contents are merged rather than replaced, because moving over it would fail with a
+        // bare "cannot create ... already exists" that says nothing about the real cause.
+        var hadBinDir = Directory.Exists(binDir);
 
         // Move everything except the sibling payload directories down into bin/.
         var keepAtRoot = new[] { "packages", PackageCacheSeeder.DirectoryName };
@@ -159,7 +176,13 @@ public sealed class ToolchainInstaller(string? home = null)
         foreach (var entry in entries)
         {
             var entryName = Path.GetFileName(entry);
-            if (entryName == Path.GetFileName(temp) || keepAtRoot.Contains(entryName))
+            // bin/ stays put when it already exists: it is the destination, not something to
+            // relocate into itself.
+            if (
+                entryName == Path.GetFileName(temp)
+                || keepAtRoot.Contains(entryName)
+                || (hadBinDir && entryName == "bin")
+            )
                 continue;
 
             var target = Path.Combine(temp, entryName);
@@ -169,7 +192,22 @@ public sealed class ToolchainInstaller(string? home = null)
                 File.Move(entry, target);
         }
 
-        Directory.Move(temp, binDir);
+        if (!hadBinDir)
+        {
+            Directory.Move(temp, binDir);
+            return;
+        }
+
+        foreach (var entry in Directory.GetFileSystemEntries(temp))
+        {
+            var target = Path.Combine(binDir, Path.GetFileName(entry));
+            if (Directory.Exists(entry))
+                Directory.Move(entry, target);
+            else
+                File.Move(entry, target, overwrite: true);
+        }
+
+        Directory.Delete(temp);
     }
 
     /// <summary>
@@ -215,13 +253,35 @@ public sealed class ToolchainInstaller(string? home = null)
     }
 
     /// <summary>
-    ///     Removes staging and trash directories left behind by an interrupted install.
+    ///     Stamps a transient as belonging to this install, which is what <see cref="SweepTransients" />
+    ///     ages it by.
+    /// </summary>
+    private static void Stamp(string dir)
+    {
+        try
+        {
+            Directory.SetLastWriteTimeUtc(dir, DateTime.UtcNow);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Worst case the transient looks older than it is and a later install sweeps it; the
+            // install itself has no reason to fail over a timestamp.
+        }
+    }
+
+    /// <summary>
+    ///     Removes the debris of an interrupted install: staging and trash directories, and partial
+    ///     downloads.
     /// </summary>
     /// <remarks>
     ///     Only entries older than <see cref="TransientMaxAge" /> are swept. A blanket delete would
     ///     destroy the staging tree of a second <c>zsup install</c> running concurrently — two
     ///     terminals, or an editor triggering one while the user runs another — and could take out
-    ///     the only remaining copy of the toolchain that install had moved aside.
+    ///     the only remaining copy of the toolchain that install had moved aside. Age comes from the
+    ///     write time <see cref="Stamp" /> sets, not from the creation time: a trash directory is
+    ///     produced by renaming an installed toolchain, and a rename carries the original
+    ///     timestamps, so an entry moved aside seconds ago would otherwise be as old as the
+    ///     toolchain itself.
     /// </remarks>
     private static void SweepTransients(string downloads)
     {
@@ -236,16 +296,29 @@ public sealed class ToolchainInstaller(string? home = null)
             )
                 continue;
 
-            try
-            {
-                if (Directory.GetCreationTimeUtc(dir) < cutoff)
-                    TryDelete(dir);
-            }
-            catch (IOException)
-            {
-                // Unreadable timestamp: leave it for a later run rather than risk deleting a
-                // directory that is currently in use.
-            }
+            if (IsOlderThan(dir, cutoff, Directory.GetLastWriteTimeUtc))
+                TryDelete(dir);
+        }
+
+        // A download that was interrupted or failed verification leaves one of these behind. They
+        // are never resumed -- the next attempt starts a fresh .part -- so nothing else would ever
+        // remove them.
+        foreach (var file in Directory.EnumerateFiles(downloads, "*.part"))
+            if (IsOlderThan(file, cutoff, File.GetLastWriteTimeUtc))
+                TryDeleteFile(file);
+    }
+
+    private static bool IsOlderThan(string path, DateTime cutoff, Func<string, DateTime> writeTime)
+    {
+        try
+        {
+            return writeTime(path) < cutoff;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Unreadable timestamp: leave it for a later run rather than risk deleting something
+            // that is currently in use.
+            return false;
         }
     }
 
@@ -261,6 +334,18 @@ public sealed class ToolchainInstaller(string? home = null)
             // Best-effort: a locked leftover is swept on a later run.
         }
         catch (UnauthorizedAccessException)
+        {
+            // Same.
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             // Same.
         }

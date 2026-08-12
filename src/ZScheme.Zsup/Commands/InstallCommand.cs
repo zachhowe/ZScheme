@@ -14,7 +14,14 @@ internal static class InstallCommand
         for (var i = 0; i < args.Length; i++)
             switch (args[i])
             {
-                case "--from" when i + 1 < args.Length:
+                case "--from":
+                    // Not a `when` guard on the case: falling through to `default:` would report a
+                    // trailing `--from` as an unknown option, which it is not.
+                    if (i + 1 >= args.Length)
+                        return ZsupHelpers.Error(
+                            "error: --from needs a value",
+                            "usage: zsup install <version> --from <archive|dir>"
+                        );
                     from = args[++i];
                     break;
                 case "--force":

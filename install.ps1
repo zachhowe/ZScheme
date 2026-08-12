@@ -96,8 +96,10 @@ try {
     Expand-Archive -Path $assetPath -DestinationPath $binDir -Force
 
     # --- Everything else is zsup's job ------------------------------------------------------
+    # The tag, not the stripped version: zsup builds its own download URLs from what it is given,
+    # and it applies the same v-prefix rule as above to arrive at the name it installs under.
     Write-Host "Installing the toolchain..."
-    & (Join-Path $binDir 'zsup.exe') install $Version --force
+    & (Join-Path $binDir 'zsup.exe') install $tag --force
     if ($LASTEXITCODE -ne 0) { throw "zsup install exited $LASTEXITCODE" }
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

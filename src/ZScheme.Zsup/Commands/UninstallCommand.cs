@@ -64,19 +64,26 @@ internal static class UninstallCommand
         // picks the cache back up.
         if (purgeCache)
         {
-            var cacheDir = ZSchemeHome.GetPackageCacheRootFor(compilerVersion, home);
-            if (Directory.Exists(cacheDir))
+            // Keyed by compiler version, so it is shared by every toolchain built from the same
+            // payload. Deleting it because one of them was uninstalled would force the others into
+            // a from-source stdlib rebuild, which needs the SDK and the network.
+            var sharing = registry.UsingCompilerVersion(compilerVersion);
+            if (sharing.Count > 0)
             {
-                Directory.Delete(cacheDir, recursive: true);
-                Console.WriteLine($"removed package cache {cacheDir}");
+                Console.WriteLine(
+                    $"note: kept the package cache for compiler version {compilerVersion}"
+                );
+                Console.WriteLine(
+                    $"      still used by: {string.Join(", ", sharing.Select(t => t.Name))}"
+                );
+            }
+            else
+            {
+                PurgeCache(ZSchemeHome.GetPackageCacheRootFor(compilerVersion, home));
             }
 
-            var linkedCache = ZSchemeHome.GetLinkedCacheRoot(name, home);
-            if (Directory.Exists(linkedCache))
-            {
-                Directory.Delete(linkedCache, recursive: true);
-                Console.WriteLine($"removed package cache {linkedCache}");
-            }
+            // Per-name rather than per-version, so nothing else can be using it.
+            PurgeCache(ZSchemeHome.GetLinkedCacheRoot(name, home));
         }
 
         if (wasDefault)
@@ -91,5 +98,30 @@ internal static class UninstallCommand
         }
 
         return 0;
+    }
+
+    /// <summary>
+    ///     Deletes a cache root if it is there, reporting a failure rather than throwing.
+    /// </summary>
+    /// <remarks>
+    ///     The toolchain is already gone by this point, so letting an <see cref="IOException" /> --
+    ///     a file locked by a concurrent compile, say -- escape would abort <c>Main</c> and print a
+    ///     bare unhandled-exception line (zsup is built with <c>StackTraceSupport=false</c>) about a
+    ///     toolchain the user has already been told was removed.
+    /// </remarks>
+    private static void PurgeCache(string cacheDir)
+    {
+        if (!Directory.Exists(cacheDir))
+            return;
+
+        try
+        {
+            Directory.Delete(cacheDir, recursive: true);
+            Console.WriteLine($"removed package cache {cacheDir}");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            ZsupHelpers.Warn($"could not remove the package cache at {cacheDir}: {e.Message}");
+        }
     }
 }

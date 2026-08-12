@@ -132,27 +132,6 @@ public static class ZSchemeHome
         return Path.Combine(GetCacheRoot(home), "nuget");
     }
 
-    /// <summary>
-    ///     Finds the <c>packages/</c> directory shipped alongside an installed toolchain's binaries,
-    ///     or <c>null</c> when running somewhere without one.
-    /// </summary>
-    public static string? TryGetBundledPackagesDir()
-    {
-        var baseDir = AppContext.BaseDirectory;
-
-        // Installed toolchains put the binaries in <toolchain>/bin, with packages/ one level up.
-        var parent = Path.GetDirectoryName(baseDir.TrimEnd(Path.DirectorySeparatorChar));
-        if (parent is not null)
-        {
-            var sibling = Path.Combine(parent, "packages");
-            if (Directory.Exists(sibling))
-                return sibling;
-        }
-
-        var nested = Path.Combine(baseDir, "packages");
-        return Directory.Exists(nested) ? nested : null;
-    }
-
     /// <summary>Appends <c>.exe</c> on Windows.</summary>
     public static string ExeName(string baseName)
     {

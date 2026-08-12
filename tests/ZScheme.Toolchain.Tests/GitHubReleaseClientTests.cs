@@ -24,6 +24,49 @@ public sealed class GitHubReleaseClientTests
         }
     }
 
+    /// <summary>A response body that delivers one chunk and then fails, as a dropped connection does.</summary>
+    private sealed class HalfBrokenStream : Stream
+    {
+        private bool _served;
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_served)
+                throw new IOException("the connection was closed");
+
+            _served = true;
+            return Math.Min(count, 16);
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() { }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void SetLength(long value)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            throw new NotSupportedException();
+        }
+    }
+
     private static HttpResponseMessage Ok(string body)
     {
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
@@ -66,6 +109,23 @@ public sealed class GitHubReleaseClientTests
         );
     }
 
+    [Fact]
+    public void Explicit_KeepsWhatWasTypedAsTheTagAndStripsAVPrefixForTheVersion()
+    {
+        // install.sh and install.ps1 hand their TAG straight to `zsup install`. Reconstructing the
+        // tag from a stripped version here would download zsup fine and then 404 on the toolchain.
+        var release = ReleaseRef.Explicit("v1.2.3");
+
+        Assert.Equal("v1.2.3", release.Tag);
+        Assert.Equal("1.2.3", release.Version);
+    }
+
+    [Fact]
+    public void Explicit_LeavesAnOrdinaryVersionAlone()
+    {
+        Assert.Equal(new ReleaseRef("0.4.0", "0.4.0"), ReleaseRef.Explicit("0.4.0"));
+    }
+
     [Theory]
     [InlineData("0.4.0", "win-x64", "zscheme-0.4.0-win-x64.zip")]
     [InlineData("0.4.0", "linux-arm64", "zscheme-0.4.0-linux-arm64.tar.gz")]
@@ -100,6 +160,28 @@ public sealed class GitHubReleaseClientTests
         Assert.Equal(new ReleaseRef("0.4.0", "0.4.0"), await client.GetLatestReleaseAsync());
         Assert.Equal(
             "https://api.github.com/repos/owner/repo/releases/latest",
+            handler.Requests[0].RequestUri!.ToString()
+        );
+    }
+
+    [Fact]
+    public async Task GetLatestReleaseAsync_HonorsAnApiBaseUrlOverride()
+    {
+        // A mirrored or airgapped setup overrides the download base precisely because api.github.com
+        // is unreachable. Resolving `latest` against a hardcoded host would fail there with every
+        // asset it needs perfectly available.
+        var handler = new FakeHandler(_ => Ok("""{"tag_name":"0.4.0"}"""));
+        using var client = new GitHubReleaseClient(
+            "owner/repo",
+            "",
+            handler,
+            apiBaseUrlOverride: "https://ghe.example/api/v3/"
+        );
+
+        await client.GetLatestReleaseAsync();
+
+        Assert.Equal(
+            "https://ghe.example/api/v3/repos/owner/repo/releases/latest",
             handler.Requests[0].RequestUri!.ToString()
         );
     }
@@ -171,11 +253,35 @@ public sealed class GitHubReleaseClientTests
         using var client = new GitHubReleaseClient("owner/repo", "", handler);
         using var home = new TempHome();
 
+        var dest = Path.Combine(home.Path, "a.zip");
         var error = await Assert.ThrowsAsync<FileNotFoundException>(() =>
-            client.DownloadAssetAsync(Release040, "missing.zip", Path.Combine(home.Path, "a.zip"))
+            client.DownloadAssetAsync(Release040, "missing.zip", dest)
         );
 
         Assert.Contains("missing.zip", error.Message);
+        // A .part file is never resumed, so a failed download must not leave one accumulating.
+        Assert.False(File.Exists(dest + ".part"));
+    }
+
+    [Fact]
+    public async Task DownloadAssetAsync_InterruptedMidStream_LeavesNoPartFileBehind()
+    {
+        // The case that actually accumulates debris: enough of the body arrives to create the .part
+        // file, and then the connection drops.
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new HalfBrokenStream()),
+        });
+        using var client = new GitHubReleaseClient("owner/repo", "", handler);
+        using var home = new TempHome();
+        var dest = Path.Combine(home.Path, "downloads", "asset.zip");
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            client.DownloadAssetAsync(Release040, "asset.zip", dest)
+        );
+
+        Assert.False(File.Exists(dest + ".part"), "a partial download was left behind");
+        Assert.False(File.Exists(dest));
     }
 
     [Fact]
