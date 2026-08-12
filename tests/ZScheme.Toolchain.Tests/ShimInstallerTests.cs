@@ -20,9 +20,10 @@ public sealed class ShimInstallerTests
         var zsup = MakeZsup(home);
         var binDir = ZSchemeHome.GetBinDir(home.Path);
 
-        var written = ShimInstaller.Install(binDir, zsup);
+        var stamped = ShimInstaller.Install(binDir, zsup);
 
-        Assert.Equal(ShimInstaller.ShimNames.Length, written.Count);
+        Assert.Equal(ShimInstaller.ShimNames.Length, stamped.Written.Count);
+        Assert.Empty(stamped.Failed);
         foreach (var name in ShimInstaller.ShimNames)
             Assert.True(File.Exists(Path.Combine(binDir, ZSchemeHome.ExeName(name))));
     }
@@ -112,6 +113,61 @@ public sealed class ShimInstallerTests
             // Follows a symlink to its target, which is the right thing either way.
             Assert.True(File.GetUnixFileMode(path).HasFlag(UnixFileMode.UserExecute));
         }
+    }
+
+    [Fact]
+    public void Install_StampsTheRemainingNamesWhenOneCannotBeWritten()
+    {
+        using var home = new TempHome();
+        var zsup = MakeZsup(home);
+        var binDir = ZSchemeHome.GetBinDir(home.Path);
+
+        // A directory sitting on the first name is the portable stand-in for the real cause, a
+        // Windows lock: the name cannot be written, and it is stamped before `zs-lsp`.
+        var blocked = ShimInstaller.ShimNames[0];
+        Directory.CreateDirectory(Path.Combine(binDir, ZSchemeHome.ExeName(blocked)));
+
+        var stamped = ShimInstaller.Install(binDir, zsup);
+
+        // The whole point: an unwritable `zs` must not stop `zs-lsp` from being brought up to date,
+        // and the name that missed out has to come back named.
+        var failure = Assert.Single(stamped.Failed);
+        Assert.Equal(blocked, failure.Name);
+        Assert.NotEmpty(failure.Message);
+        foreach (var name in ShimInstaller.ShimNames.Where(n => n != blocked))
+        {
+            var path = Path.Combine(binDir, ZSchemeHome.ExeName(name));
+            Assert.Contains(path, stamped.Written);
+            Assert.Equal("zsup binary", File.ReadAllText(path));
+        }
+    }
+
+    [Fact]
+    public void Install_LeavesALockedShimInPlaceRatherThanDeletingIt()
+    {
+        // Only Windows refuses to replace an open file; on Unix the delete-and-relink below just
+        // succeeds, which is the behaviour the hardlink handling needs.
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var home = new TempHome();
+        var zsup = MakeZsup(home);
+        var binDir = ZSchemeHome.GetBinDir(home.Path);
+        ShimInstaller.Install(binDir, zsup);
+
+        var locked = Path.Combine(binDir, ZSchemeHome.ExeName(ShimInstaller.ShimNames[0]));
+        File.WriteAllText(zsup, "updated zsup");
+
+        ShimInstaller.Result stamped;
+        using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None)) // as a running image holds it
+        {
+            stamped = ShimInstaller.Install(binDir, zsup);
+        }
+
+        // Stale is recoverable -- the user closes the editor and re-runs. Deleted is not: the old
+        // shim would be gone and the new one never written.
+        Assert.Single(stamped.Failed);
+        Assert.Equal("zsup binary", File.ReadAllText(locked));
     }
 
     [Fact]

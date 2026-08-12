@@ -38,7 +38,15 @@ internal static class ZsupSelf
     ///     Every managed binary is therefore moved aside before the new one is written; the leftovers
     ///     are deleted by <see cref="SweepStaleBinaries" /> on a later run.
     /// </remarks>
-    internal static void ReplaceInstalledBinaries(string newBinary, string? home = null)
+    /// <returns>
+    ///     The shim stamping outcome, for the caller to report. A name that fails here has already
+    ///     been moved aside, so it is absent rather than stale -- the update is not complete until
+    ///     the user hears about it.
+    /// </returns>
+    internal static ShimInstaller.Result ReplaceInstalledBinaries(
+        string newBinary,
+        string? home = null
+    )
     {
         var binDir = ZSchemeHome.GetBinDir(home);
         Directory.CreateDirectory(binDir);
@@ -52,9 +60,10 @@ internal static class ZsupSelf
 
         File.Copy(newBinary, zsupPath, overwrite: true);
         ShimInstaller.MakeExecutable(zsupPath);
-        ShimInstaller.Install(binDir, zsupPath);
+        var stamped = ShimInstaller.Install(binDir, zsupPath);
 
         SweepStaleBinaries(home);
+        return stamped;
     }
 
     private static void MoveAside(string path)

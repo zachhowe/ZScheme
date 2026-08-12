@@ -232,7 +232,11 @@ internal static class InstallCommand
 
         try
         {
-            ShimInstaller.Install(binDir, installedZsup);
+            // Per-name failures come back in the result rather than as an exception, so the
+            // warning can say which shim is stale instead of "the shims" -- see
+            // ZsupHelpers.WarnAboutUnstampedShims. What is left to throw here is the bin directory
+            // itself being unusable, which is every name at once.
+            ZsupHelpers.WarnAboutUnstampedShims(ShimInstaller.Install(binDir, installedZsup));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

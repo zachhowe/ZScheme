@@ -1,3 +1,5 @@
+using ZScheme.Toolchain;
+
 namespace ZScheme.Zsup;
 
 internal static class ZsupHelpers
@@ -22,6 +24,30 @@ internal static class ZsupHelpers
     internal static void Warn(string message)
     {
         Console.Error.WriteLine($"warning: {message}");
+    }
+
+    /// <summary>Reports every shim that could not be re-stamped, one name per line.</summary>
+    /// <remarks>
+    ///     Named individually because the drift is otherwise invisible: the shims are stamped in
+    ///     order, so a lock on <c>zs</c> leaves <c>zs-lsp</c> on the previous zsup, and the next
+    ///     thing the user sees is a language-server bug that was fixed two releases ago. Whether the
+    ///     name is stale or gone is read back off the filesystem rather than assumed --
+    ///     <c>zsup install</c> overwrites in place, so the old shim survives a failure, while
+    ///     <c>zsup self update</c> renames every shim aside first, so a failure leaves nothing.
+    /// </remarks>
+    internal static void WarnAboutUnstampedShims(ShimInstaller.Result stamped)
+    {
+        foreach (var failure in stamped.Failed)
+        {
+            Warn($"could not refresh `{failure.Name}`: {failure.Message}");
+            Console.Error.WriteLine(
+                File.Exists(failure.Path)
+                    ? $"help: {failure.Path} still points at the previous zsup; close whatever is "
+                        + "using it and run `zsup install --force`"
+                    : $"help: {failure.Path} is missing; close whatever is holding it and run "
+                        + "`zsup install --force`"
+            );
+        }
     }
 
     /// <summary>

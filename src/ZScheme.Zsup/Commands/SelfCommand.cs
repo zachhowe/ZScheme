@@ -116,6 +116,7 @@ internal static class SelfCommand
         }
 
         var staging = Path.Combine(downloads, ".zsup-" + Guid.NewGuid().ToString("N")[..8]);
+        ShimInstaller.Result stamped;
         try
         {
             ArchiveExtractor.Extract(archivePath, staging);
@@ -124,7 +125,7 @@ internal static class SelfCommand
             if (!File.Exists(newBinary))
                 throw new InvalidDataException($"{assetName} does not contain a zsup binary");
 
-            ZsupSelf.ReplaceInstalledBinaries(newBinary, home);
+            stamped = ZsupSelf.ReplaceInstalledBinaries(newBinary, home);
         }
         finally
         {
@@ -144,6 +145,10 @@ internal static class SelfCommand
         }
 
         Console.WriteLine($"updated zsup to {release.Version}");
+
+        // zsup itself is updated, so this is a warning rather than a failure -- but a shim left
+        // behind here is one the user has to restore by hand, so it is named rather than swallowed.
+        ZsupHelpers.WarnAboutUnstampedShims(stamped);
         return 0;
     }
 

@@ -51,7 +51,13 @@ so a name never ends up with an installed directory and a link at once.
 ## How a toolchain is selected
 
 `~/.zscheme/bin/zs` and `zs-lsp` are the `zsup` binary under another name; it recognises how it was
-invoked and hands off to the real executable. Selection order, highest first:
+invoked and hands off to the real executable. `zsup install` and `zsup self update` re-stamp both
+names so they can never lag behind the `zsup` beside them. On Windows a name that is locked by a
+process still running it cannot be replaced; the other names are stamped anyway, and each one that
+was skipped is named in a warning telling you to close what is holding it and re-run
+`zsup install --force`. A skipped shim keeps working — it is just the previous version.
+
+Selection order, highest first:
 
 1. **`ZSCHEME_VERSION`** — for one command or one shell.
 2. **`.zscheme-version`** — the nearest one at or above the current directory, walking up to the
