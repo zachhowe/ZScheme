@@ -71,16 +71,26 @@ public static class VersionFileLocator
     }
 
     /// <summary>
-    ///     Makes a pin's contents safe to echo. The value is attacker-controlled — it arrives in a
-    ///     file checked into whatever repository the user cloned — and an invalid one is reported
-    ///     back to the terminal, so control characters (ANSI/OSC escapes) are stripped and the
-    ///     length is bounded.
+    ///     Makes a pin's contents safe to echo, or returns <c>null</c> if nothing survives.
     /// </summary>
-    private static string Sanitize(string value)
+    /// <remarks>
+    ///     The value is attacker-controlled — it arrives in a file checked into whatever repository
+    ///     the user cloned — and an invalid one is reported back to the terminal, so control
+    ///     characters (ANSI/OSC escapes) are stripped and the length is bounded. A line that was
+    ///     nothing but control characters therefore sanitizes to the empty string, which is not a
+    ///     toolchain name: returning it would make <see cref="Find" /> report a hit and
+    ///     <c>ToolchainResolver</c> fail every command from that directory with
+    ///     <c>toolchain '' is not installed</c>. Null instead, so it behaves like the blank line it
+    ///     effectively is and the walk continues to the next ancestor.
+    /// </remarks>
+    private static string? Sanitize(string value)
     {
         const int maxLength = 64;
 
         var cleaned = new string([.. value.Where(c => !char.IsControl(c))]);
+        if (cleaned.Length == 0)
+            return null;
+
         return cleaned.Length > maxLength ? cleaned[..maxLength] : cleaned;
     }
 }

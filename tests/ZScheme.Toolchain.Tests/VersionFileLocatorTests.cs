@@ -112,6 +112,31 @@ public sealed class VersionFileLocatorTests
     }
 
     [Fact]
+    public void ReadToolchainName_NothingButControlCharacters_ReturnsNull()
+    {
+        // Sanitizing strips every character here. An empty name is not a toolchain, and returning
+        // one would resolve to `toolchain '' is not installed` on every command run from this
+        // directory instead of falling back to the default.
+        using var home = new TempHome();
+        var pin = Path.Combine(home.Path, ZSchemeHome.VersionFileName);
+        File.WriteAllText(pin, "\n");
+
+        Assert.Null(VersionFileLocator.ReadToolchainName(pin));
+    }
+
+    [Fact]
+    public void Find_PinOfOnlyControlCharacters_KeepsWalkingUp()
+    {
+        using var home = new TempHome();
+        var outer = home.Dir("proj");
+        var inner = home.Dir("proj", "sub");
+        File.WriteAllText(Path.Combine(outer, ZSchemeHome.VersionFileName), "0.3.0");
+        File.WriteAllText(Path.Combine(inner, ZSchemeHome.VersionFileName), "\n");
+
+        Assert.Equal("0.3.0", VersionFileLocator.Find(inner)!.ToolchainName);
+    }
+
+    [Fact]
     public void ReadToolchainName_TruncatesAnAbsurdlyLongValue()
     {
         using var home = new TempHome();

@@ -61,6 +61,18 @@ internal static class UninstallCommand
         {
             return ZsupHelpers.Error($"error: toolchain '{name}' is not installed");
         }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Removal is a recursive directory delete, which fails against any file still open --
+            // on Windows that includes the toolchain's own zs or zs-lsp while it is running, which
+            // an editor's language server makes an ordinary situation rather than an edge case.
+            // The delete is not transactional, so part of the tree may already be gone.
+            return ZsupHelpers.Error(
+                $"error: could not remove toolchain '{name}': {e.Message}",
+                "help: close anything still running from it (an editor's language server, another shell) and try again",
+                $"note: run `zsup install {name} --force` if the installation was left incomplete"
+            );
+        }
 
         Console.WriteLine($"removed toolchain '{name}'");
 

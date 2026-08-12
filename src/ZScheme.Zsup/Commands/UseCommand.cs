@@ -61,7 +61,17 @@ internal static class UseCommand
             return 0;
         }
 
-        registry.SetDefault(name);
+        try
+        {
+            registry.SetDefault(name);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Unlike `zsup install`, recording the default is the whole command here, so a failed
+            // write is a failed command rather than a warning.
+            return ZsupHelpers.Error($"error: could not record the default toolchain: {e.Message}");
+        }
+
         Console.WriteLine($"default toolchain is now '{name}'");
 
         // A pin above the current directory silently outranks the default we just set, which would

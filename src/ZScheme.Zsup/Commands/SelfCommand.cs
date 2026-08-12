@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ZScheme.Toolchain;
 
 namespace ZScheme.Zsup.Commands;
@@ -57,6 +58,9 @@ internal static class SelfCommand
                         or NotSupportedException
                         or UnauthorizedAccessException
                         or HttpRequestException
+                        // The release API answering with something that is not the JSON it
+                        // promises -- a rate-limit page, a truncated body, a mirror.
+                        or JsonException
                         or PlatformNotSupportedException
                         or TaskCanceledException
             )
@@ -101,7 +105,9 @@ internal static class SelfCommand
         var actual = await client.DownloadAssetAsync(release, assetName, archivePath);
         if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
         {
-            File.Delete(archivePath);
+            // Best-effort, and deliberately not allowed to replace the mismatch below -- see
+            // ZsupHelpers.TryDeleteDownload.
+            ZsupHelpers.TryDeleteDownload(archivePath);
             throw new InvalidDataException(
                 $"checksum mismatch for {assetName}"
                     + $"{Environment.NewLine}  expected {expected}"
@@ -122,19 +128,19 @@ internal static class SelfCommand
         }
         finally
         {
-            // Access failures count as much as IO ones: the binaries have already been replaced by
-            // this point, so letting one escape the `finally` would report a completed update as a
-            // failure.
+            // The binaries have already been replaced by this point, so letting a cleanup failure
+            // escape the `finally` would report a completed update as a failure.
             try
             {
                 if (Directory.Exists(staging))
                     Directory.Delete(staging, recursive: true);
-                File.Delete(archivePath);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 // Swept by a later run.
             }
+
+            ZsupHelpers.TryDeleteDownload(archivePath);
         }
 
         Console.WriteLine($"updated zsup to {release.Version}");

@@ -22,16 +22,31 @@ internal static class LinkCommand
         if (!ToolchainName.IsValid(name))
             return ZsupHelpers.Error($"error: invalid toolchain name: '{name}'");
 
+        // Normalized here rather than inside ToolchainRegistry.Link so that a path the OS will not
+        // even parse -- `zsup link dev "C:\a|b"` -- is an ordinary error message instead of an
+        // ArgumentException escaping Main. Passing the absolute path on also keeps the error below
+        // from having to resolve it a second time.
+        string full;
+        try
+        {
+            full = Path.GetFullPath(dir);
+        }
+        catch (Exception e)
+            when (e is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            return ZsupHelpers.Error($"error: not a usable directory path: {dir}");
+        }
+
         var registry = new ToolchainRegistry(ZSchemeHome.GetHome());
         try
         {
-            registry.Link(name, dir);
+            registry.Link(name, full);
         }
         catch (DirectoryNotFoundException)
         {
-            return ZsupHelpers.Error($"error: no such directory: {Path.GetFullPath(dir)}");
+            return ZsupHelpers.Error($"error: no such directory: {full}");
         }
-        catch (IOException e)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return ZsupHelpers.Error($"error: {e.Message}");
         }

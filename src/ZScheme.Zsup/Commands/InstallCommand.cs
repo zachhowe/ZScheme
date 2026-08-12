@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ZScheme.Toolchain;
 
 namespace ZScheme.Zsup.Commands;
@@ -77,6 +78,10 @@ internal static class InstallCommand
                         or NotSupportedException
                         or UnauthorizedAccessException
                         or HttpRequestException
+                        // A body that is not the JSON the release API promises: a rate-limit or
+                        // captcha page, a truncated response, or a mirror behind
+                        // ZSCHEME_GITHUB_API_URL. GetFromJsonAsync surfaces all of them as this.
+                        or JsonException
                         or PlatformNotSupportedException
                         or TaskCanceledException
             )
@@ -98,10 +103,22 @@ internal static class InstallCommand
         // without switching to it.
         var registry = new ToolchainRegistry(home);
         if (!noDefault)
-        {
-            registry.SetDefault(result.Name);
-            Console.WriteLine($"default toolchain is now '{result.Name}'");
-        }
+            try
+            {
+                registry.SetDefault(result.Name);
+                Console.WriteLine($"default toolchain is now '{result.Name}'");
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // Writing the settings file is the one step past the commit point that can fail --
+                // a read-only home, a full disk. The toolchain is installed and usable either way,
+                // and the user has already been told so, so this is a warning with a recovery
+                // step rather than a failure that contradicts the line above it.
+                ZsupHelpers.Warn(
+                    $"installed '{result.Name}' but could not record it as the default: {e.Message}"
+                );
+                Console.Error.WriteLine($"help: run `zsup use {result.Name}` once that is fixed");
+            }
 
         ZsupDoctor.WarnIfBinDirNotOnPath(home);
         ZsupDoctor.WarnIfRuntimeMissing();
@@ -159,7 +176,11 @@ internal static class InstallCommand
 
         if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
         {
-            File.Delete(archivePath);
+            // The unverified archive is worth removing, but its removal must never replace the
+            // mismatch: a scanner holding the file would otherwise report "access denied" and
+            // bury the one fact that matters here. Nothing trusts a leftover archive either --
+            // the next download overwrites it and re-hashes what it wrote.
+            ZsupHelpers.TryDeleteDownload(archivePath);
             throw new InvalidDataException(
                 $"checksum mismatch for {assetName}"
                     + $"{Environment.NewLine}  expected {expected}"
@@ -178,18 +199,11 @@ internal static class InstallCommand
         }
         finally
         {
-            // The extracted toolchain is the artifact worth keeping, not the archive. Access
-            // failures count as much as IO ones: this runs after the install has committed, so
-            // letting one escape the `finally` would report a toolchain that is installed and
-            // working as `error: Access to the path ... is denied`.
-            try
-            {
-                File.Delete(archivePath);
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                // Swept by the next install.
-            }
+            // The extracted toolchain is the artifact worth keeping, not the archive. This runs
+            // after the install has committed, so letting a delete failure escape the `finally`
+            // would report a toolchain that is installed and working as
+            // `error: Access to the path ... is denied`.
+            ZsupHelpers.TryDeleteDownload(archivePath);
         }
     }
 
