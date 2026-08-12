@@ -86,7 +86,13 @@ public static class Program
             "  ZSCHEME_CACHE_DIR       Override base directory for ZScheme caches (pkg/ + git/);"
         );
         Console.WriteLine(
-            "                          defaults to ~/.zscheme/cache. NuGet cache is unaffected."
+            "                          defaults to <home>/cache. NuGet cache is unaffected."
+        );
+        Console.WriteLine(
+            "  ZSCHEME_HOME            Root for toolchains and caches (default: ~/.zscheme)"
+        );
+        Console.WriteLine(
+            "  ZSCHEME_VERSION         Toolchain the `zs` shim runs; see `zsup --help`"
         );
         Console.WriteLine();
         Console.WriteLine("Commands:");

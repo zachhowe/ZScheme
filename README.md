@@ -39,16 +39,22 @@ ZScheme is a Scheme-like functional programming language that compiles to .NET. 
 
 ## Quick Start
 
-### Requirements
+### Install
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- [PowerShell 7.6.0+](https://github.com/PowerShell/PowerShell)
-
-### Build the compiler
+Linux and macOS:
 
 ```bash
-dotnet build
+curl -fsSL https://raw.githubusercontent.com/zachhowe/ZScheme/master/install.sh | sh
 ```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/zachhowe/ZScheme/master/install.ps1 | iex
+```
+
+This installs `zsup`, the toolchain manager, along with the latest `zs` and `zs-lsp`. Running
+programs needs the [.NET 10 runtime](https://dotnet.microsoft.com/download).
 
 ### Compile and run a program
 
@@ -56,17 +62,45 @@ dotnet build
 # Compile a .zs file to an executable
 zs compile examples/factorial.zs -o out
 
-# Compile and run in one step
-zs run examples/factorial.zs
-
 # Start the REPL
 zs repl
 ```
 
-Or via `dotnet run` without installing:
+### Manage versions
+
+Several ZScheme versions can be installed at once, and `zs` follows whichever one is selected:
+
+```bash
+zsup install 0.4.0        # install a version
+zsup use 0.4.0            # make it the default
+zsup list                 # see what is installed
+
+echo 0.3.0 > .zscheme-version   # pin this project to a different version
+```
+
+See [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md) for the full command set, the selection rules, and how
+to link a locally built compiler.
+
+### Build from source
+
+Requirements: [.NET 10 SDK](https://dotnet.microsoft.com/download) and
+[PowerShell 7.6.0+](https://github.com/PowerShell/PowerShell).
+
+```bash
+dotnet build
+```
+
+Run the compiler without installing it:
 
 ```bash
 dotnet run --project src/ZScheme.Cli -- compile examples/factorial.zs -o out
+```
+
+Or register your build as a toolchain, so `zs` runs it everywhere:
+
+```bash
+zsup link dev src/ZScheme.Cli/bin/Debug/net10.0
+zsup use dev
 ```
 
 ## Language Overview

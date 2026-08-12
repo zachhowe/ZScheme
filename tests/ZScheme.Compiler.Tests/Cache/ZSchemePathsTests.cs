@@ -1,5 +1,6 @@
 using Xunit;
 using ZScheme.Compiler.Cache;
+using ZScheme.Toolchain;
 
 namespace ZScheme.Compiler.Tests.Cache;
 
@@ -19,13 +20,9 @@ public sealed class ZSchemePathsTests : IDisposable
     [Fact]
     public void GetCacheRoot_NoOverrides_UsesUserProfileDefault()
     {
-        var expected = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".zscheme",
-            "cache"
-        );
-
-        Assert.Equal(expected, ZSchemePaths.GetCacheRoot());
+        // Compared against ZSchemeHome rather than re-derived from the user profile, so the test
+        // still holds for a developer who has ZSCHEME_HOME exported.
+        Assert.Equal(ZSchemeHome.GetCacheRoot(), ZSchemePaths.GetCacheRoot());
     }
 
     [Fact]
@@ -74,13 +71,7 @@ public sealed class ZSchemePathsTests : IDisposable
         ZSchemePaths.SetProcessDefaultCacheRoot("/tmp/something");
         ZSchemePaths.SetProcessDefaultCacheRoot(null);
 
-        var expected = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".zscheme",
-            "cache"
-        );
-
-        Assert.Equal(expected, ZSchemePaths.GetCacheRoot());
+        Assert.Equal(ZSchemeHome.GetCacheRoot(), ZSchemePaths.GetCacheRoot());
     }
 
     [Fact]
@@ -89,13 +80,7 @@ public sealed class ZSchemePathsTests : IDisposable
         ZSchemePaths.SetProcessDefaultCacheRoot("/tmp/something");
         ZSchemePaths.SetProcessDefaultCacheRoot("");
 
-        var expected = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".zscheme",
-            "cache"
-        );
-
-        Assert.Equal(expected, ZSchemePaths.GetCacheRoot());
+        Assert.Equal(ZSchemeHome.GetCacheRoot(), ZSchemePaths.GetCacheRoot());
     }
 
     [Fact]
@@ -145,13 +130,7 @@ public sealed class ZSchemePathsTests : IDisposable
     [Fact]
     public void GetPackageCacheRoot_NoArg_UsesDefault()
     {
-        var expected = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".zscheme",
-            "cache",
-            "pkg",
-            CompilerInfo.BaseVersion
-        );
+        var expected = Path.Combine(ZSchemeHome.GetCacheRoot(), "pkg", CompilerInfo.BaseVersion);
 
         Assert.Equal(expected, ZSchemePaths.GetPackageCacheRoot());
     }

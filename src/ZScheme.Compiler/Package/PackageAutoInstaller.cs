@@ -179,6 +179,8 @@ public static class PackageAutoInstaller
     /// <summary>
     ///     Walks up the directory tree from <paramref name="anchorDir" /> looking for
     ///     a <c>packages/*/package.zspkg</c> whose manifest name matches <paramref name="packageName" />.
+    ///     Falls back to the current directory and then to the directory holding this assembly,
+    ///     which is how an installed toolchain finds the <c>packages/</c> it ships with.
     /// </summary>
     private static (string PackageDir, PackageManifest Manifest)? FindPackageSource(
         string packageName,
@@ -192,6 +194,10 @@ public static class PackageAutoInstaller
         var result = anchor is not null ? ScanUpForPackage(packageName, anchor) : null;
         if (result is null && (anchor is null || !cwd.Equals(anchor, StringComparison.Ordinal)))
             result = ScanUpForPackage(packageName, cwd);
+
+        // An installed toolchain ships its own packages/ next to the binaries. Without this, a
+        // compile run from anywhere outside a checkout cannot find the standard library at all.
+        result ??= ScanUpForPackage(packageName, AppContext.BaseDirectory);
 
         return result;
     }

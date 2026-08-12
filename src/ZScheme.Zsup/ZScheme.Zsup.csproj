@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>zsup</AssemblyName>
+    <!-- Native AOT: this binary sits in front of every `zs` invocation, so CLR startup would be a
+         permanent tax; it also has to run on machines where no .NET runtime is installed yet. It
+         must therefore never reference ZScheme.Compiler (AsmResolver/Serilog are not AOT-friendly). -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Required by the LibraryImport source generator. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <StackTraceSupport>false</StackTraceSupport>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ZScheme.Toolchain\ZScheme.Toolchain.csproj" />
+  </ItemGroup>
+</Project>

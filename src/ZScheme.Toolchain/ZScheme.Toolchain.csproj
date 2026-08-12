@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Consumed by the Native AOT zsup binary as well as the compiler, so it must stay
+         dependency-free and AOT/trim clean. Do not add PackageReferences here. -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsTrimmable>true</IsTrimmable>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <!-- Required by the LibraryImport source generator (ShimInstaller's libc link). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ZScheme.Toolchain.Tests" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet build ZScheme.slnx --nologo
+      - run: dotnet test ZScheme.slnx --no-build --nologo
+
+  # AOT is the one thing that cannot be validated by a normal build, and it is only exercised at
+  # release time otherwise -- which is exactly when a failure is most expensive.
+  aot-smoke:
+    name: AOT publish (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,   rid: linux-x64 }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64 }
+          - { os: macos-13,        rid: osx-x64 }
+          - { os: macos-latest,    rid: osx-arm64 }
+          - { os: windows-latest,  rid: win-x64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install the native toolchain
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+      - run: pwsh ./publish-zsup.ps1 -Runtime ${{ matrix.rid }}
+
+  # The end-to-end proof that an installed toolchain is actually usable: it installs from a locally
+  # built archive, switches between two versions, and compiles a program that imports stdlib.
+  e2e:
+    name: End-to-end (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  rid: linux-x64 }
+          - { os: macos-latest,   rid: osx-arm64 }
+          - { os: windows-latest, rid: win-x64 }
+    env:
+      # Isolated from the runner's real home so nothing leaks between steps.
+      ZSCHEME_HOME: ${{ github.workspace }}/.zscheme-e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install the native toolchain
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+      - name: Build the release artifacts
+        run: |
+          pwsh ./publish.ps1 -Runtimes ${{ matrix.rid }}
+          pwsh ./publish-zsup.ps1 -Runtime ${{ matrix.rid }}
+      - name: Run the end-to-end checks
+        run: pwsh ./scripts/Test-Toolchain.ps1 -Rid ${{ matrix.rid }}

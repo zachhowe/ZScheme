@@ -6,11 +6,14 @@
     <Project Path="src/ZScheme.Runtime/ZScheme.Runtime.csproj" />
     <Project Path="src/ZScheme.LanguageServer/ZScheme.LanguageServer.csproj" />
     <Project Path="src/ZScheme.MacroDebugger/ZScheme.MacroDebugger.csproj" />
+    <Project Path="src/ZScheme.Toolchain/ZScheme.Toolchain.csproj" />
+    <Project Path="src/ZScheme.Zsup/ZScheme.Zsup.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ZScheme.Compiler.Tests/ZScheme.Compiler.Tests.csproj" />
     <Project Path="tests/ZScheme.LanguageServer.Tests/ZScheme.LanguageServer.Tests.csproj" />
     <Project Path="tests/ZScheme.Runtime.Tests/ZScheme.Runtime.Tests.csproj" />
     <Project Path="tests/ZScheme.MacroDebugger.Tests/ZScheme.MacroDebugger.Tests.csproj" />
+    <Project Path="tests/ZScheme.Toolchain.Tests/ZScheme.Toolchain.Tests.csproj" />
   </Folder>
 </Solution>

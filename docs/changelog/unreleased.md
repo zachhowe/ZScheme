@@ -84,6 +84,31 @@ In development since 2026-08-11.
 - `examples/letrec.zs`, and `letrec` added to all four editor grammars (IntelliJ, Sublime,
   VS Code, Zed).
 
+## Added — toolchain manager
+
+ZScheme can now be installed, and several versions can be installed at once.
+
+`zsup` is a new toolchain manager. It installs toolchains side by side under `~/.zscheme` and
+decides which one the `zs` and `zs-lsp` on your PATH resolve to — those are shims that hand off to
+the selected toolchain. Toolchain selection follows `ZSCHEME_VERSION`, then the nearest
+`.zscheme-version` file at or above the working directory, then the global default set by
+`zsup use`. See [TOOLCHAIN.md](../TOOLCHAIN.md).
+
+```
+zsup install 0.4.0 | latest      zsup use <toolchain> [--local]
+zsup list                        zsup uninstall <toolchain>
+zsup link <name> <dir>           zsup which [zs|zs-lsp]
+zsup self update
+```
+
+Toolchains install from GitHub Releases, from a local archive or directory (`--from`), or by
+linking a locally built tree (`zsup link`). Downloads are verified against the release's
+`SHA256SUMS`, and installs commit with a single directory rename so an interruption cannot leave a
+half-written toolchain.
+
+`install.sh` and `install.ps1` bootstrap everything, and `.github/workflows/release.yml` builds and
+publishes the assets they fetch.
+
 ## Changed
 
 - **Two top-level definitions may no longer share a name.** Unlike a nested definition, a second
@@ -93,6 +118,11 @@ In development since 2026-08-11.
   name. It is now an error, reported by the same pre-pass that hoists the signatures. A local
   definition sharing a name with an *imported* one is unaffected — that goes through the
   overload set and stays legal.
+- **Release archives are laid out as `bin/` + `packages/` + `pkgcache/`** rather than a flat
+  directory, and `publish.ps1` emits a `SHA256SUMS` covering every asset.
+- `linux-arm64` and `win-arm64` are now published.
+- `ZSCHEME_HOME` relocates the whole `~/.zscheme` tree, including the NuGet cache, which previously
+  hardcoded its path.
 
 - **`let`, `let*`, `letrec`, `use` and `use*` share one body builder.** Each had folded its own
   body by hand, so a `define` in any of them was silently dropped; all five now go through
@@ -147,6 +177,19 @@ In development since 2026-08-11.
   reference it replaces. Coverage output is unchanged — the skipped probes always landed on a
   line a sibling covered, confirmed by measuring identical point sets both ways — so the win is
   codegen diagnostics, which stop reporting `(0:0)` for these nodes.
+
+## Fixed — packaging
+
+- An installed toolchain can now compile programs that import the standard library. Release
+  archives previously contained only the binaries, and package discovery only searched upwards from
+  the source file or working directory, so anything outside a checkout failed with
+  `Package 'zscheme-stdlib' is not installed and could not be auto-installed`. Archives now carry
+  both the package sources and a prebuilt package cache, and discovery also searches next to the
+  running compiler.
+- `.tar.gz` release archives now record mode 0755 for `zs` and `zs-lsp`. They were built on whatever
+  machine ran `publish.ps1`; when that was Windows the entries carried mode 0644 and a
+  hand-extracted `zs` was not executable. They are now built on Linux, and `zsup` sets the mode on
+  install regardless.
 
 ## Tooling
 

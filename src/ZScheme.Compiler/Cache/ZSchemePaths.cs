@@ -1,3 +1,5 @@
+using ZScheme.Toolchain;
+
 namespace ZScheme.Compiler.Cache;
 
 public static class ZSchemePaths
@@ -22,9 +24,10 @@ public static class ZSchemePaths
 
     /// <summary>
     ///     Resolves the base ZScheme cache directory. Priority: <paramref name="explicitOverride" />
-    ///     > process default (see <see cref="SetProcessDefaultCacheRoot" />) >
-    ///     <c>~/.zscheme/cache</c>. NuGet caches do not pass through here; they remain at
-    ///     <c>~/.zscheme/cache/nuget</c> regardless.
+    ///     > process default (see <see cref="SetProcessDefaultCacheRoot" />) > <c>&lt;home&gt;/cache</c>,
+    ///     where the home is <c>ZSCHEME_HOME</c> or <c>~/.zscheme</c>. NuGet caches do not pass
+    ///     through here; they stay at <c>&lt;home&gt;/cache/nuget</c> regardless of
+    ///     <c>ZSCHEME_CACHE_DIR</c>.
     /// </summary>
     public static string GetCacheRoot(string? explicitOverride = null)
     {
@@ -41,11 +44,7 @@ public static class ZSchemePaths
         if (processDefault is not null)
             return processDefault;
 
-        return Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".zscheme",
-            "cache"
-        );
+        return ZSchemeHome.GetCacheRoot();
     }
 
     public static string GetPackageCacheRoot(string? explicitOverride = null)
@@ -60,21 +59,6 @@ public static class ZSchemePaths
 
     private static string? Normalize(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-            return null;
-
-        var trimmed = value.Trim();
-        var expanded = Environment.ExpandEnvironmentVariables(trimmed);
-
-        if (expanded.StartsWith('~'))
-        {
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (expanded.Length == 1)
-                expanded = home;
-            else if (expanded[1] == Path.DirectorySeparatorChar || expanded[1] == '/')
-                expanded = Path.Combine(home, expanded[2..]);
-        }
-
-        return Path.GetFullPath(expanded);
+        return PathNormalizer.Normalize(value);
     }
 }

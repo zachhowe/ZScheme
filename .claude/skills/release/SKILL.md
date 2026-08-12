@@ -97,11 +97,17 @@ grep '<Version>' Directory.Build.props
 ```
 
 Use the user's argument if they gave one; otherwise use that value. Tag names
-in this repo have **no `v` prefix**, and a trailing `.0` is dropped (version
-`0.2.0` was tagged `0.2`; `0.1.1` was tagged `0.1.1`). Confirm against
-`git tag --sort=creatordate` and state the tag name you intend to use before
-creating it. If the sweep contains breaking changes but the version is only a
-patch bump, say so and ask before proceeding.
+have **no `v` prefix** and are the **full `X.Y.Z`** — so the tag is exactly the
+string in `Directory.Build.props`, with nothing dropped.
+
+`.github/workflows/release.yml` fails the release if the tag and
+`Directory.Build.props` disagree, and `zsup install <version>` builds its
+download URL from the version, so the two must match exactly.
+
+Older tags predate this rule and are inconsistent (`0.2.0` was tagged `0.2`);
+leave them alone. State the tag name you intend to use before creating it. If
+the sweep contains breaking changes but the version is only a patch bump, say
+so and ask before proceeding.
 
 ## 5. Verify the tree is green
 

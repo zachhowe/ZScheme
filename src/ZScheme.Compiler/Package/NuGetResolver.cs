@@ -4,6 +4,7 @@ using System.Text;
 using Serilog;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Package.NuGet;
+using ZScheme.Toolchain;
 
 namespace ZScheme.Compiler.Package;
 
@@ -11,12 +12,10 @@ public sealed class NuGetResolver(DiagnosticBag diagnostics)
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<NuGetResolver>();
 
-    private static readonly string CacheRoot = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".zscheme",
-        "cache",
-        "nuget"
-    );
+    // Deliberately not routed through ZSchemePaths: the NuGet cache ignores ZSCHEME_CACHE_DIR. It
+    // does follow ZSCHEME_HOME, so an isolated home (CI, e2e runs) does not write into the
+    // developer's real ~/.zscheme.
+    private static readonly string CacheRoot = ZSchemeHome.GetNuGetCacheRoot();
 
     private static readonly string PackageCacheRoot = Path.Combine(CacheRoot, "packages");
 

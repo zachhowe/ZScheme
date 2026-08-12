@@ -815,7 +815,14 @@ The compiler is driven by the `zs` CLI, whose entry point is
 argument to one command handler. A global `--debug` flag (stripped before
 dispatch) enables compiler debug logging to stderr, and the `ZSCHEME_CACHE_DIR`
 environment variable overrides the base directory for the package/git caches
-(default `~/.zscheme/cache`; the NuGet cache is unaffected).
+(default `<home>/cache`; the NuGet cache follows the home but ignores this
+override).
+
+Note that on an installed system the `zs` on PATH is not this binary but a shim:
+`zsup` resolves the selected toolchain and hands off to its real `zs`. The
+toolchain is chosen by `ZSCHEME_VERSION`, then the nearest `.zscheme-version`
+file, then the global default. `ZSCHEME_HOME` moves the whole `~/.zscheme` tree.
+See [TOOLCHAIN.md](TOOLCHAIN.md) for the full rules and on-disk layout.
 
 ```
 zs <command> [options]

@@ -1,0 +1,331 @@
+using System.IO.Compression;
+using Xunit;
+
+namespace ZScheme.Toolchain.Tests;
+
+public sealed class ToolchainInstallerTests
+{
+    /// <summary>Builds a source tree shaped like a release archive's contents.</summary>
+    /// <summary>The compiler version the fake payloads are built as.</summary>
+    private const string PayloadVersion = "0.4.0";
+
+    private static string MakeToolchainPayload(
+        TempHome home,
+        string dirName,
+        bool nested = true,
+        bool withPkgCache = true,
+        string compilerVersion = PayloadVersion
+    )
+    {
+        var root = home.Dir(dirName);
+        var binDir = nested ? Path.Combine(root, "bin") : root;
+        Directory.CreateDirectory(binDir);
+
+        File.WriteAllText(Path.Combine(binDir, ZSchemeHome.ExeName("zs")), "zs binary");
+        File.WriteAllText(Path.Combine(binDir, ZSchemeHome.ExeName("zs-lsp")), "lsp binary");
+        File.WriteAllText(Path.Combine(binDir, "ZScheme.Compiler.dll"), "dll");
+
+        var stdlib = Path.Combine(root, "packages", "stdlib");
+        Directory.CreateDirectory(stdlib);
+        File.WriteAllText(Path.Combine(stdlib, "package.zspkg"), "(name \"zscheme-stdlib\")");
+
+        if (withPkgCache)
+        {
+            // pkgcache/<compiler version>/<package>/<package version>/ -- the compiler version is
+            // part of the payload because it, not the install name, keys the shared cache.
+            var cached = Path.Combine(
+                root,
+                PackageCacheSeeder.DirectoryName,
+                compilerVersion,
+                "zscheme-stdlib",
+                "1.0.0"
+            );
+            Directory.CreateDirectory(cached);
+            File.WriteAllText(Path.Combine(cached, "zscheme-stdlib.dll"), "compiled");
+            File.WriteAllText(Path.Combine(cached, "zscheme-stdlib.metadata.json"), "{}");
+        }
+
+        return root;
+    }
+
+    [Fact]
+    public void InstallFrom_Directory_LandsTheExpectedLayout()
+    {
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0");
+
+        Assert.Equal("0.4.0", result.Name);
+        Assert.Equal(ZSchemeHome.GetToolchainDir("0.4.0", home.Path), result.Dir);
+        Assert.True(File.Exists(Path.Combine(result.Dir, "bin", ZSchemeHome.ExeName("zs"))));
+        Assert.True(File.Exists(Path.Combine(result.Dir, "packages", "stdlib", "package.zspkg")));
+        Assert.True(File.Exists(Path.Combine(result.Dir, "toolchain.json")));
+    }
+
+    [Fact]
+    public void InstallFrom_SeedsThePrebuiltPackageCache()
+    {
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(payload, PayloadVersion);
+
+        Assert.Equal(1, result.PackagesSeeded);
+        var seeded = Path.Combine(
+            ZSchemeHome.GetPackageCacheRootFor(PayloadVersion, home.Path),
+            "zscheme-stdlib",
+            "1.0.0",
+            "zscheme-stdlib.dll"
+        );
+        Assert.True(File.Exists(seeded), $"expected a seeded cache entry at {seeded}");
+    }
+
+    [Fact]
+    public void InstallFrom_UnderADifferentName_StillSeedsTheCompilerVersionsCache()
+    {
+        // The compiler reads cache/pkg/<its own version>/, which has nothing to do with the name
+        // the toolchain was installed under. Seeding by install name would put the prebuilt
+        // packages somewhere nothing ever looks, silently forcing a from-source stdlib build.
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(payload, "dev");
+
+        Assert.Equal(1, result.PackagesSeeded);
+        Assert.True(
+            File.Exists(
+                Path.Combine(
+                    ZSchemeHome.GetPackageCacheRootFor(PayloadVersion, home.Path),
+                    "zscheme-stdlib",
+                    "1.0.0",
+                    "zscheme-stdlib.dll"
+                )
+            ),
+            "the prebuilt cache should be keyed by the payload's compiler version"
+        );
+        Assert.False(
+            Directory.Exists(ZSchemeHome.GetPackageCacheRootFor("dev", home.Path)),
+            "nothing should be written under the install name"
+        );
+    }
+
+    [Fact]
+    public void InstallFrom_SeedsIntoAVersionKeyedDirectory_SoToolchainsStayIsolated()
+    {
+        using var home = new TempHome();
+        var a = MakeToolchainPayload(home, "payload-a", compilerVersion: "0.4.0");
+        var b = MakeToolchainPayload(home, "payload-b", compilerVersion: "0.3.0");
+
+        var installer = new ToolchainInstaller(home.Path);
+        installer.InstallFrom(a, "0.4.0");
+        installer.InstallFrom(b, "0.3.0");
+
+        Assert.True(
+            Directory.Exists(ZSchemeHome.GetPackageCacheRootFor("0.4.0", home.Path))
+                && Directory.Exists(ZSchemeHome.GetPackageCacheRootFor("0.3.0", home.Path))
+        );
+    }
+
+    [Fact]
+    public void InstallFrom_RecordsThePayloadsCompilerVersionInMetadata()
+    {
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(payload, "dev");
+
+        Assert.Equal(
+            PayloadVersion,
+            PackageCacheSeeder.ResolveCompilerVersion(result.Dir, installedAs: "dev")
+        );
+    }
+
+    [Fact]
+    public void InstallFrom_FlatArchive_IsNormalizedIntoBin()
+    {
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "flat", nested: false);
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0");
+
+        Assert.True(File.Exists(Path.Combine(result.Dir, "bin", ZSchemeHome.ExeName("zs"))));
+        Assert.True(File.Exists(Path.Combine(result.Dir, "bin", "ZScheme.Compiler.dll")));
+        // The payload directories stay beside bin/ rather than being swept into it.
+        Assert.True(Directory.Exists(Path.Combine(result.Dir, "packages")));
+        Assert.True(Directory.Exists(Path.Combine(result.Dir, PackageCacheSeeder.DirectoryName)));
+    }
+
+    [Fact]
+    public void InstallFrom_Archive_Works()
+    {
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+        var zip = Path.Combine(home.Path, "toolchain.zip");
+        ZipFile.CreateFromDirectory(payload, zip);
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(zip, "0.4.0");
+
+        Assert.True(File.Exists(Path.Combine(result.Dir, "bin", ZSchemeHome.ExeName("zs"))));
+        Assert.Equal(1, result.PackagesSeeded);
+    }
+
+    [Fact]
+    public void InstallFrom_WithoutForce_RefusesToReplace()
+    {
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+        var installer = new ToolchainInstaller(home.Path);
+        installer.InstallFrom(payload, "0.4.0");
+
+        Assert.Throws<IOException>(() => installer.InstallFrom(payload, "0.4.0"));
+    }
+
+    [Fact]
+    public void InstallFrom_WithForce_Replaces()
+    {
+        using var home = new TempHome();
+        var first = MakeToolchainPayload(home, "first");
+        var installer = new ToolchainInstaller(home.Path);
+        installer.InstallFrom(first, "0.4.0");
+
+        var second = MakeToolchainPayload(home, "second");
+        File.WriteAllText(Path.Combine(second, "bin", ZSchemeHome.ExeName("zs")), "newer");
+
+        var result = installer.InstallFrom(second, "0.4.0", force: true);
+
+        Assert.Equal(
+            "newer",
+            File.ReadAllText(Path.Combine(result.Dir, "bin", ZSchemeHome.ExeName("zs")))
+        );
+    }
+
+    [Fact]
+    public void InstallFrom_NotAToolchain_ThrowsAndLeavesNothingBehind()
+    {
+        using var home = new TempHome();
+        var junk = home.Dir("junk");
+        File.WriteAllText(Path.Combine(junk, "readme.txt"), "not a toolchain");
+
+        Assert.Throws<InvalidOperationException>(() =>
+            new ToolchainInstaller(home.Path).InstallFrom(junk, "0.4.0")
+        );
+
+        Assert.False(Directory.Exists(ZSchemeHome.GetToolchainDir("0.4.0", home.Path)));
+        Assert.Empty(Directory.EnumerateDirectories(ZSchemeHome.GetDownloadsDir(home.Path)));
+    }
+
+    [Fact]
+    public void InstallFrom_MissingSource_Throws()
+    {
+        using var home = new TempHome();
+
+        Assert.Throws<FileNotFoundException>(() =>
+            new ToolchainInstaller(home.Path).InstallFrom(
+                Path.Combine(home.Path, "nope.zip"),
+                "0.4.0"
+            )
+        );
+    }
+
+    [Fact]
+    public void InstallFrom_UnsafeName_Throws()
+    {
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+
+        Assert.Throws<ArgumentException>(() =>
+            new ToolchainInstaller(home.Path).InstallFrom(payload, "../escape")
+        );
+    }
+
+    [Fact]
+    public void InstallFrom_SweepsStaleStagingDirectories()
+    {
+        using var home = new TempHome();
+        var downloads = ZSchemeHome.GetDownloadsDir(home.Path);
+        var stale = Path.Combine(downloads, ".staging-oldrun");
+        var staleTrash = Path.Combine(downloads, ".trash-oldrun");
+        Directory.CreateDirectory(stale);
+        Directory.CreateDirectory(staleTrash);
+        Directory.SetCreationTimeUtc(stale, DateTime.UtcNow.AddDays(-2));
+        Directory.SetCreationTimeUtc(staleTrash, DateTime.UtcNow.AddDays(-2));
+
+        var payload = MakeToolchainPayload(home, "payload");
+        new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0");
+
+        Assert.Empty(Directory.EnumerateDirectories(downloads));
+    }
+
+    [Fact]
+    public void InstallFrom_LeavesARecentStagingDirectoryAlone()
+    {
+        // A staging directory that was created moments ago belongs to a concurrent install --
+        // two terminals, or an editor triggering one while the user runs another. Deleting it
+        // would destroy that install's tree mid-extraction.
+        using var home = new TempHome();
+        var downloads = ZSchemeHome.GetDownloadsDir(home.Path);
+        var inFlight = Path.Combine(downloads, ".staging-concurrent");
+        Directory.CreateDirectory(inFlight);
+        File.WriteAllText(Path.Combine(inFlight, "partial.bin"), "half-extracted");
+
+        var payload = MakeToolchainPayload(home, "payload");
+        new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0");
+
+        Assert.True(File.Exists(Path.Combine(inFlight, "partial.bin")));
+    }
+
+    [Fact]
+    public void InstallFrom_MarksTheExecutablesRunnableOnUnix()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+        // Mimic a tarball built on Windows, which records mode 0644.
+        File.SetUnixFileMode(
+            Path.Combine(payload, "bin", "zs"),
+            UnixFileMode.UserRead | UnixFileMode.UserWrite
+        );
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0");
+
+        var mode = File.GetUnixFileMode(Path.Combine(result.Dir, "bin", "zs"));
+        Assert.True(mode.HasFlag(UnixFileMode.UserExecute));
+    }
+
+    [Fact]
+    public void Seed_DoesNotOverwriteAnExistingCacheEntryUnlessForced()
+    {
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+        new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0");
+
+        var cached = Path.Combine(
+            ZSchemeHome.GetPackageCacheRootFor(PayloadVersion, home.Path),
+            "zscheme-stdlib",
+            "1.0.0",
+            "zscheme-stdlib.dll"
+        );
+        File.WriteAllText(cached, "rebuilt from source");
+
+        var toolchainDir = ZSchemeHome.GetToolchainDir("0.4.0", home.Path);
+        Assert.Equal(0, PackageCacheSeeder.Seed(toolchainDir, home.Path));
+        Assert.Equal("rebuilt from source", File.ReadAllText(cached));
+
+        Assert.Equal(1, PackageCacheSeeder.Seed(toolchainDir, home.Path, force: true));
+        Assert.Equal("compiled", File.ReadAllText(cached));
+    }
+
+    [Fact]
+    public void Seed_NoPrebuiltCache_IsANoOp()
+    {
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload", withPkgCache: false);
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0");
+
+        Assert.Equal(0, result.PackagesSeeded);
+    }
+}

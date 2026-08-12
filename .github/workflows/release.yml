@@ -1,0 +1,123 @@
+name: Release
+
+on:
+  push:
+    tags: ['[0-9]+.[0-9]+.[0-9]+*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (defaults to Directory.Build.props)'
+        required: false
+      dry_run:
+        description: 'Build the artifacts but do not publish a release'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  # Turns the "compiler and every package share one version" invariant into an enforced gate:
+  # a tag that disagrees with Directory.Build.props fails before anything is built.
+  verify-version:
+    name: Verify version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content Directory.Build.props
+          $version = ($props.Project.PropertyGroup | ForEach-Object { $_.Version } | Where-Object { $_ }).Trim()
+          Write-Host "Directory.Build.props version: $version"
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $tag = '${{ github.ref_name }}'
+            if ($tag -ne $version) {
+              Write-Error "Tag '$tag' does not match Directory.Build.props version '$version'."
+              exit 1
+            }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+  # One Linux runner for every toolchain archive. The RID builds are framework-dependent, so they
+  # cross-compile fine -- but this MUST run on Linux: tar entries written on Windows carry mode
+  # 0644, which would leave a hand-extracted `zs` non-executable.
+  toolchain:
+    name: Toolchain archives
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: pwsh ./publish.ps1 -NoChecksums
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toolchain
+          path: dist/*
+          if-no-files-found: error
+
+  # Native AOT cannot cross-compile between operating systems, so zsup needs one runner per target.
+  zsup:
+    name: zsup (${{ matrix.rid }})
+    needs: verify-version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    rid: linux-x64 }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64 }
+          - { os: macos-13,         rid: osx-x64 }
+          - { os: macos-latest,     rid: osx-arm64 }
+          - { os: windows-latest,   rid: win-x64 }
+          - { os: windows-11-arm,   rid: win-arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install the native toolchain
+        if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+      - run: pwsh ./publish-zsup.ps1 -Runtime ${{ matrix.rid }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zsup-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [verify-version, toolchain, zsup]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: staging
+      - name: Collect the artifacts
+        run: |
+          mkdir -p dist
+          find staging -type f -exec mv {} dist/ \;
+          ls -la dist
+      # Generated here rather than per-job so there is exactly one SHA256SUMS covering every
+      # asset -- which is what zsup and install.sh both expect to find.
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Publish
+        if: github.ref_type == 'tag' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ needs.verify-version.outputs.version }}"
+          NOTES="docs/changelog/${VERSION}.md"
+          if [ -f "$NOTES" ]; then
+            gh release create "${{ github.ref_name }}" dist/* --title "$VERSION" --notes-file "$NOTES"
+          else
+            gh release create "${{ github.ref_name }}" dist/* --title "$VERSION" --generate-notes
+          fi
