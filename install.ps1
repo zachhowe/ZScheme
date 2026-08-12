@@ -45,7 +45,10 @@ if (-not $Version) {
     if (-not $tag) { throw "Could not determine the latest release." }
     if ($tag.StartsWith('v')) { $Version = $tag.Substring(1) } else { $Version = $tag }
 } else {
+    # `-Version v0.4.0` has to work too: zsup's own ReleaseRef tolerates the prefix, and this is the
+    # same split -- the tag keeps whatever was passed, the asset name gets it stripped.
     $tag = $Version
+    if ($Version.StartsWith('v')) { $Version = $Version.Substring(1) }
 }
 
 $baseUrl = if ($env:ZSCHEME_DIST_BASE_URL) { $env:ZSCHEME_DIST_BASE_URL } else { "https://github.com/$repo/releases/download" }

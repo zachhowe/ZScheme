@@ -79,12 +79,53 @@ public sealed class ZSchemeHomeTests
 
         Assert.Equal(
             Path.Combine(home, "cache", "pkg", "0.4.0"),
-            ZSchemeHome.GetPackageCacheRootFor("0.4.0", home)
+            ZSchemeHome.GetPackageCacheRootFor("0.4.0", home, cacheDirEnvValue: null)
         );
         Assert.NotEqual(
-            ZSchemeHome.GetPackageCacheRootFor("0.4.0", home),
-            ZSchemeHome.GetPackageCacheRootFor("0.3.0", home)
+            ZSchemeHome.GetPackageCacheRootFor("0.4.0", home, cacheDirEnvValue: null),
+            ZSchemeHome.GetPackageCacheRootFor("0.3.0", home, cacheDirEnvValue: null)
         );
+    }
+
+    /// <summary>
+    ///     The variable has to outrank an explicitly passed home, unlike <c>ZSCHEME_HOME</c>. zsup
+    ///     resolves the home first and passes it explicitly everywhere, so deferring to it would
+    ///     leave <c>zsup install</c> seeding a directory no compile ever reads.
+    /// </summary>
+    [Fact]
+    public void GetPackageCacheRootFor_CacheDirEnvValue_BeatsTheHome()
+    {
+        var home = Path.GetFullPath("/tmp/zshome");
+
+        Assert.Equal(
+            Path.Combine(Path.GetFullPath("/tmp/elsewhere"), "pkg", "0.4.0"),
+            ZSchemeHome.GetPackageCacheRootFor("0.4.0", home, "/tmp/elsewhere")
+        );
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void GetEffectiveCacheRoot_BlankCacheDir_FallsBackToTheHome(string blank)
+    {
+        var home = Path.GetFullPath("/tmp/zshome");
+
+        Assert.Equal(
+            ZSchemeHome.GetCacheRoot(home),
+            ZSchemeHome.GetEffectiveCacheRoot(home, blank)
+        );
+    }
+
+    /// <summary>
+    ///     The NuGet cache is the one that ignores <c>ZSCHEME_CACHE_DIR</c>, matching the compiler's
+    ///     <c>NuGetResolver</c>.
+    /// </summary>
+    [Fact]
+    public void GetNuGetCacheRoot_IgnoresTheCacheDirOverride()
+    {
+        var home = Path.GetFullPath("/tmp/zshome");
+
+        Assert.Equal(Path.Combine(home, "cache", "nuget"), ZSchemeHome.GetNuGetCacheRoot(home));
     }
 
     [Fact]

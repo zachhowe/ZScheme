@@ -28,7 +28,50 @@ public sealed class ZSchemePathsTests : IDisposable
     [Fact]
     public void GetCacheRoot_NoOverrides_UsesUserProfileDefault()
     {
-        Assert.Equal(HomeDefault, ZSchemePaths.GetCacheRoot());
+        Assert.Equal(HomeDefault, ZSchemePaths.GetCacheRoot(null, cacheDirEnvValue: null));
+    }
+
+    /// <summary>
+    ///     The variable has to be honoured here rather than by each entry point. When only the CLI
+    ///     injected it, <c>zs-lsp</c> resolved a different cache root than the one <c>zsup</c> seeds
+    ///     and <c>zs</c> compiles into.
+    /// </summary>
+    [Fact]
+    public void GetCacheRoot_CacheDirEnvValue_BeatsTheHome()
+    {
+        var result = ZSchemePaths.GetCacheRoot(null, "/tmp/from-env");
+
+        Assert.Equal(Path.GetFullPath("/tmp/from-env"), result);
+    }
+
+    [Fact]
+    public void GetCacheRoot_ExplicitOverride_BeatsTheCacheDirEnvValue()
+    {
+        var result = ZSchemePaths.GetCacheRoot("/tmp/explicit", "/tmp/from-env");
+
+        Assert.Equal(Path.GetFullPath("/tmp/explicit"), result);
+    }
+
+    /// <summary>
+    ///     A host that sets the process default is stating where the cache belongs, so it outranks
+    ///     whatever the surrounding shell happens to export.
+    /// </summary>
+    [Fact]
+    public void GetCacheRoot_ProcessDefault_BeatsTheCacheDirEnvValue()
+    {
+        ZSchemePaths.SetProcessDefaultCacheRoot("/tmp/process-default");
+
+        var result = ZSchemePaths.GetCacheRoot(null, "/tmp/from-env");
+
+        Assert.Equal(Path.GetFullPath("/tmp/process-default"), result);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void GetCacheRoot_BlankCacheDirEnvValue_FallsThroughToTheHome(string blank)
+    {
+        Assert.Equal(HomeDefault, ZSchemePaths.GetCacheRoot(null, blank));
     }
 
     [Fact]
@@ -77,7 +120,7 @@ public sealed class ZSchemePathsTests : IDisposable
         ZSchemePaths.SetProcessDefaultCacheRoot("/tmp/something");
         ZSchemePaths.SetProcessDefaultCacheRoot(null);
 
-        Assert.Equal(HomeDefault, ZSchemePaths.GetCacheRoot());
+        Assert.Equal(HomeDefault, ZSchemePaths.GetCacheRoot(null, cacheDirEnvValue: null));
     }
 
     [Fact]
@@ -86,7 +129,7 @@ public sealed class ZSchemePathsTests : IDisposable
         ZSchemePaths.SetProcessDefaultCacheRoot("/tmp/something");
         ZSchemePaths.SetProcessDefaultCacheRoot("");
 
-        Assert.Equal(HomeDefault, ZSchemePaths.GetCacheRoot());
+        Assert.Equal(HomeDefault, ZSchemePaths.GetCacheRoot(null, cacheDirEnvValue: null));
     }
 
     [Fact]
@@ -138,6 +181,25 @@ public sealed class ZSchemePathsTests : IDisposable
     {
         var expected = Path.Combine(HomeDefault, "pkg", CompilerInfo.BaseVersion);
 
-        Assert.Equal(expected, ZSchemePaths.GetPackageCacheRoot());
+        Assert.Equal(expected, ZSchemePaths.GetPackageCacheRoot(null, cacheDirEnvValue: null));
+    }
+
+    /// <summary>
+    ///     The whole point of routing the variable through here: this has to be the same directory
+    ///     <c>zsup</c> seeds, which it resolves through <c>ZSchemeHome.GetPackageCacheRootFor</c>.
+    /// </summary>
+    [Fact]
+    public void GetPackageCacheRoot_CacheDirEnvValue_MovesTheWholeTree()
+    {
+        var result = ZSchemePaths.GetPackageCacheRoot(null, "/tmp/from-env");
+
+        Assert.Equal(
+            ZSchemeHome.GetPackageCacheRootFor(
+                CompilerInfo.BaseVersion,
+                home: null,
+                cacheDirEnvValue: "/tmp/from-env"
+            ),
+            result
+        );
     }
 }

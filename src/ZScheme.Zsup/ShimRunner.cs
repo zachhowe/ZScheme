@@ -128,8 +128,19 @@ internal static class ShimRunner
         // that version, so by default it would read and write the same cache/pkg/<version>
         // directory. A dev build that changes the metadata format would then silently poison the
         // released toolchain's cache, so linked toolchains get their own cache root.
-        if (toolchain.IsLinked && Environment.GetEnvironmentVariable("ZSCHEME_CACHE_DIR") is null)
-            environment["ZSCHEME_CACHE_DIR"] = ZSchemeHome.GetLinkedCacheRoot(toolchain.Name);
+        //
+        // Blank counts as unset, not as an override: the compiler normalizes an empty
+        // ZSCHEME_CACHE_DIR straight back to <home>/cache, so an `is null` test here would skip the
+        // isolation and hand the dev build the released cache after all.
+        if (
+            toolchain.IsLinked
+            && string.IsNullOrWhiteSpace(
+                Environment.GetEnvironmentVariable(ZSchemeHome.CacheDirEnvironmentVariable)
+            )
+        )
+            environment[ZSchemeHome.CacheDirEnvironmentVariable] = ZSchemeHome.GetLinkedCacheRoot(
+                toolchain.Name
+            );
 
         return environment;
     }

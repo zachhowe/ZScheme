@@ -2,6 +2,7 @@ using Serilog;
 using Serilog.Events;
 using ZScheme.Compiler;
 using ZScheme.Compiler.Cache;
+using ZScheme.Toolchain;
 
 namespace ZScheme.Cli;
 
@@ -22,15 +23,17 @@ public static class Program
                 .CreateLogger();
         }
 
-        var envCacheDir = Environment.GetEnvironmentVariable("ZSCHEME_CACHE_DIR");
+        // Read only to report it. ZSchemePaths resolves the variable itself, so `zs`, `zs-lsp` and
+        // every other host land on the same cache root without each having to opt in -- which is
+        // what went wrong when this was the CLI's job alone.
+        var envCacheDir = Environment.GetEnvironmentVariable(
+            ZSchemeHome.CacheDirEnvironmentVariable
+        );
         if (!string.IsNullOrWhiteSpace(envCacheDir))
-        {
-            ZSchemePaths.SetProcessDefaultCacheRoot(envCacheDir);
             Log.Debug(
                 "CLI: ZSCHEME_CACHE_DIR override active, cache root={CacheRoot}",
                 ZSchemePaths.GetCacheRoot()
             );
-        }
 
         try
         {

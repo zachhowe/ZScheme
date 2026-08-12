@@ -42,11 +42,16 @@ internal static class UninstallCommand
         var wasDefault = ToolchainName.AreSame(registry.GetDefault(), name);
 
         // Read before removal: the cache key is the payload's compiler version, which is recorded
-        // inside the toolchain and is not necessarily the name it was installed under.
-        var compilerVersion =
-            existing is not null && !existing.IsLinked
-                ? PackageCacheSeeder.ResolveCompilerVersion(existing.Dir, name)
-                : name;
+        // inside the toolchain and is not necessarily the name it was installed under. A linked
+        // toolchain has no entry in the shared cache at all -- it compiles into the isolated
+        // cache-dev/<name> root instead -- so it gets no compiler version to key one by.
+        var isLinked = existing?.IsLinked ?? false;
+        var compilerVersion = isLinked
+            ? null
+            : PackageCacheSeeder.ResolveCompilerVersion(
+                existing?.Dir ?? ZSchemeHome.GetToolchainDir(name, home),
+                name
+            );
 
         try
         {
@@ -64,22 +69,28 @@ internal static class UninstallCommand
         // picks the cache back up.
         if (purgeCache)
         {
-            // Keyed by compiler version, so it is shared by every toolchain built from the same
-            // payload. Deleting it because one of them was uninstalled would force the others into
-            // a from-source stdlib rebuild, which needs the SDK and the network.
-            var sharing = registry.UsingCompilerVersion(compilerVersion);
-            if (sharing.Count > 0)
+            // Only for a real installation. A link's name is not a compiler version, and `zsup link
+            // 0.4.0 ./build` is legal whenever toolchains/0.4.0 is free -- treating it as one would
+            // delete cache/pkg/0.4.0, the released payload's cache, which the link never wrote to.
+            if (compilerVersion is not null)
             {
-                Console.WriteLine(
-                    $"note: kept the package cache for compiler version {compilerVersion}"
-                );
-                Console.WriteLine(
-                    $"      still used by: {string.Join(", ", sharing.Select(t => t.Name))}"
-                );
-            }
-            else
-            {
-                PurgeCache(ZSchemeHome.GetPackageCacheRootFor(compilerVersion, home));
+                // Keyed by compiler version, so it is shared by every toolchain built from the same
+                // payload. Deleting it because one of them was uninstalled would force the others
+                // into a from-source stdlib rebuild, which needs the SDK and the network.
+                var sharing = registry.UsingCompilerVersion(compilerVersion);
+                if (sharing.Count > 0)
+                {
+                    Console.WriteLine(
+                        $"note: kept the package cache for compiler version {compilerVersion}"
+                    );
+                    Console.WriteLine(
+                        $"      still used by: {string.Join(", ", sharing.Select(t => t.Name))}"
+                    );
+                }
+                else
+                {
+                    PurgeCache(ZSchemeHome.GetPackageCacheRootFor(compilerVersion, home));
+                }
             }
 
             // Per-name rather than per-version, so nothing else can be using it.

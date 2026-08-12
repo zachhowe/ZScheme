@@ -178,12 +178,15 @@ internal static class InstallCommand
         }
         finally
         {
-            // The extracted toolchain is the artifact worth keeping, not the archive.
+            // The extracted toolchain is the artifact worth keeping, not the archive. Access
+            // failures count as much as IO ones: this runs after the install has committed, so
+            // letting one escape the `finally` would report a toolchain that is installed and
+            // working as `error: Access to the path ... is denied`.
             try
             {
                 File.Delete(archivePath);
             }
-            catch (IOException)
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 // Swept by the next install.
             }

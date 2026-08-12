@@ -20,11 +20,15 @@ public static class PackageCacheSeeder
     ///     Seeds the shared package cache from <c>&lt;toolchainDir&gt;/pkgcache/</c>.
     /// </summary>
     /// <remarks>
-    ///     The compiler reads <c>cache/pkg/&lt;compiler version&gt;/</c>, which is unrelated to the
-    ///     name the toolchain was installed under — <c>zsup install dev --from …</c> is legal, and
-    ///     CI installs the same archive twice under different names. The shipped layout is therefore
-    ///     <c>pkgcache/&lt;compiler version&gt;/&lt;package&gt;/&lt;package version&gt;/</c>, so the
-    ///     version travels with the payload instead of being guessed from the install name.
+    ///     The compiler reads <c>&lt;cache root&gt;/pkg/&lt;compiler version&gt;/</c>, which is
+    ///     unrelated to the name the toolchain was installed under — <c>zsup install dev --from …</c>
+    ///     is legal, and CI installs the same archive twice under different names. The shipped layout
+    ///     is therefore <c>pkgcache/&lt;compiler version&gt;/&lt;package&gt;/&lt;package version&gt;/</c>,
+    ///     so the version travels with the payload instead of being guessed from the install name.
+    ///     The destination goes through <see cref="ZSchemeHome.GetPackageCacheRootFor" /> rather than
+    ///     being built from the home, because <c>ZSCHEME_CACHE_DIR</c> moves the cache out from under
+    ///     it — seeding the home's copy for a user who has that set would leave the first compile
+    ///     building the standard library from source anyway.
     /// </remarks>
     /// <param name="force">Overwrite package versions that are already cached.</param>
     /// <returns>The number of package versions copied.</returns>

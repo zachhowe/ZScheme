@@ -89,7 +89,10 @@ if [ -z "$VERSION" ]; then
     [ -n "$TAG" ] || err "could not determine the latest release"
     VERSION="${TAG#v}"
 else
+    # `--version v0.4.0` has to work too: zsup's own ReleaseRef tolerates the prefix, and this is
+    # the same split -- the tag keeps whatever was typed, the asset name gets it stripped.
     TAG="$VERSION"
+    VERSION="${VERSION#v}"
 fi
 
 BASE_URL="${ZSCHEME_DIST_BASE_URL:-https://github.com/$REPO/releases/download}"

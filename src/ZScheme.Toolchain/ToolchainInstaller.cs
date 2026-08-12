@@ -99,9 +99,21 @@ public sealed class ToolchainInstaller(string? home = null)
         catch
         {
             TryDelete(staging);
-            // Put the previous installation back if we had already moved it aside.
+            // Put the previous installation back if we had already moved it aside. Guarded, because
+            // a failure here must not replace the exception on its way out: that one says why the
+            // install failed -- a bad archive, a checksum, a missing zs -- and is the only thing
+            // that would explain a toolchain that has now gone missing. The trash directory is left
+            // where it is, so the previous payload can still be recovered from downloads/.
             if (trash is not null && Directory.Exists(trash) && !Directory.Exists(destDir))
-                Directory.Move(trash, destDir);
+                try
+                {
+                    Directory.Move(trash, destDir);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    // Reported through the original exception below.
+                }
+
             throw;
         }
 
@@ -199,15 +211,40 @@ public sealed class ToolchainInstaller(string? home = null)
         }
 
         foreach (var entry in Directory.GetFileSystemEntries(temp))
-        {
-            var target = Path.Combine(binDir, Path.GetFileName(entry));
-            if (Directory.Exists(entry))
-                Directory.Move(entry, target);
-            else
-                File.Move(entry, target, overwrite: true);
-        }
+            MoveInto(entry, Path.Combine(binDir, Path.GetFileName(entry)));
 
         Directory.Delete(temp);
+    }
+
+    /// <summary>
+    ///     Moves <paramref name="source" /> to <paramref name="target" />, merging directory into
+    ///     directory when the target is already there.
+    /// </summary>
+    /// <remarks>
+    ///     <see cref="Directory.Move(string, string)" /> has no overwrite overload and throws on any
+    ///     existing target, so a plain move would reintroduce the bare "cannot create ... already
+    ///     exists" that the merge in <see cref="NormalizeLayout" /> exists to avoid — just for
+    ///     directories rather than files. A dev staging tree with its own <c>bin/runtimes/</c>
+    ///     beside a payload that also ships one is enough to hit it.
+    /// </remarks>
+    private static void MoveInto(string source, string target)
+    {
+        if (!Directory.Exists(source))
+        {
+            File.Move(source, target, overwrite: true);
+            return;
+        }
+
+        if (!Directory.Exists(target))
+        {
+            Directory.Move(source, target);
+            return;
+        }
+
+        foreach (var entry in Directory.GetFileSystemEntries(source))
+            MoveInto(entry, Path.Combine(target, Path.GetFileName(entry)));
+
+        Directory.Delete(source);
     }
 
     /// <summary>

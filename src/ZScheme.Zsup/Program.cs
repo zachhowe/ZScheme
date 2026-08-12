@@ -11,9 +11,16 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        // The canonical name rather than what was typed: the rest of the shim path turns it into a
+        // file name and an argv[0] for the child.
+        var invokedShim = ShimInstaller.MatchName(GetInvokedName());
+
         // Explicit override, mostly for tests and for any platform where argv[0] cannot be
-        // trusted: `zsup --shim zs -- <args...>`.
-        if (args is ["--shim", var forced, ..])
+        // trusted: `zsup --shim zs -- <args...>`. Only honoured in manager mode. Once argv[0] has
+        // already named a shim the arguments belong to the toolchain, and the shim is contractually
+        // argument-transparent -- intercepting them here would make `zs --shim foo bar` fail with
+        // "unknown shim 'foo'" instead of forwarding it to the compiler.
+        if (invokedShim is null && args is ["--shim", var forced, ..])
         {
             var rest = args[2..];
             if (rest is ["--", ..])
@@ -24,9 +31,7 @@ public static class Program
                 : ZsupHelpers.Error($"error: unknown shim '{forced}'");
         }
 
-        // The canonical name rather than what was typed: the rest of the shim path turns it into a
-        // file name and an argv[0] for the child.
-        if (ShimInstaller.MatchName(GetInvokedName()) is { } shim)
+        if (invokedShim is { } shim)
             return ShimRunner.Run(shim, args);
 
         // Only in manager mode: the shim path stays as short as possible, and a leftover binary

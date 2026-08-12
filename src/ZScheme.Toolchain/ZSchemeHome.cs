@@ -14,6 +14,7 @@ public static class ZSchemeHome
 {
     public const string HomeEnvironmentVariable = "ZSCHEME_HOME";
     public const string VersionEnvironmentVariable = "ZSCHEME_VERSION";
+    public const string CacheDirEnvironmentVariable = "ZSCHEME_CACHE_DIR";
 
     /// <summary>Name of the per-directory toolchain pin file.</summary>
     public const string VersionFileName = ".zscheme-version";
@@ -99,13 +100,43 @@ public static class ZSchemeHome
     }
 
     /// <summary>
-    ///     The default cache root. This answers the *layout* question only — the compiler's
-    ///     <c>ZSchemePaths.GetCacheRoot</c> still applies its own overrides on top, so
-    ///     <c>ZSCHEME_CACHE_DIR</c> continues to win over <c>ZSCHEME_HOME</c>.
+    ///     The cache root a home lays out by default. This answers the *layout* question only; it is
+    ///     not where the caches subject to <c>ZSCHEME_CACHE_DIR</c> actually live — see
+    ///     <see cref="GetEffectiveCacheRoot" />. The NuGet cache is the one that stays here
+    ///     unconditionally.
     /// </summary>
     public static string GetCacheRoot(string? home = null)
     {
         return Path.Combine(GetHome(home), "cache");
+    }
+
+    /// <summary>
+    ///     The cache root a compile will actually read: <c>ZSCHEME_CACHE_DIR</c> when it is set,
+    ///     otherwise <see cref="GetCacheRoot" />.
+    /// </summary>
+    /// <remarks>
+    ///     The environment variable wins even over an explicitly passed <paramref name="home" />,
+    ///     which is the opposite of how <see cref="GetHome" /> treats <c>ZSCHEME_HOME</c> — and it
+    ///     has to be. zsup always resolves the home first and then passes it explicitly, so
+    ///     deferring to it here would mean seeding a directory no compile ever looks at for every
+    ///     user who has <c>ZSCHEME_CACHE_DIR</c> exported. This mirrors the compiler's
+    ///     <c>ZSchemePaths.GetCacheRoot</c>, which the CLI feeds from the same variable.
+    /// </remarks>
+    public static string GetEffectiveCacheRoot(string? home = null)
+    {
+        return GetEffectiveCacheRoot(
+            home,
+            Environment.GetEnvironmentVariable(CacheDirEnvironmentVariable)
+        );
+    }
+
+    /// <summary>
+    ///     Overload taking the environment value explicitly, for callers that have already read it —
+    ///     and so no test ever has to write to the process environment.
+    /// </summary>
+    public static string GetEffectiveCacheRoot(string? home, string? cacheDirEnvValue)
+    {
+        return PathNormalizer.Normalize(cacheDirEnvValue) ?? GetCacheRoot(home);
     }
 
     /// <summary>
@@ -114,7 +145,17 @@ public static class ZSchemeHome
     /// </summary>
     public static string GetPackageCacheRootFor(string version, string? home = null)
     {
-        return Path.Combine(GetCacheRoot(home), "pkg", version);
+        return Path.Combine(GetEffectiveCacheRoot(home), "pkg", version);
+    }
+
+    /// <inheritdoc cref="GetEffectiveCacheRoot(string?, string?)" />
+    public static string GetPackageCacheRootFor(
+        string version,
+        string? home,
+        string? cacheDirEnvValue
+    )
+    {
+        return Path.Combine(GetEffectiveCacheRoot(home, cacheDirEnvValue), "pkg", version);
     }
 
     /// <summary>

@@ -20,8 +20,9 @@ irm https://raw.githubusercontent.com/zachhowe/ZScheme/master/install.ps1 | iex
 Both scripts download `zsup`, verify it against the release's `SHA256SUMS`, install the latest
 toolchain, and put `~/.zscheme/bin` on your PATH. Pass `--no-modify-path` / `-NoModifyPath` to skip
 the PATH change, and `--version <X.Y.Z>` (or `ZSCHEME_INSTALL_VERSION`) to install something other
-than the latest release. That is deliberately not `ZSCHEME_VERSION`, which selects the installed
-toolchain `zs` runs and is commonly exported to a name like `dev`.
+than the latest release; a leading `v` is accepted there, matching the release tags. That is
+deliberately not `ZSCHEME_VERSION`, which selects the installed toolchain `zs` runs and is commonly
+exported to a name like `dev`.
 
 `zs` and `zs-lsp` are framework-dependent and need the [.NET 10 runtime](https://dotnet.microsoft.com/download).
 `zsup` itself is a native binary with no such dependency, so it can tell you when the runtime is
@@ -110,12 +111,20 @@ name the toolchain was installed under — that decides where it is seeded. The 
 toolchain is installed under another name (`zsup install dev --from …`), and the compiler only ever
 looks in `cache/pkg/<its own version>/`.
 
+`ZSCHEME_CACHE_DIR` moves that directory, and seeding follows it: `zsup` resolves the destination
+exactly the way a compile resolves its cache, so the two cannot end up pointing at different
+directories. Seeding the home's copy for someone who has the variable exported would leave the first
+compile building stdlib from source anyway, which is the whole thing this avoids.
+
 The sources are still worth shipping: the cache rebuilds from them if it is ever cleared, and the
 language server uses them for go-to-definition into stdlib.
 
 Because the key is the compiler version, one `cache/pkg/<version>/` can back several installed
 toolchains. `zsup uninstall --purge-cache` therefore keeps it when any of the others still reports
-that version, and says so; the linked cache at `cache-dev/<name>/` is per-name and always goes.
+that version, and says so. A linked toolchain is exempt from that half entirely — it has no entry in
+the shared cache to remove, and its *name* is not a version, so `zsup link 0.4.0 ./build` must not be
+read as a claim on `cache/pkg/0.4.0/`. Only its own `cache-dev/<name>/`, which is per-name and can
+never be shared, is removed.
 
 ## Developing on the compiler itself
 

@@ -104,7 +104,14 @@ internal static class ZsupDoctor
                 return null;
             }
 
-            Task.WaitAll([stdout, stderr], TimeSpan.FromSeconds(5));
+            // The bound has to be honoured, not just requested. A grandchild that inherited the
+            // pipe keeps it open after `dotnet` itself has exited, so the reads can still be
+            // pending here -- and `stdout.Result` on a pending task blocks with no timeout at all,
+            // which is the very hang this drain is bounded to avoid. Disposing the process on the
+            // way out closes our ends and lets the abandoned reads finish.
+            if (!Task.WaitAll([stdout, stderr], TimeSpan.FromSeconds(5)))
+                return null;
+
             return process.ExitCode == 0 ? stdout.Result : null;
         }
         catch (Exception e)

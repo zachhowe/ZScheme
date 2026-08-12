@@ -378,6 +378,30 @@ public sealed class ToolchainInstallerTests
     }
 
     [Fact]
+    public void InstallFrom_PayloadWhoseBinCollidesOnASubdirectory_MergesThatToo()
+    {
+        // The same collision one level down. A plain Directory.Move onto an existing bin/runtimes/
+        // throws, which is exactly the bare "already exists" the merge above exists to avoid --
+        // and a payload that ships runtimes/ beside a staging tree that has its own is enough.
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload", nested: false);
+
+        var rootRuntimes = Path.Combine(payload, "runtimes");
+        Directory.CreateDirectory(rootRuntimes);
+        File.WriteAllText(Path.Combine(rootRuntimes, "from-root.txt"), "root");
+
+        var binRuntimes = Path.Combine(payload, "bin", "runtimes");
+        Directory.CreateDirectory(binRuntimes);
+        File.WriteAllText(Path.Combine(binRuntimes, "from-bin.txt"), "bin");
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0");
+
+        var merged = Path.Combine(result.Dir, "bin", "runtimes");
+        Assert.True(File.Exists(Path.Combine(merged, "from-root.txt")));
+        Assert.True(File.Exists(Path.Combine(merged, "from-bin.txt")));
+    }
+
+    [Fact]
     public void InstallFrom_PayloadWithAFileNamedBin_SaysWhatIsWrong()
     {
         using var home = new TempHome();

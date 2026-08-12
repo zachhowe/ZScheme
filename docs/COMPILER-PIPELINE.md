@@ -816,7 +816,11 @@ argument to one command handler. A global `--debug` flag (stripped before
 dispatch) enables compiler debug logging to stderr, and the `ZSCHEME_CACHE_DIR`
 environment variable overrides the base directory for the package/git caches
 (default `<home>/cache`; the NuGet cache follows the home but ignores this
-override).
+override). That variable is resolved inside
+[`ZSchemePaths.GetCacheRoot`](../src/ZScheme.Compiler/Cache/ZSchemePaths.cs)
+rather than injected by the CLI, so `zs-lsp` and the other hosts land on the same
+cache root that `zsup` seeds — a host only calls
+`SetProcessDefaultCacheRoot` when it wants to outrank the variable.
 
 Note that on an installed system the `zs` on PATH is not this binary but a shim:
 `zsup` resolves the selected toolchain and hands off to its real `zs`. The

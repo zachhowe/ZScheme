@@ -122,13 +122,16 @@ internal static class SelfCommand
         }
         finally
         {
+            // Access failures count as much as IO ones: the binaries have already been replaced by
+            // this point, so letting one escape the `finally` would report a completed update as a
+            // failure.
             try
             {
                 if (Directory.Exists(staging))
                     Directory.Delete(staging, recursive: true);
                 File.Delete(archivePath);
             }
-            catch (IOException)
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 // Swept by a later run.
             }
