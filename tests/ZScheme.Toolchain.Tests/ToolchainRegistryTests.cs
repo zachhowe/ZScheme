@@ -177,6 +177,39 @@ public sealed class ToolchainRegistryTests
     }
 
     [Fact]
+    public void SetDefault_DoesNotStageThroughAFixedName()
+    {
+        using var home = new TempHome();
+        home.AddInstalled("0.4.0");
+
+        // Stands in for the concurrent zsup that shares the staging slot -- deterministically,
+        // and without threads, since a directory can never be written through. Whatever holds
+        // settings.json.tmp, this write has to stage somewhere of its own.
+        Directory.CreateDirectory(ZSchemeHome.GetSettingsFile(home.Path) + ".tmp");
+
+        new ToolchainRegistry(home.Path).SetDefault("0.4.0");
+
+        Assert.Equal("0.4.0", new ToolchainRegistry(home.Path).GetDefault());
+    }
+
+    [Fact]
+    public void SetDefault_CleansUpItsStagingFileWhenTheWriteFails()
+    {
+        using var home = new TempHome();
+        home.AddInstalled("0.4.0");
+
+        // A directory where settings.json belongs fails the rename, leaving the staged file to
+        // be cleaned up. Nothing else would: SweepTransients only walks downloads/, so one would
+        // leak per attempt and stay in the home root forever.
+        Directory.CreateDirectory(ZSchemeHome.GetSettingsFile(home.Path));
+
+        Assert.NotNull(
+            Record.Exception(() => new ToolchainRegistry(home.Path).SetDefault("0.4.0"))
+        );
+        Assert.Empty(Directory.GetFiles(home.Path, "settings.json.tmp*"));
+    }
+
+    [Fact]
     public void GetDefault_MalformedSettings_DegradesToNoDefault()
     {
         using var home = new TempHome();

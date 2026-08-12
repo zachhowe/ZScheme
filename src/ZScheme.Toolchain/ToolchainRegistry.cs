@@ -278,9 +278,37 @@ public sealed class ToolchainRegistry(string home)
             ToolchainJsonContext.Default.ToolchainSettings
         );
 
-        // Write-then-rename so an interrupted write cannot leave a truncated settings file.
-        var temp = path + ".tmp";
-        File.WriteAllText(temp, json + Environment.NewLine);
-        File.Move(temp, path, overwrite: true);
+        // Write-then-rename so an interrupted write cannot leave a truncated settings file. The
+        // rename is atomic but the staging slot has to be private too, hence the per-process
+        // suffix every other transient in the home already carries. Sharing one settings.json.tmp
+        // lets two concurrent zsup processes interleave: one renames away the bytes the other
+        // wrote -- reporting its own toolchain as the new default while the file says otherwise --
+        // and the loser's rename then throws FileNotFoundException. Distinct slots make this a
+        // genuine last-writer-wins, which is the right semantics for setting a default.
+        var temp = path + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
+        try
+        {
+            File.WriteAllText(temp, json + Environment.NewLine);
+            File.Move(temp, path, overwrite: true);
+        }
+        finally
+        {
+            // Nothing else ever would: these sit in the home root, and SweepTransients only walks
+            // downloads/. Without this, every write that failed before the rename leaks one.
+            TryDeleteFile(temp);
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort: the file is either already gone (the rename consumed it) or locked, and
+            // a stale staging file affects nothing -- the next write stages under its own name.
+        }
     }
 }
