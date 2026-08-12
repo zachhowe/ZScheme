@@ -121,7 +121,9 @@ public sealed class SemanticTokensHandler(AnalysisService analysisService)
     {
         var uri = @params.TextDocument.Uri.ToString();
         foreach (var cached in _tokenDocuments.Keys)
-            if (cached != uri && analysisService.GetDocument(cached) is null)
+            // Peek, not Get: this asks whether the document is still open, so it must not
+            // wait on an in-flight analysis for a document it is about to evict anyway.
+            if (cached != uri && analysisService.PeekDocument(cached) is null)
                 _tokenDocuments.TryRemove(cached, out _);
 
         return Task.FromResult(

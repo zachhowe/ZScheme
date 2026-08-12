@@ -15,9 +15,26 @@ public sealed class AnalysisService
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<AnalysisService>();
 
-    /// <summary>How long a single document's analysis may block the caller. Comfortably
-    ///     under the timeouts editors apply to LSP requests (Zed cancels at 120s).</summary>
-    internal static readonly TimeSpan AnalysisBudget = TimeSpan.FromSeconds(20);
+    /// <summary>Default for <see cref="AnalysisBudget" />. Comfortably under the timeouts
+    ///     editors apply to LSP requests (Zed cancels at 120s).</summary>
+    internal static readonly TimeSpan DefaultAnalysisBudget = TimeSpan.FromSeconds(20);
+
+    /// <summary>Default for <see cref="PendingAnalysisWait" />.</summary>
+    internal static readonly TimeSpan DefaultPendingAnalysisWait = TimeSpan.FromSeconds(10);
+
+    /// <summary>How long a single document's analysis may block the caller. A test shortens
+    ///     it so the overrun path is taken by construction instead of by loading the
+    ///     machine down until a real compile misses the deadline.</summary>
+    internal TimeSpan AnalysisBudget { get; init; } = DefaultAnalysisBudget;
+
+    /// <summary>
+    ///     How long past <see cref="AnalysisBudget" /> a caller of
+    ///     <see cref="GetDocument" /> keeps waiting for an analysis that has not yet
+    ///     produced an AST. The deadline is per analysis, not per request: a compile that
+    ///     never finishes costs the document one such window in total, after which requests
+    ///     answer from whatever state is stored rather than each paying the wait again.
+    /// </summary>
+    internal TimeSpan PendingAnalysisWait { get; init; } = DefaultPendingAnalysisWait;
 
     /// <summary>How long an edit sits before it is analyzed, so a burst of keystrokes
     ///     compiles once instead of once per character.</summary>
@@ -41,6 +58,13 @@ public sealed class AnalysisService
         StringComparer.OrdinalIgnoreCase
     );
 
+    /// <summary>Analyses that have been started but whose state is not published yet, so a
+    ///     request that lands on a document with no AST can wait for the compile that is
+    ///     about to give it one instead of reporting that there is nothing there.</summary>
+    private readonly ConcurrentDictionary<string, PendingAnalysis> _running = new(
+        StringComparer.OrdinalIgnoreCase
+    );
+
     private readonly WorkspaceIndex _index = new();
     private readonly WorkspaceExclusions _exclusions = new();
     private int _workspaceScanStarted;
@@ -53,7 +77,53 @@ public sealed class AnalysisService
     ///     and workspace symbol search.</summary>
     public WorkspaceIndex Index => _index;
 
+    /// <summary>
+    ///     The document as a request handler should see it. A state with no
+    ///     <see cref="DocumentState.Ast" /> does not mean "there is nothing here to
+    ///     navigate", it means "this document has not been analysed yet" — answering from
+    ///     one turns a slow or crashed compile into a silent "no result" that is
+    ///     indistinguishable, from the client's side, from a name that genuinely has no
+    ///     definition. So when the analysis that will produce that AST is still running,
+    ///     wait for it (bounded by <see cref="PendingAnalysisWait" />).
+    /// </summary>
     public DocumentState? GetDocument(string uri)
+    {
+        var state = PeekDocument(uri);
+        if (state?.Ast is not null || !_running.TryGetValue(uri, out var pending))
+            return state;
+
+        var remaining = pending.DeadlineTicks - Environment.TickCount64;
+        if (remaining > 0)
+            try
+            {
+                // VSTHRD002: same stance as AnalyzeGuarded — the caller needs a DocumentState
+                // back, and the wait is bounded and on a plain thread-pool task.
+#pragma warning disable VSTHRD002
+                pending.Task.Wait(TimeSpan.FromMilliseconds(remaining));
+#pragma warning restore VSTHRD002
+            }
+            catch (AggregateException)
+            {
+                // The analysis crashed; AnalyzeGuarded turns that into a Failed state of its
+                // own, and that state is the best answer available.
+            }
+
+        // The stored state is published slightly after the task completes, so fall back to
+        // the task's own result rather than losing the race to it.
+        var refreshed = PeekDocument(uri);
+        if (refreshed?.Ast is not null)
+            return refreshed;
+
+        // Completed, so reading the result does not block.
+#pragma warning disable VSTHRD002
+        return pending.Task.IsCompletedSuccessfully ? pending.Task.Result : refreshed;
+#pragma warning restore VSTHRD002
+    }
+
+    /// <summary>The stored state for a document, without waiting on an in-flight analysis.
+    ///     For callers asking whether a document exists at all rather than asking it a
+    ///     question about its contents.</summary>
+    public DocumentState? PeekDocument(string uri)
     {
         return _documents.TryGetValue(uri, out var state) ? state : null;
     }
@@ -179,7 +249,9 @@ public sealed class AnalysisService
     ///         <c>Compilation.Compile</c> takes no cancellation token, so what is bounded
     ///         here is the <em>wait</em>, not the work: on expiry we return the current
     ///         (last-good or placeholder) state and let the orphaned task publish its
-    ///         result if it ever finishes.
+    ///         result if it ever finishes. The task stays registered in <c>_running</c>
+    ///         until it does, so a request arriving in that window waits for it rather than
+    ///         answering from a state that has no AST yet — see <see cref="GetDocument" />.
     ///     </para>
     /// </summary>
     private DocumentState AnalyzeGuarded(string uri, string source, int version)
@@ -194,6 +266,13 @@ public sealed class AnalysisService
         _documents[uri] = placeholder;
 
         var analysis = Task.Run(() => RunAnalysis(uri, source, version));
+        var pending = new PendingAnalysis(
+            analysis,
+            Environment.TickCount64
+                + (long)AnalysisBudget.TotalMilliseconds
+                + (long)PendingAnalysisWait.TotalMilliseconds
+        );
+        _running[uri] = pending;
 
         bool finished;
         try
@@ -210,9 +289,7 @@ public sealed class AnalysisService
             // Wait rethrows whatever RunAnalysis threw. Without this the exception would
             // escape the didOpen handler, no diagnostics would ever be published, and the
             // document would keep serving the empty placeholder — silently.
-            var crashed = Failed(uri, source, version, DescribeFailure(error));
-            _documents[uri] = crashed;
-            return crashed;
+            return Publish(uri, pending, Failed(uri, source, version, DescribeFailure(error)));
         }
 
         if (finished)
@@ -221,33 +298,17 @@ public sealed class AnalysisService
 #pragma warning disable VSTHRD002
             var state = analysis.IsCompletedSuccessfully ? analysis.Result : null;
 #pragma warning restore VSTHRD002
-            if (state is not null)
-            {
-                _documents[uri] = state;
-                return state;
-            }
-
-            var failure = Failed(uri, source, version, DescribeFailure(analysis.Exception));
-            _documents[uri] = failure;
-            return failure;
+            return Publish(
+                uri,
+                pending,
+                state ?? Failed(uri, source, version, DescribeFailure(analysis.Exception))
+            );
         }
 
         Log.Warning(
             "Analysis of {Uri} exceeded {Budget}s; serving the last known state while it finishes",
             uri,
             AnalysisBudget.TotalSeconds
-        );
-
-        // Adopt the result whenever it lands, so a slow first compile still converges.
-        _ = analysis.ContinueWith(
-            t =>
-            {
-                if (t.IsCompletedSuccessfully)
-                    _documents[uri] = t.Result;
-                else
-                    Log.Error(t.Exception, "Analysis of {Uri} failed", uri);
-            },
-            TaskScheduler.Default
         );
 
         var timedOut = Failed(
@@ -258,7 +319,45 @@ public sealed class AnalysisService
                 + "results for this file are stale until it completes."
         );
         _documents[uri] = timedOut;
+
+        // Adopt the result whenever it lands, so a slow first compile still converges.
+        // Attached after the store above: a task that finished in the gap between the wait
+        // giving up and the store would otherwise have its result overwritten by this
+        // stale state.
+        _ = analysis.ContinueWith(
+            t =>
+            {
+                if (!Retire(uri, pending))
+                    return;
+                if (t.IsCompletedSuccessfully)
+                    _documents[uri] = t.Result;
+                else
+                    Log.Error(t.Exception, "Analysis of {Uri} failed", uri);
+            },
+            TaskScheduler.Default
+        );
+
         return timedOut;
+    }
+
+    /// <summary>Publishes <paramref name="state" /> as the document's current state and
+    ///     retires <paramref name="pending" /> from the in-flight registry.</summary>
+    private DocumentState Publish(string uri, PendingAnalysis pending, DocumentState state)
+    {
+        // Stored before it is retired: a request in the gap would otherwise find neither a
+        // usable state nor an analysis to wait for, and answer "no result" once more.
+        _documents[uri] = state;
+        Retire(uri, pending);
+        return state;
+    }
+
+    /// <summary>Drops <paramref name="pending" /> from the in-flight registry, reporting
+    ///     whether it was still the current one. False means a newer analysis has taken over
+    ///     the document or the document was closed, in which case a late result must not be
+    ///     stored — it would clobber the newer edit, or resurrect a closed file.</summary>
+    private bool Retire(string uri, PendingAnalysis pending)
+    {
+        return _running.TryRemove(new KeyValuePair<string, PendingAnalysis>(uri, pending));
     }
 
     private static string DescribeFailure(AggregateException? error)
@@ -270,13 +369,27 @@ public sealed class AnalysisService
             : $"ZScheme analysis failed: {inner.GetType().Name}: {inner.Message}";
     }
 
-    /// <summary>A state carrying a single diagnostic explaining why analysis produced
-    ///     nothing, so the editor shows a reason instead of silently offering no
-    ///     navigation.</summary>
-    private static DocumentState Failed(string uri, string source, int version, string message)
+    /// <summary>
+    ///     A state carrying a single diagnostic explaining why analysis produced nothing, so
+    ///     the editor shows a reason instead of silently offering no navigation.
+    ///     <para>
+    ///         When the document has already been analysed successfully, that AST and its
+    ///         symbols are carried forward — the same last-good stance
+    ///         <see cref="RunAnalysis" /> takes for a source that stops parsing mid-edit. A
+    ///         compile that crashed or overran its budget is a reason to say so; it is never
+    ///         a reason to take away navigation the user already had.
+    ///     </para>
+    /// </summary>
+    private DocumentState Failed(string uri, string source, int version, string message)
     {
         var diagnostics = new DiagnosticBag();
         diagnostics.Error(message, new SourceSpan(UriToFilePath(uri), 1, 1, 1));
+
+        // The placeholder AnalyzeGuarded stored before starting already carries the previous
+        // AST, so the current entry is the last-good one.
+        if (_documents.TryGetValue(uri, out var lastGood) && lastGood.Ast is not null)
+            return lastGood with { Version = version, Source = source, Diagnostics = diagnostics };
+
         return new DocumentState(
             uri,
             version,
@@ -306,6 +419,9 @@ public sealed class AnalysisService
     public void RemoveDocument(string uri)
     {
         _documents.TryRemove(uri, out _);
+        // An analysis still running for a closed document must not publish its result: the
+        // continuation checks the registry, so dropping the entry is what stops it.
+        _running.TryRemove(uri, out _);
         if (_pendingAnalysis.TryRemove(uri, out var cts))
             cts.Cancel();
     }
@@ -1142,6 +1258,11 @@ public sealed class AnalysisService
             if (seen.Add(item))
                 target.Add(item);
     }
+
+    /// <summary>An analysis that has been started but has not published its state yet,
+    ///     with the point in time (<see cref="Environment.TickCount64" />) after which
+    ///     <see cref="GetDocument" /> stops waiting for it.</summary>
+    private sealed record PendingAnalysis(Task<DocumentState> Task, long DeadlineTicks);
 
     private sealed record DiscoveredEnvironment(
         Dictionary<string, string> PackagePaths,

@@ -83,8 +83,7 @@ public sealed class StdioServerTests
             Deadline
         );
 
-        Assert.NotNull(result);
-        Assert.Equal(1, (int)result["range"]!["start"]!["line"]!);
+        AssertDefinesSquare(result, diagnostics);
     }
 
     /// <summary>A client that pipelines its startup sends didOpen while the server is still
@@ -121,8 +120,24 @@ public sealed class StdioServerTests
             Deadline
         );
 
-        Assert.NotNull(result);
-        Assert.Equal(1, (int)result["range"]!["start"]!["line"]!);
+        AssertDefinesSquare(result, diagnostics);
+    }
+
+    /// <summary>
+    ///     Asserts the definition request landed on <c>square</c>'s declaration. On failure it
+    ///     reports the diagnostics the server published for the document: "no result" is
+    ///     indistinguishable from "this name has no definition" at the protocol level, and the
+    ///     published diagnostic is the only thing that names the real cause (an analysis that
+    ///     crashed, or one that overran its budget).
+    /// </summary>
+    private static void AssertDefinesSquare(JToken? result, JArray? diagnostics)
+    {
+        Assert.True(
+            result is not null,
+            "definition answered 'no result'; published diagnostics were: "
+                + (diagnostics?.ToString(Newtonsoft.Json.Formatting.None) ?? "<none>")
+        );
+        Assert.Equal(1, (int)result!["range"]!["start"]!["line"]!);
     }
 
     [Fact]

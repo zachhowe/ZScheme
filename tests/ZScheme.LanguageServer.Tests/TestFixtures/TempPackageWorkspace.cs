@@ -19,12 +19,23 @@ internal sealed class TempPackageWorkspace : IDisposable
     ///     framework-resolution and assembly-isolation paths, which is where the language
     ///     server used to fail outright.
     /// </param>
+    /// <param name="analysisBudget">
+    ///     Overrides <see cref="AnalysisService.AnalysisBudget" />. Passing
+    ///     <see cref="TimeSpan.Zero" /> makes every analysis overrun by construction — the
+    ///     wait polls a task that was only just queued — so the degraded-state path can be
+    ///     tested without loading the machine down until a real compile misses a deadline.
+    /// </param>
     public TempPackageWorkspace(
         string importPrefix,
         IReadOnlyDictionary<string, string> files,
-        string? framework = null
+        string? framework = null,
+        TimeSpan? analysisBudget = null
     )
     {
+        Service = analysisBudget is { } budget
+            ? new AnalysisService { AnalysisBudget = budget }
+            : new AnalysisService();
+
         Root = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(),
             "zslsp-" + Guid.NewGuid().ToString("N")
@@ -50,7 +61,7 @@ internal sealed class TempPackageWorkspace : IDisposable
     }
 
     public string Root { get; }
-    public AnalysisService Service { get; } = new();
+    public AnalysisService Service { get; }
 
     /// <summary>The file's path as the server spells it — see <see cref="LspUri" />.</summary>
     public string PathOf(string rel) => LspUri.PathOf(_paths[rel]);

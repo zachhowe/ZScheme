@@ -107,7 +107,13 @@ internal sealed class StdioLspClient : IDisposable
         );
     }
 
-    /// <summary>Sends a position request and returns its <c>result</c> (possibly null).</summary>
+    /// <summary>
+    ///     Sends a position request and returns its <c>result</c>, or null when the server
+    ///     answered "no result". A JSON null arrives as a <see cref="JValue" /> holding null,
+    ///     which is not a C# null: returning it as-is made <c>Assert.NotNull</c> pass on a
+    ///     server that answered nothing, and the *next* line fail with "Cannot access child
+    ///     value on JValue" — an exception that names neither the cause nor the subsystem.
+    /// </summary>
     public JToken? PositionRequest(
         string method,
         string uri,
@@ -124,7 +130,8 @@ internal sealed class StdioLspClient : IDisposable
                 ["position"] = new JObject { ["line"] = line, ["character"] = character },
             }
         );
-        return AwaitResponse(id, timeout)["result"];
+        var result = AwaitResponse(id, timeout)["result"];
+        return result is null || result.Type == JTokenType.Null ? null : result;
     }
 
     /// <summary>Waits for a <c>publishDiagnostics</c> notification for

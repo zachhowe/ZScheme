@@ -153,9 +153,101 @@ public sealed class AnalysisBudgetTests
     public void AnalysisBudget_IsWellUnderEditorRequestTimeouts()
     {
         // Editors cancel long-running LSP requests (Zed at 120s). The budget exists so we
-        // answer with a stale-but-real state first.
-        Assert.True(AnalysisService.AnalysisBudget < TimeSpan.FromSeconds(120));
-        Assert.True(AnalysisService.AnalysisBudget > TimeSpan.Zero);
+        // answer with a stale-but-real state first. A navigation request can wait out the
+        // budget and then the pending-analysis window, so it is their sum that has to fit.
+        Assert.True(AnalysisService.DefaultAnalysisBudget > TimeSpan.Zero);
+        Assert.True(
+            AnalysisService.DefaultAnalysisBudget + AnalysisService.DefaultPendingAnalysisWait
+                < TimeSpan.FromSeconds(120)
+        );
+    }
+
+    [Fact]
+    public void Navigation_WaitsForAnAnalysisThatOverranItsBudget()
+    {
+        // The regression: an analysis that misses its budget stores a state with diagnostics
+        // but no AST, and every navigation handler reads that as "this name has no
+        // definition". The client cannot tell the two apart, so a document that is merely
+        // still compiling looks like one where go-to-definition, hover and find-references
+        // are all simply empty.
+        using var ws = OverrunningWorkspace("epkg");
+
+        var overran = ws.Open("app.zs");
+        Assert.Null(overran.Ast);
+        Assert.True(overran.Diagnostics.HasErrors, "the overrun should be reported, not hidden");
+
+        // ...but a request against it still gets a real answer, because the analysis it is
+        // waiting on is the one that produces the AST.
+        var state = ws.Service.GetDocument(ws.UriOf("app.zs"));
+        Assert.NotNull(state);
+        Assert.NotNull(state.Ast);
+
+        var (line, col) = ws.Locate("app.zs", "lib-double");
+        var span = DefinitionHandler.ResolveDefinition(state, line, col, ws.Service.Index);
+        Assert.NotNull(span);
+        Assert.Equal(ws.PathOf("lib.zs"), span.Value.File);
+    }
+
+    [Fact]
+    public void FailedReanalysis_KeepsTheLastGoodAst()
+    {
+        // A compile that crashes or overruns is a reason to publish a diagnostic saying so.
+        // It is never a reason to drop navigation the document already had — that turns one
+        // slow keystroke into a file with no hover, no go-to and no references.
+        using var ws = OverrunningWorkspace("fpkg");
+        ws.Open("app.zs");
+        Assert.NotNull(ws.Service.GetDocument(ws.UriOf("app.zs"))?.Ast);
+
+        // Re-analysing perfectly good source, with a budget nothing can meet.
+        var edited = App.Replace("bpkg", "fpkg") + "\n";
+        var stale = ws.Service.AnalyzeImmediate(ws.UriOf("app.zs"), edited, 2);
+
+        Assert.NotNull(stale.Ast);
+        Assert.True(stale.Diagnostics.HasErrors, "the reason for the stale AST should be shown");
+        Assert.Equal(edited, stale.Source);
+        Assert.Equal(2, stale.Version);
+    }
+
+    [Fact]
+    public void ClosedDocument_AnswersAtOnce_RatherThanWaitingOnItsAbandonedAnalysis()
+    {
+        // Waiting for a pending analysis must not outlive the document: once the client has
+        // closed the buffer there is nothing to answer with and nothing to wait for, and a
+        // late result must not put the document back.
+        using var ws = OverrunningWorkspace("gpkg");
+        var uri = ws.UriOf("app.zs");
+        ws.Open("app.zs");
+        ws.Service.RemoveDocument(uri);
+
+        var sw = Stopwatch.StartNew();
+        var state = ws.Service.GetDocument(uri);
+        sw.Stop();
+
+        Assert.Null(state);
+        Assert.True(
+            sw.Elapsed < TimeSpan.FromSeconds(5),
+            $"a closed document waited {sw.Elapsed.TotalSeconds:0.0}s on an analysis nobody wants"
+        );
+    }
+
+    /// <summary>A workspace whose analyses always overrun their budget (see
+    ///     <c>analysisBudget</c>), with <c>lib.zs</c> already opened and indexed — the
+    ///     indexing happens in the overrunning analysis, so it has to be waited out before
+    ///     a cross-file lookup means anything.</summary>
+    private static TempPackageWorkspace OverrunningWorkspace(string prefix)
+    {
+        var ws = new TempPackageWorkspace(
+            prefix,
+            new Dictionary<string, string>
+            {
+                ["lib.zs"] = Lib,
+                ["app.zs"] = App.Replace("bpkg", prefix),
+            },
+            analysisBudget: TimeSpan.Zero
+        );
+        ws.Open("lib.zs");
+        ws.Service.GetDocument(ws.UriOf("lib.zs"));
+        return ws;
     }
 
     private static bool SharedFrameworkInstalled(string id)
