@@ -208,9 +208,19 @@ public sealed partial class Compilation
                     inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
             inferer.Infer(program, env);
             inferer.Resolve(program);
+            // Union declarations take the *transitive* closure, for the same reason the pattern
+            // field-type metadata below does: a match can legitimately scrutinize a union declared
+            // by a dependency's dependency. `(match (hash-ref h k) [(Some v) …])` while importing
+            // only stdlib/mutable/hash is the everyday shape — Option lives in stdlib/option, which
+            // hash imports. An unregistered union has no case list to compare the arms against, so
+            // the checker is permissive rather than noisy and the missing case goes unreported.
+            // _moduleCache holds this module's fully-resolved closure by now (CompileModule recursed
+            // through every import above), which is the same set the whole-program path passes.
             new ExhaustivenessValidator(modDiag).Validate(
                 program,
-                transModules.SelectMany(m => m.ExportedIrDefinitions.OfType<IrNode.UnionDecl>())
+                _moduleCache.Values.SelectMany(m =>
+                    m.ExportedIrDefinitions.OfType<IrNode.UnionDecl>()
+                )
             );
             if (modDiag.HasErrors)
             {
