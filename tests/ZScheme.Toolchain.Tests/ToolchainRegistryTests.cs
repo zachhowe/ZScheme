@@ -26,6 +26,37 @@ public sealed class ToolchainRegistryTests
     }
 
     [Fact]
+    public void List_UnreadableToolchainsDir_DegradesInsteadOfThrowing()
+    {
+        using var home = new TempHome();
+        home.AddInstalled("0.4.0");
+        var toolchainsDir = ZSchemeHome.GetToolchainsDir(home.Path);
+
+        if (!TempHome.TryMakeDirectoryUnreadable(toolchainsDir))
+            return;
+
+        try
+        {
+            // The same case ReadSettings degrades on -- a toolchains/ left root-owned by a `sudo
+            // zsup install`. This runs on the shim's hot path, since the resolver lists whenever no
+            // default is set, and nothing above it catches: throwing here would make every `zs`
+            // invocation die before it starts instead of printing the resolution error.
+            Assert.Empty(new ToolchainRegistry(home.Path).List());
+
+            var resolution = new ToolchainResolver(new ToolchainRegistry(home.Path)).Resolve(
+                envVersion: null,
+                home.Dir("project")
+            );
+
+            Assert.IsType<ToolchainResolution.NoToolchains>(resolution);
+        }
+        finally
+        {
+            TempHome.MakeDirectoryReadable(toolchainsDir);
+        }
+    }
+
+    [Fact]
     public void UsingCompilerVersion_FindsEveryToolchainBuiltFromTheSamePayload()
     {
         // What makes `zsup uninstall --purge-cache` safe: cache/pkg/<version> is keyed by compiler

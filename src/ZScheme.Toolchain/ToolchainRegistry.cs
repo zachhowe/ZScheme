@@ -51,28 +51,42 @@ public sealed class ToolchainRegistry(string home)
         var found = new List<InstalledToolchain>();
         var seen = new HashSet<string>(ToolchainName.Comparer);
 
-        foreach (var dir in Directory.EnumerateDirectories(toolchainsDir))
+        try
         {
-            var name = Path.GetFileName(dir);
-            // Skips .staging-*/.trash-* as well as anything else unselectable.
-            if (ToolchainName.IsValid(name) && seen.Add(name))
-                found.Add(Installed(name, dir));
+            foreach (var dir in Directory.EnumerateDirectories(toolchainsDir))
+            {
+                var name = Path.GetFileName(dir);
+                // Skips .staging-*/.trash-* as well as anything else unselectable.
+                if (ToolchainName.IsValid(name) && seen.Add(name))
+                    found.Add(Installed(name, dir));
+            }
+
+            foreach (
+                var file in Directory.EnumerateFiles(
+                    toolchainsDir,
+                    "*" + ZSchemeHome.LinkFileExtension
+                )
+            )
+            {
+                var name = Path.GetFileNameWithoutExtension(file);
+                // A directory of the same name wins, matching TryGet. The installer refuses to
+                // create that collision, but a home predating it -- or one edited by hand -- can
+                // still have one, and listing the name twice would be worse than shadowing the link.
+                if (!ToolchainName.IsValid(name) || !seen.Add(name))
+                    continue;
+
+                var target = ReadLinkTarget(file);
+                if (target is not null)
+                    found.Add(Linked(name, target));
+            }
         }
-
-        foreach (
-            var file in Directory.EnumerateFiles(toolchainsDir, "*" + ZSchemeHome.LinkFileExtension)
-        )
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            var name = Path.GetFileNameWithoutExtension(file);
-            // A directory of the same name wins, matching TryGet. The installer refuses to create
-            // that collision, but a home predating it -- or one edited by hand -- can still have
-            // one, and listing the name twice would be worse than shadowing the link.
-            if (!ToolchainName.IsValid(name) || !seen.Add(name))
-                continue;
-
-            var target = ReadLinkTarget(file);
-            if (target is not null)
-                found.Add(Linked(name, target));
+            // Degrades to what was found rather than throwing, for the reason ReadSettings does:
+            // ToolchainResolver calls this whenever no default is set -- a --no-default install, an
+            // uninstalled default, unreadable settings -- so on the shim's hot path an unreadable
+            // toolchains/ would kill every `zs` invocation before it starts, instead of producing
+            // the NoToolchains/NoDefault message the resolver exists to report.
         }
 
         return [.. found.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)];
