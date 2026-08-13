@@ -463,6 +463,27 @@ public sealed class ToolchainInstallerTests
     }
 
     [Fact]
+    public void SweepTransients_LeavesAnAssetNameTooShortToHoldAVersionAlone()
+    {
+        // `zsup-win-x64.zip` is the published asset name with the version left out, and there the
+        // prefix and the suffix overlap by a character. Slicing the version from between them ran
+        // the range backwards and threw ArgumentOutOfRangeException -- out of a sweep that runs
+        // before the try in InstallFrom, so one such file parked here failed every `zsup install`
+        // and `zsup self update` from then on, with an error naming neither the file nor zsup.
+        using var home = new TempHome();
+        var downloads = ZSchemeHome.GetDownloadsDir(home.Path);
+        Directory.CreateDirectory(downloads);
+
+        var parked = Path.Combine(downloads, "zsup-win-x64.zip");
+        File.WriteAllText(parked, "archive");
+        File.SetLastWriteTimeUtc(parked, DateTime.UtcNow.AddDays(-2));
+
+        ToolchainInstaller.SweepTransients(downloads);
+
+        Assert.True(File.Exists(parked), "a name with no version in it is nobody's release asset");
+    }
+
+    [Fact]
     public void CreateDownloadSlot_GivesEachDownloadAPathOfItsOwn()
     {
         // Two installs of one version -- a CI job and an editor, or two terminals -- resolve the

@@ -487,6 +487,16 @@ public sealed class ToolchainInstaller(string? home = null)
                 if (!name.EndsWith(suffix, StringComparison.Ordinal))
                     continue;
 
+                // The prefix and the suffix can overlap, and then the range below runs backwards
+                // and throws rather than yielding an empty version: `zsup-win-x64.zip` both starts
+                // with `zsup-` and ends with `-win-x64.zip`, which is one character more than the
+                // name is long. That is not a hypothetical shape -- it is the release asset name
+                // with the version left out -- and the sweep this feeds runs before the try in
+                // InstallFrom, so one such file parked in downloads/ would fail every `zsup
+                // install` and `zsup self update` from then on.
+                if (name.Length < prefix.Length + suffix.Length)
+                    continue;
+
                 // What is left between the two is the version the asset was published for. It is
                 // validated rather than merely required to be non-empty because it is the same
                 // string a toolchain is named after, and nothing else here says the file came from
