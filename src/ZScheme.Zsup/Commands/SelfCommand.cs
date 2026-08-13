@@ -187,22 +187,25 @@ internal static class SelfCommand
             return 0;
         }
 
+        // The running binary lives inside the tree being deleted. On Windows that file cannot be
+        // removed while it is executing, so leave the removal to the user rather than half-deleting
+        // their home directory.
+        //
+        // Ahead of the confirmation gate, not behind it: the refusal does not depend on --yes, so
+        // asking first would tell a Windows user to re-run with a flag that then always fails.
+        if (OperatingSystem.IsWindows())
+        {
+            Console.Error.WriteLine($"error: zsup cannot remove itself while running on Windows");
+            Console.Error.WriteLine($"help: close this shell, then delete {home}");
+            return 1;
+        }
+
         if (!assumeYes)
         {
             Console.Error.WriteLine(
                 $"error: this will delete {home} and every installed toolchain"
             );
             Console.Error.WriteLine("help: re-run with `--yes` to confirm");
-            return 1;
-        }
-
-        // The running binary lives inside the tree being deleted. On Windows that file cannot be
-        // removed while it is executing, so leave the removal to the user rather than half-deleting
-        // their home directory.
-        if (OperatingSystem.IsWindows())
-        {
-            Console.Error.WriteLine($"error: zsup cannot remove itself while running on Windows");
-            Console.Error.WriteLine($"help: close this shell, then delete {home}");
             return 1;
         }
 
