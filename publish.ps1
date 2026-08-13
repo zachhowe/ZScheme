@@ -57,8 +57,16 @@ if (-not $SkipBuild) {
 #
 # ZSCHEME_CACHE_DIR points the install at a scratch directory so a developer's stale
 # ~/.zscheme/cache cannot leak into the release.
+#
+# The scratch lives outside $OutputDir on purpose: everything in the output directory ships, and
+# that has to hold by construction rather than by a cleanup succeeding. It is copied into each
+# per-rid staging tree anyway, so it never needs to sit beside the archives. Wiped up front
+# because the name is fixed -- a previous run's cache must not leak into this release.
 Write-Host "=== Building the prebuilt package cache ==="
-$pkgCacheScratch = Join-Path $OutputDir ".pkgcache-build"
+$pkgCacheScratch = Join-Path ([System.IO.Path]::GetTempPath()) "zscheme-pkgcache-build"
+if (Test-Path $pkgCacheScratch) {
+    Remove-Item -Recurse -Force $pkgCacheScratch
+}
 $previousCacheDir = $env:ZSCHEME_CACHE_DIR
 $env:ZSCHEME_CACHE_DIR = $pkgCacheScratch
 try {
@@ -152,7 +160,9 @@ foreach ($rid in $Runtimes) {
     Write-Host ""
 }
 
-Remove-Item -Recurse -Force $pkgCacheScratch -ErrorAction SilentlyContinue
+# Not best-effort: a cache that cannot be removed means something is still holding it, which is
+# worth knowing during a release rather than never.
+Remove-Item -Recurse -Force $pkgCacheScratch
 
 # === Checksums ==============================================================================
 # One aggregate file in GNU coreutils format, so `sha256sum -c SHA256SUMS` works directly and

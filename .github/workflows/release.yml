@@ -54,10 +54,15 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: pwsh ./publish.ps1 -NoChecksums
+      # Named asset shapes rather than dist/*: the release job flattens whatever it is handed
+      # straight into the checksummed asset set, so what ships should be stated here and not
+      # inherited from whatever the publish script happened to leave behind.
       - uses: actions/upload-artifact@v4
         with:
           name: toolchain
-          path: dist/*
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
           if-no-files-found: error
 
   # Native AOT cannot cross-compile between operating systems, so zsup needs one runner per target.
@@ -87,7 +92,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: zsup-${{ matrix.rid }}
-          path: dist/*
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
           if-no-files-found: error
 
   release:
