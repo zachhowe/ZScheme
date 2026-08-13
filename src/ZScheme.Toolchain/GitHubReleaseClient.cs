@@ -154,7 +154,10 @@ public sealed class GitHubReleaseClient : IDisposable
     /// </summary>
     /// <remarks>
     ///     Written to a <c>.part</c> file first and only renamed once complete, so an interrupted
-    ///     download can never be mistaken for a finished one.
+    ///     download can never be mistaken for a finished one. That file is private to this call
+    ///     rather than derived from <paramref name="destPath" /> alone, because two zsup processes
+    ///     fetching the same asset would otherwise stream into one file and hash each other's
+    ///     bytes.
     /// </remarks>
     /// <returns>The SHA-256 of what was downloaded.</returns>
     public async Task<string> DownloadAssetAsync(
@@ -166,11 +169,16 @@ public sealed class GitHubReleaseClient : IDisposable
     )
     {
         var url = GetAssetUrl(release, assetName);
-        var partPath = destPath + ".part";
+
+        // Private to this download, the way every other transient zsup writes is -- a CI job
+        // installing a pinned version twice over one home, or an editor's install racing the
+        // user's, otherwise share this file, and each hashes whatever the other left in it. The
+        // guid goes before the extension rather than after: ToolchainInstaller.SweepTransients
+        // matches a trailing ".part", so a ".part-<guid>" slot would silently stop being swept and
+        // leave a toolchain-sized file behind after every killed run.
+        var partPath = $"{destPath}.{Guid.NewGuid().ToString("N")[..8]}.part";
 
         Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
-        if (File.Exists(partPath))
-            File.Delete(partPath);
 
         try
         {

@@ -1,4 +1,6 @@
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using Xunit;
 
 namespace ZScheme.Toolchain.Tests;
@@ -67,9 +69,75 @@ public sealed class GitHubReleaseClientTests
         }
     }
 
+    /// <summary>
+    ///     A body that stalls once the staging file exists, so a second download can be run while
+    ///     the first is still streaming.
+    /// </summary>
+    private sealed class GatedStream(byte[] payload, TaskCompletionSource opened, Task release)
+        : Stream
+    {
+        private int _position;
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_position == 0)
+            {
+                // The .part file is created before the first read, so this is the moment the
+                // second download can collide with it.
+                opened.TrySetResult();
+                release.Wait();
+            }
+
+            var take = Math.Min(count, payload.Length - _position);
+            Array.Copy(payload, _position, buffer, offset, take);
+            _position += take;
+            return take;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() { }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void SetLength(long value)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            throw new NotSupportedException();
+        }
+    }
+
     private static HttpResponseMessage Ok(string body)
     {
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
+    }
+
+    private static string Sha256Of(string body)
+    {
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(body)));
+    }
+
+    private static string[] StagingFiles(string destPath)
+    {
+        return Directory.Exists(Path.GetDirectoryName(destPath))
+            ? Directory.GetFiles(Path.GetDirectoryName(destPath)!, "*.part")
+            : [];
     }
 
     private static readonly ReleaseRef Release040 = ReleaseRef.Explicit("0.4.0");
@@ -243,7 +311,66 @@ public sealed class GitHubReleaseClientTests
 
         await client.DownloadAssetAsync(Release040, "asset.zip", dest);
 
-        Assert.False(File.Exists(dest + ".part"));
+        Assert.Empty(StagingFiles(dest));
+    }
+
+    [Fact]
+    public async Task DownloadAssetAsync_ConcurrentDownloadsOfOneAsset_DoNotShareAStagingFile()
+    {
+        // Two zsup processes fetching the same asset -- CI jobs sharing a home, or an editor's
+        // install racing the user's. A staging path derived from the destination alone puts both
+        // on one file, and whichever hashes first hashes the other's bytes: a checksum mismatch
+        // reported against a release that is perfectly good.
+        var slow = new string('a', 4096);
+        var quick = new string('b', 4096);
+        var opened = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        var served = 0;
+
+        var handler = new FakeHandler(_ =>
+            Interlocked.Increment(ref served) == 1
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StreamContent(
+                        new GatedStream(Encoding.UTF8.GetBytes(slow), opened, release.Task)
+                    ),
+                }
+                : Ok(quick)
+        );
+
+        using var client = new GitHubReleaseClient("owner/repo", "", handler);
+        using var home = new TempHome();
+        var dest = Path.Combine(home.Path, "downloads", "asset.zip");
+
+        var first = client.DownloadAssetAsync(Release040, "asset.zip", dest);
+        await opened.Task;
+        var secondDigest = await client.DownloadAssetAsync(Release040, "asset.zip", dest);
+        release.SetResult();
+
+        // Each download hashes what it itself wrote, not whatever was in the shared slot at the
+        // moment it looked.
+        Assert.Equal(Sha256Of(quick), secondDigest);
+        Assert.Equal(Sha256Of(slow), await first);
+        Assert.Empty(StagingFiles(dest));
+    }
+
+    [Fact]
+    public async Task DownloadAssetAsync_LeavesAnUnrelatedPartFileAlone()
+    {
+        // Clearing every .part on sight is how a concurrent download's slot disappears out from
+        // under it. Ageing abandoned ones out is ToolchainInstaller.SweepTransients' job.
+        var handler = new FakeHandler(_ => Ok("payload"));
+        using var client = new GitHubReleaseClient("owner/repo", "", handler);
+        using var home = new TempHome();
+        var dest = Path.Combine(home.Path, "downloads", "asset.zip");
+        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        var foreign = dest + ".part";
+        File.WriteAllText(foreign, "someone else's bytes");
+
+        await client.DownloadAssetAsync(Release040, "asset.zip", dest);
+
+        Assert.Equal("payload", File.ReadAllText(dest));
+        Assert.Equal("someone else's bytes", File.ReadAllText(foreign));
     }
 
     [Fact]
@@ -260,7 +387,7 @@ public sealed class GitHubReleaseClientTests
 
         Assert.Contains("missing.zip", error.Message);
         // A .part file is never resumed, so a failed download must not leave one accumulating.
-        Assert.False(File.Exists(dest + ".part"));
+        Assert.Empty(StagingFiles(dest));
     }
 
     [Fact]
@@ -280,7 +407,7 @@ public sealed class GitHubReleaseClientTests
             client.DownloadAssetAsync(Release040, "asset.zip", dest)
         );
 
-        Assert.False(File.Exists(dest + ".part"), "a partial download was left behind");
+        Assert.Empty(StagingFiles(dest));
         Assert.False(File.Exists(dest));
     }
 
