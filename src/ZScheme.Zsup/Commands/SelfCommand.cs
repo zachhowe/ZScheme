@@ -39,6 +39,8 @@ internal static class SelfCommand
                 default:
                     if (args[i].StartsWith('-'))
                         return ZsupHelpers.Error($"error: unknown option: {args[i]}");
+                    if (version is not null)
+                        return ZsupHelpers.Error($"error: unexpected argument: {args[i]}");
                     version = args[i];
                     break;
             }
