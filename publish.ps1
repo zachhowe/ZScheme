@@ -173,7 +173,12 @@ if (-not $NoChecksums) {
         $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $($_.Name)"
     }
-    Set-Content -Path $sumsPath -Value $lines -NoNewline:$false
+    # LF explicitly rather than Set-Content's platform default. install.sh picks the line out with
+    # awk and compares $2 to the asset name, and awk's default field splitting does not strip a
+    # trailing \r -- so a SHA256SUMS produced by running this script on Windows makes every lookup
+    # miss and the installer refuse to install an unverified asset. CI does not hit it (it passes
+    # -NoChecksums and uses sha256sum), which is precisely why it would go unnoticed here.
+    [System.IO.File]::WriteAllText($sumsPath, (($lines -join "`n") + "`n"))
     Write-Host "=== Checksums ==="
     Write-Host "  -> $sumsPath"
     Write-Host ""
