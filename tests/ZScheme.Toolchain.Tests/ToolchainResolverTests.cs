@@ -19,6 +19,56 @@ public sealed class ToolchainResolverTests
         Assert.IsType<ToolchainResolution.NoToolchains>(result);
     }
 
+    /// <summary>
+    ///     Reached by `zsup install <c>--no-default</c>` as a first install, by uninstalling
+    ///     whichever toolchain was the default, and by a settings.json too corrupt to read. Reporting
+    ///     it as "nothing installed" sends the user to download what they already have.
+    /// </summary>
+    [Fact]
+    public void Resolve_NoDefaultButToolchainsInstalled_SaysSo()
+    {
+        using var home = new TempHome();
+        home.AddInstalled("0.3.0");
+        home.AddInstalled("0.4.0");
+
+        var result = ResolverFor(home).Resolve(envVersion: null, home.Dir("proj"));
+
+        var noDefault = Assert.IsType<ToolchainResolution.NoDefault>(result);
+        Assert.Equal(["0.3.0", "0.4.0"], noDefault.Available);
+    }
+
+    [Fact]
+    public void Resolve_DefaultUninstalled_LeavesNoDefaultRatherThanNoToolchains()
+    {
+        using var home = new TempHome();
+        home.AddInstalled("0.3.0");
+        home.AddInstalled("0.4.0");
+        var registry = new ToolchainRegistry(home.Path);
+        registry.SetDefault("0.4.0");
+        registry.Remove("0.4.0");
+
+        var result = ResolverFor(home).Resolve(envVersion: null, home.Dir("proj"));
+
+        var noDefault = Assert.IsType<ToolchainResolution.NoDefault>(result);
+        Assert.Equal(["0.3.0"], noDefault.Available);
+    }
+
+    /// <summary>
+    ///     An unreadable settings file degrades to "no default" on purpose, and that must not become
+    ///     "no toolchain is installed" for a home that is otherwise perfectly usable.
+    /// </summary>
+    [Fact]
+    public void Resolve_MalformedSettings_LeavesNoDefaultRatherThanNoToolchains()
+    {
+        using var home = new TempHome();
+        home.AddInstalled("0.4.0");
+        File.WriteAllText(ZSchemeHome.GetSettingsFile(home.Path), "{ not json");
+
+        var result = ResolverFor(home).Resolve(envVersion: null, home.Dir("proj"));
+
+        Assert.IsType<ToolchainResolution.NoDefault>(result);
+    }
+
     [Fact]
     public void Resolve_GlobalDefault_IsTheFallback()
     {

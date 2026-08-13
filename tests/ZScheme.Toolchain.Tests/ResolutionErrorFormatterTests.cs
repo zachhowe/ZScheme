@@ -102,6 +102,35 @@ public sealed class ResolutionErrorFormatterTests
         );
     }
 
+    /// <summary>
+    ///     Never "no toolchain is installed": the toolchains are right there, and only a default is
+    ///     missing. With one installed, the help line names it rather than asking for a choice.
+    /// </summary>
+    [Fact]
+    public void NoDefault_WithOneToolchain_NamesIt()
+    {
+        var lines = Lines(new ToolchainResolution.NoDefault(["0.4.0"]));
+
+        Assert.Equal(
+            ["error: no default toolchain is selected", "help: run `zsup use 0.4.0`"],
+            lines
+        );
+    }
+
+    [Fact]
+    public void NoDefault_WithSeveral_PointsAtTheList()
+    {
+        var lines = Lines(new ToolchainResolution.NoDefault(["0.3.0", "0.4.0"]));
+
+        Assert.Equal(
+            [
+                "error: no default toolchain is selected",
+                "help: run `zsup use <toolchain>`; `zsup list` shows what is installed",
+            ],
+            lines
+        );
+    }
+
     [Fact]
     public void Format_ResolvedIsACallerBug()
     {

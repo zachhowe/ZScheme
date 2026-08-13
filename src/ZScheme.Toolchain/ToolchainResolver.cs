@@ -28,7 +28,17 @@ public sealed class ToolchainResolver(ToolchainRegistry registry)
         if (!string.IsNullOrEmpty(fallback))
             return Select(fallback, ToolchainOrigin.GlobalDefault, originDetail: null);
 
-        return new ToolchainResolution.NoToolchains();
+        // "No default" is not "nothing installed", and telling the second story for the first sends
+        // the user to download a toolchain they already have. Three ordinary paths get here with
+        // toolchains present: a first `zsup install --no-default`, uninstalling whichever one was
+        // the default, and a settings.json too corrupt to read, which ToolchainRegistry degrades to
+        // "no default" on purpose. The listing costs one directory enumeration and happens only on
+        // the way to an error, never on the resolved path.
+        var installed = registry.List();
+
+        return installed.Count == 0
+            ? new ToolchainResolution.NoToolchains()
+            : new ToolchainResolution.NoDefault([.. installed.Select(t => t.Name)]);
     }
 
     private ToolchainResolution Select(string name, ToolchainOrigin origin, string? originDetail)

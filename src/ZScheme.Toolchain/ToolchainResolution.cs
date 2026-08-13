@@ -27,6 +27,17 @@ public abstract record ToolchainResolution
     /// <summary>A linked toolchain was selected but its target directory has gone.</summary>
     public sealed record LinkBroken(string Name, string TargetPath) : ToolchainResolution;
 
-    /// <summary>Nothing selected a toolchain and there is no default.</summary>
+    /// <summary>Nothing selected a toolchain, and the home holds none to select.</summary>
     public sealed record NoToolchains : ToolchainResolution;
+
+    /// <summary>
+    ///     Nothing selected a toolchain, but toolchains are installed -- no default is set.
+    /// </summary>
+    /// <remarks>
+    ///     Distinct from <see cref="NoToolchains" /> because the two need opposite advice, and this
+    ///     one is not the exotic case: a first install with <c>--no-default</c>, an uninstall of the
+    ///     toolchain that was the default, and a settings file too corrupt to read all land here.
+    /// </remarks>
+    /// <param name="Available">The installed names, never empty.</param>
+    public sealed record NoDefault(IReadOnlyList<string> Available) : ToolchainResolution;
 }

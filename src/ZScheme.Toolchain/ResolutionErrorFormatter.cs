@@ -24,6 +24,15 @@ public static class ResolutionErrorFormatter
                 "error: no ZScheme toolchain is installed",
                 "help: run `zsup install latest`"
             ),
+            ToolchainResolution.NoDefault d => string.Join(
+                Environment.NewLine,
+                "error: no default toolchain is selected",
+                // Named when there is only one, because then the help line is the whole answer and
+                // the user has nothing to choose between.
+                d.Available.Count == 1
+                    ? $"help: run `zsup use {d.Available[0]}`"
+                    : "help: run `zsup use <toolchain>`; `zsup list` shows what is installed"
+            ),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(resolution),
                 resolution,
