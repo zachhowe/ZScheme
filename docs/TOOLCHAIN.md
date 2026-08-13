@@ -24,6 +24,12 @@ than the latest release; a leading `v` is accepted there, matching the release t
 deliberately not `ZSCHEME_VERSION`, which selects the installed toolchain `zs` runs and is commonly
 exported to a name like `dev`.
 
+Setting `ZSCHEME_HOME` installs somewhere other than `~/.zscheme`, and the scripts persist it as
+well as PATH — through the generated `env`/`env.fish` on Unix, and the user environment on Windows.
+Both are needed: `zs` finds its toolchains through `ZSCHEME_HOME`, never through its own location,
+so a shim on PATH with the variable unset looks in an empty `~/.zscheme`. With `--no-modify-path` /
+`-NoModifyPath` neither is set for you, and the closing message says what to set.
+
 `zs` and `zs-lsp` are framework-dependent and need the [.NET 10 runtime](https://dotnet.microsoft.com/download).
 `zsup` itself is a native binary with no such dependency, so it can tell you when the runtime is
 missing. It warns rather than failing, so you can install the runtime afterwards.
@@ -109,7 +115,7 @@ compiler — the opposite of what a pin is for.
 │   └── dev.link                   # a linked toolchain: one line, an absolute path
 ├── settings.json                  # the global default
 ├── downloads/                      # transient download and staging space
-├── env, env.fish                  # PATH snippets sourced by your shell profile (Unix)
+├── env, env.fish                  # PATH (and ZSCHEME_HOME) snippets sourced by your profile (Unix)
 └── cache/
     ├── pkg/<version>/             # compiled packages, keyed by compiler version
     ├── git/

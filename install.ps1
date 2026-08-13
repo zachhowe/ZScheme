@@ -19,8 +19,13 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $repo = if ($env:ZSCHEME_GITHUB_REPO) { $env:ZSCHEME_GITHUB_REPO } else { 'zachhowe/ZScheme' }
-$zschemeHome = if ($env:ZSCHEME_HOME) { $env:ZSCHEME_HOME } else { Join-Path $env:USERPROFILE '.zscheme' }
+$defaultHome = Join-Path $env:USERPROFILE '.zscheme'
+$zschemeHome = if ($env:ZSCHEME_HOME) { $env:ZSCHEME_HOME } else { $defaultHome }
 $binDir = Join-Path $zschemeHome 'bin'
+# A home outside the default is only ever found again through ZSCHEME_HOME: the shim resolves it
+# from that variable or from ~/.zscheme, never from its own location, so putting bin on PATH is
+# only half an install. Nothing to remember when the home is the default one.
+$customHome = $zschemeHome.TrimEnd('\') -ine $defaultHome.TrimEnd('\')
 
 # --- Detect the architecture ----------------------------------------------------------------
 switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
@@ -133,6 +138,13 @@ if (-not $NoModifyPath) {
         Write-Host "Added $binDir to your user PATH."
     }
 
+    # Persisted alongside PATH, or the next terminal's `zs` resolves an empty ~/.zscheme. The
+    # current session already has it -- a custom home can only have come from the environment.
+    if ($customHome) {
+        [Environment]::SetEnvironmentVariable('ZSCHEME_HOME', $zschemeHome, 'User')
+        Write-Host "Set ZSCHEME_HOME to $zschemeHome in your user environment."
+    }
+
     # Current session, so `zs` works without opening a new terminal.
     $env:Path = "$binDir;$env:Path"
 }
@@ -141,6 +153,7 @@ Write-Host ""
 Write-Host "ZScheme $Version is installed."
 if ($NoModifyPath) {
     Write-Host "Add this to your PATH: $binDir"
+    if ($customHome) { Write-Host "And set ZSCHEME_HOME to: $zschemeHome" }
 } else {
     Write-Host "Open a new terminal, then try: zs --version"
 }

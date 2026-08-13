@@ -9,7 +9,8 @@
 set -eu
 
 REPO="${ZSCHEME_GITHUB_REPO:-zachhowe/ZScheme}"
-ZSCHEME_HOME="${ZSCHEME_HOME:-$HOME/.zscheme}"
+DEFAULT_HOME="$HOME/.zscheme"
+ZSCHEME_HOME="${ZSCHEME_HOME:-$DEFAULT_HOME}"
 BIN_DIR="$ZSCHEME_HOME/bin"
 # Deliberately not ZSCHEME_VERSION: that selects which installed toolchain the `zs` shim runs, and
 # plenty of people have it exported to a name like `dev`. Reusing it here would turn a re-run of the
@@ -147,21 +148,47 @@ say "Installing the toolchain..."
 # The generated files embed the real install location rather than assuming ~/.zscheme, so a
 # ZSCHEME_HOME install produces an env file that actually works. Written even with
 # --no-modify-path, so there is always something to source.
-cat > "$ZSCHEME_HOME/env" <<EOF
+#
+# A home outside the default needs ZSCHEME_HOME exported as well as PATH set. The shim resolves
+# the home from that variable or from ~/.zscheme and never from its own location, so PATH alone
+# would leave the next shell's `zs` looking in an empty ~/.zscheme. Emitted only when the home is
+# not the default -- there is nothing to remember otherwise -- and never overwriting a value
+# already in the environment, so a deliberate per-shell home still wins.
+{
+    cat <<EOF
 #!/bin/sh
 # Adds the ZScheme toolchain to PATH. Sourced from your shell profile by install.sh.
+EOF
+    if [ "$ZSCHEME_HOME" != "$DEFAULT_HOME" ]; then
+        cat <<EOF
+export ZSCHEME_HOME="\${ZSCHEME_HOME:-$ZSCHEME_HOME}"
+EOF
+    fi
+    cat <<EOF
 case ":\${PATH}:" in
     *:"$BIN_DIR":*) ;;
     *) export PATH="$BIN_DIR:\$PATH" ;;
 esac
 EOF
+} > "$ZSCHEME_HOME/env"
 
-cat > "$ZSCHEME_HOME/env.fish" <<EOF
+{
+    cat <<EOF
 # Adds the ZScheme toolchain to PATH. Sourced from config.fish by install.sh.
+EOF
+    if [ "$ZSCHEME_HOME" != "$DEFAULT_HOME" ]; then
+        cat <<EOF
+if not set -q ZSCHEME_HOME
+    set -gx ZSCHEME_HOME "$ZSCHEME_HOME"
+end
+EOF
+    fi
+    cat <<EOF
 if test -d "$BIN_DIR"
     fish_add_path --path --prepend "$BIN_DIR"
 end
 EOF
+} > "$ZSCHEME_HOME/env.fish"
 
 add_source_line() {
     # \$1 = profile file, \$2 = line to add. Only ever appends once.
