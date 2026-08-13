@@ -95,55 +95,70 @@ public static partial class ShimInstaller
         return new Result(written, failed);
     }
 
+    /// <summary>
+    ///     Puts the current zsup at <paramref name="shimPath" />.
+    /// </summary>
+    /// <remarks>
+    ///     Both platforms build the shim under a private name beside its destination and rename it
+    ///     over, so the only step that touches the shim is one that either replaces it or leaves it
+    ///     exactly as it was. On Windows the hazard is a copy that dies part-way: CopyFile truncates
+    ///     before it writes, so a full disk or a network home dropping out would leave a zs.exe that
+    ///     is neither the old zsup nor the new one. On Unix it is a filesystem that supports neither
+    ///     hardlinks nor symlinks — exFAT, some SMB mounts — where deleting first and creating after
+    ///     leaves no shim at all, and the caller only warns, so the user is told their <c>zs</c> is
+    ///     stale when it is in fact gone. The rename also gives the "a hardlink to the old inode
+    ///     must not survive" property the delete was there for: it replaces the directory entry
+    ///     outright. Against a locked name it fails exactly as the copy would, so a locked shim
+    ///     still degrades to "still the old zsup" rather than "missing".
+    /// </remarks>
     private static void InstallOne(string zsupPath, string shimPath)
+    {
+        SweepStaging(shimPath);
+
+        var staged = shimPath + StagingSuffix + Guid.NewGuid().ToString("N")[..8];
+        try
+        {
+            Build(zsupPath, staged, shimPath);
+            File.Move(staged, shimPath, overwrite: true);
+        }
+        finally
+        {
+            // A no-op once the rename consumed it.
+            TryDeleteFile(staged);
+        }
+    }
+
+    /// <summary>
+    ///     Materializes the shim payload at <paramref name="staged" />.
+    /// </summary>
+    /// <param name="finalPath">
+    ///     Where it is about to be renamed. Only the symlink needs it, and only for its directory:
+    ///     the staging slot is that directory's own child, so a target relative to it stays correct
+    ///     across the rename.
+    /// </param>
+    private static void Build(string zsupPath, string staged, string finalPath)
     {
         if (OperatingSystem.IsWindows())
         {
             // Symlinks need admin or Developer Mode, and a hardlink would be silently orphaned by
             // `zsup self update`'s rename-then-replace. A copy always works.
-            //
-            // Staged beside the shim and renamed over it, rather than copied straight onto it:
-            // CopyFile truncates the destination before it writes, so a copy that dies part-way --
-            // a full disk, a network home dropping out -- would leave a zs.exe that is neither the
-            // old zsup nor the new one, and the "still points at the previous zsup" warning would
-            // then be describing a binary that no longer launches at all. The rename is the only
-            // step that touches the shim, and against a locked one it fails exactly as the copy
-            // would, so a locked name still degrades to "still the old zsup" instead of "gone".
-            SweepStaging(shimPath);
-
-            var staged = shimPath + StagingSuffix + Guid.NewGuid().ToString("N")[..8];
-            try
-            {
-                File.Copy(zsupPath, staged, overwrite: true);
-                File.Move(staged, shimPath, overwrite: true);
-            }
-            finally
-            {
-                TryDeleteFile(staged);
-            }
-
+            File.Copy(zsupPath, staged, overwrite: true);
             return;
         }
 
-        // Replaced rather than updated in place: a hardlink to the old inode would otherwise
-        // survive. Safe to delete first here, because Unix removes only the directory entry and a
-        // process running the old image keeps it.
-        if (File.Exists(shimPath))
-            File.Delete(shimPath);
-
         // A hardlink makes both dispatch signals agree: argv[0] is the invoked name, and
         // /proc/self/exe resolves to this path rather than to zsup.
-        if (Link(zsupPath, shimPath) == 0)
+        if (Link(zsupPath, staged) == 0)
         {
-            MakeExecutable(shimPath);
+            MakeExecutable(staged);
             return;
         }
 
         // Different filesystem, or a filesystem without hardlinks. A relative target keeps the
         // whole home directory movable -- relative to the shim's own directory, since zsup does not
         // have to be the one sitting next to it.
-        var relative = Path.GetRelativePath(Path.GetDirectoryName(shimPath)!, zsupPath);
-        File.CreateSymbolicLink(shimPath, relative);
+        var relative = Path.GetRelativePath(Path.GetDirectoryName(finalPath)!, zsupPath);
+        File.CreateSymbolicLink(staged, relative);
     }
 
     /// <summary>
@@ -151,9 +166,9 @@ public static partial class ShimInstaller
     ///     <paramref name="shimPath" />.
     /// </summary>
     /// <remarks>
-    ///     The <c>finally</c> around the rename covers a failure, but not a kill between the copy
-    ///     and the rename. Nothing else walks the bin directory looking for these, so without a
-    ///     sweep they would pile up one zsup-sized file at a time.
+    ///     The <c>finally</c> around the rename covers a failure, but not a kill between building
+    ///     the slot and the rename. Nothing else walks the bin directory looking for these, so
+    ///     without a sweep they would pile up one zsup-sized file at a time.
     ///     <para>
     ///         Age-gated, because a slot this sweep can see is not necessarily debris: a concurrent
     ///         zsup stamping the same shim has one of its own, and deleting it leaves that process
