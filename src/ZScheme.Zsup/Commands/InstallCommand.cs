@@ -18,7 +18,15 @@ internal static class InstallCommand
                 case "--from":
                     // Not a `when` guard on the case: falling through to `default:` would report a
                     // trailing `--from` as an unknown option, which it is not.
-                    if (i + 1 >= args.Length)
+                    //
+                    // The value is tested, not merely counted. `zsup install --from --force 0.4.0`
+                    // -- a mistyped order, or an argument lost to shell expansion -- otherwise
+                    // consumed `--force` as the path and failed with "No such archive or directory:
+                    // .../--force", naming something the user never typed, while every other option
+                    // here rejects a stray `-`-prefixed token. A path that genuinely begins with `-`
+                    // is spelled `./-weird`, which is the same trade-off the `default:` arm below
+                    // already makes.
+                    if (i + 1 >= args.Length || args[i + 1].StartsWith('-'))
                         return ZsupHelpers.Error(
                             "error: --from needs a value",
                             "usage: zsup install <version> --from <archive|dir>"
