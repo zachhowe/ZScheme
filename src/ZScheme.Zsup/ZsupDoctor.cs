@@ -11,6 +11,15 @@ internal static class ZsupDoctor
 {
     internal static void WarnIfBinDirNotOnPath(string? home = null)
     {
+        WarnIfBinDirNotOnPath(home, Environment.GetEnvironmentVariable("PATH"));
+    }
+
+    /// <summary>
+    ///     Overload taking the <c>PATH</c> value explicitly, so no test ever has to write to the
+    ///     process environment — mirroring <c>ZSchemeHome.GetHome</c>'s testable overload.
+    /// </summary>
+    internal static void WarnIfBinDirNotOnPath(string? home, string? pathValue)
+    {
         // Guarded like the comparison below, and for the same reason it is: this runs at
         // InstallCommand.cs:123, after the toolchain has been installed, after `installed toolchain
         // '...'` has been printed and after the default has been recorded -- so an escaping
@@ -21,9 +30,8 @@ internal static class ZsupDoctor
         if (FullPathOrNull(ZSchemeHome.GetBinDir(home)) is not { } binDir)
             return;
 
-        var path = Environment.GetEnvironmentVariable("PATH") ?? "";
-
-        var onPath = path.Split(Path.PathSeparator)
+        var onPath = (pathValue ?? "")
+            .Split(Path.PathSeparator)
             .Where(p => p.Length > 0)
             .Any(p => PathsEqual(p, binDir));
 

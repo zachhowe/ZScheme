@@ -44,6 +44,20 @@ internal static class UseCommand
                 $"help: run `zsup install {name}`, or `zsup list` to see what is available"
             );
 
+        // TryGet deliberately returns a link whose target is gone rather than null, and documents
+        // that callers distinguish it with IsLinkBroken. ToolchainResolver.Select and ListCommand
+        // both do; this one did not, so `zsup use` -- the command whose entire job is selecting
+        // something usable -- reported success and left the home with a default that every
+        // subsequent `zs` fails to resolve. Ahead of the --local branch so both paths get it, and
+        // routed through the formatter rather than restating its wording, so the message the shim
+        // gives for the same state cannot drift from this one.
+        if (ToolchainRegistry.IsLinkBroken(toolchain))
+            return ZsupHelpers.Error(
+                ResolutionErrorFormatter.Format(
+                    new ToolchainResolution.LinkBroken(name, toolchain.Dir)
+                )
+            );
+
         if (local)
         {
             var pin = Path.Combine(Directory.GetCurrentDirectory(), ZSchemeHome.VersionFileName);
