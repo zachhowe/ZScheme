@@ -91,8 +91,27 @@ public sealed class GitHubReleaseClient : IDisposable
 
         // Mandatory: the GitHub API rejects requests that do not identify themselves.
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("zsup");
-        _http.Timeout = TimeSpan.FromMinutes(10);
+
+        // Replaced by the per-step budget below -- see NetworkTimeout for why this one cannot do
+        // the job. Left infinite rather than merely generous so there is a single answer to "what
+        // gives up, and when".
+        _http.Timeout = System.Threading.Timeout.InfiniteTimeSpan;
     }
+
+    /// <summary>
+    ///     How long one network step may make no progress: a request that never answers, or a
+    ///     download whose connection goes quiet mid-stream.
+    /// </summary>
+    /// <remarks>
+    ///     Per step rather than per call, which is what <see cref="HttpClient.Timeout" /> could not
+    ///     be. It bounds a streamed response from the request until the last byte is read, so with
+    ///     <c>ResponseHeadersRead</c> it covers the whole download: a toolchain archive over a link
+    ///     slower than roughly 1 Mbps aborted part-way through a transfer that was making perfectly
+    ///     steady progress, reported as "the request was canceled due to the configured
+    ///     HttpClient.Timeout", with nothing the user could raise. Settable so tests can drive both
+    ///     halves without waiting minutes.
+    /// </remarks>
+    public TimeSpan NetworkTimeout { get; init; } = TimeSpan.FromMinutes(2);
 
     /// <summary>The newest published release.</summary>
     public async Task<ReleaseRef> GetLatestReleaseAsync(
@@ -101,11 +120,20 @@ public sealed class GitHubReleaseClient : IDisposable
     {
         var url = $"{_apiBaseUrl}/repos/{_repository}/releases/latest";
 
-        var release = await _http.GetFromJsonAsync(
-            url,
-            GitHubJsonContext.Default.GitHubRelease,
-            cancellationToken
-        );
+        using var step = StartStep(cancellationToken);
+        GitHubRelease? release;
+        try
+        {
+            release = await _http.GetFromJsonAsync(
+                url,
+                GitHubJsonContext.Default.GitHubRelease,
+                step.Token
+            );
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw Stalled(url);
+        }
 
         var tag = release?.TagName?.Trim();
         if (string.IsNullOrEmpty(tag))
@@ -146,7 +174,17 @@ public sealed class GitHubReleaseClient : IDisposable
         CancellationToken cancellationToken = default
     )
     {
-        return await _http.GetStringAsync(GetAssetUrl(release, assetName), cancellationToken);
+        var url = GetAssetUrl(release, assetName);
+
+        using var step = StartStep(cancellationToken);
+        try
+        {
+            return await _http.GetStringAsync(url, step.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw Stalled(url);
+        }
     }
 
     /// <summary>
@@ -182,11 +220,7 @@ public sealed class GitHubReleaseClient : IDisposable
 
         try
         {
-            using var response = await _http.GetAsync(
-                url,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken
-            );
+            using var response = await GetHeadersAsync(url, cancellationToken);
 
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 throw new FileNotFoundException(
@@ -201,9 +235,27 @@ public sealed class GitHubReleaseClient : IDisposable
 
             var buffer = new byte[81920];
             long total = 0;
-            int read;
-            while ((read = await source.ReadAsync(buffer, cancellationToken)) > 0)
+            while (true)
             {
+                // Each read gets its own budget, so a download only fails for going quiet -- never
+                // for taking a long time while bytes keep arriving.
+                int read;
+                using (var step = StartStep(cancellationToken))
+                {
+                    try
+                    {
+                        read = await source.ReadAsync(buffer, step.Token);
+                    }
+                    catch (OperationCanceledException)
+                        when (!cancellationToken.IsCancellationRequested)
+                    {
+                        throw Stalled(url);
+                    }
+                }
+
+                if (read <= 0)
+                    break;
+
                 await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
                 total += read;
                 progress?.Report(total);
@@ -229,6 +281,43 @@ public sealed class GitHubReleaseClient : IDisposable
         var digest = Checksums.ComputeSha256(partPath);
         File.Move(partPath, destPath, overwrite: true);
         return digest;
+    }
+
+    /// <summary>Sends the request and waits only for the headers, under its own budget.</summary>
+    private async Task<HttpResponseMessage> GetHeadersAsync(
+        string url,
+        CancellationToken cancellationToken
+    )
+    {
+        using var step = StartStep(cancellationToken);
+        try
+        {
+            return await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, step.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw Stalled(url);
+        }
+    }
+
+    /// <summary>A token for one network step: the caller's, plus <see cref="NetworkTimeout" />.</summary>
+    private CancellationTokenSource StartStep(CancellationToken cancellationToken)
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(NetworkTimeout);
+        return cts;
+    }
+
+    /// <summary>
+    ///     The failure a step's budget running out means, rather than the bare "the operation was
+    ///     canceled" the token produces. Typed as <see cref="IOException" /> because that is what
+    ///     every caller already catches for a transfer that did not finish.
+    /// </summary>
+    private IOException Stalled(string url)
+    {
+        return new IOException(
+            $"no data from {url} for {NetworkTimeout.TotalSeconds:0}s; giving up"
+        );
     }
 
     private static string? Blank(string? value)

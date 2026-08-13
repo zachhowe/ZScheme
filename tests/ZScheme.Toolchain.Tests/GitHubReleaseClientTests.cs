@@ -123,6 +123,112 @@ public sealed class GitHubReleaseClientTests
         }
     }
 
+    /// <summary>A body that never delivers anything, as a connection that has gone quiet does.</summary>
+    /// <remarks>
+    ///     <see cref="ReadAsync(Memory{byte}, CancellationToken)" /> is overridden because the base
+    ///     implementation runs the synchronous <see cref="Read" /> on the thread pool and ignores the
+    ///     token once it is under way -- a blocking one would hang this test rather than fail it.
+    /// </remarks>
+    private sealed class SilentStream : Stream
+    {
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default
+        )
+        {
+            await Task.Delay(System.Threading.Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() { }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void SetLength(long value)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            throw new NotSupportedException();
+        }
+    }
+
+    /// <summary>A body that arrives steadily in small pieces, as one over a slow link does.</summary>
+    private sealed class DripStream(byte[] payload, int chunk, TimeSpan gap) : Stream
+    {
+        private int _position;
+
+        public override async ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default
+        )
+        {
+            if (_position == payload.Length)
+                return 0;
+
+            await Task.Delay(gap, cancellationToken);
+
+            var take = Math.Min(Math.Min(chunk, buffer.Length), payload.Length - _position);
+            payload.AsMemory(_position, take).CopyTo(buffer);
+            _position += take;
+            return take;
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() { }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void SetLength(long value)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            throw new NotSupportedException();
+        }
+    }
+
     private static HttpResponseMessage Ok(string body)
     {
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
@@ -409,6 +515,79 @@ public sealed class GitHubReleaseClientTests
 
         Assert.Empty(StagingFiles(dest));
         Assert.False(File.Exists(dest));
+    }
+
+    /// <summary>
+    ///     The regression this guards: the budget used to be an <c>HttpClient.Timeout</c> covering
+    ///     the whole streamed response, so a large archive over a slow link was cancelled part-way
+    ///     through a transfer that was making steady progress. Here 25 pieces 20 ms apart run for
+    ///     ten times the per-step budget and must still arrive.
+    /// </summary>
+    [Fact]
+    public async Task DownloadAssetAsync_SlowButSteady_IsNotCancelled()
+    {
+        var payload = new string('z', 25 * 64);
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(
+                new DripStream(Encoding.UTF8.GetBytes(payload), 64, TimeSpan.FromMilliseconds(20))
+            ),
+        });
+        using var client = new GitHubReleaseClient("owner/repo", "", handler)
+        {
+            NetworkTimeout = TimeSpan.FromMilliseconds(2000),
+        };
+        using var home = new TempHome();
+        var dest = Path.Combine(home.Path, "downloads", "asset.zip");
+
+        var digest = await client.DownloadAssetAsync(Release040, "asset.zip", dest);
+
+        Assert.Equal(payload, File.ReadAllText(dest));
+        Assert.Equal(Sha256Of(payload), digest);
+    }
+
+    [Fact]
+    public async Task DownloadAssetAsync_ConnectionGoesQuiet_GivesUp()
+    {
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new SilentStream()),
+        });
+        using var client = new GitHubReleaseClient("owner/repo", "", handler)
+        {
+            NetworkTimeout = TimeSpan.FromMilliseconds(100),
+        };
+        using var home = new TempHome();
+        var dest = Path.Combine(home.Path, "downloads", "asset.zip");
+
+        var error = await Assert.ThrowsAsync<IOException>(() =>
+            client.DownloadAssetAsync(Release040, "asset.zip", dest)
+        );
+
+        // Not the bare "the operation was canceled" the token produces.
+        Assert.Contains("asset.zip", error.Message);
+        Assert.Empty(StagingFiles(dest));
+        Assert.False(File.Exists(dest));
+    }
+
+    /// <summary>The caller's own cancellation stays cancellation, rather than being retold as a stall.</summary>
+    [Fact]
+    public async Task DownloadAssetAsync_CallerCancels_StaysCancelled()
+    {
+        var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new SilentStream()),
+        });
+        using var client = new GitHubReleaseClient("owner/repo", "", handler);
+        using var home = new TempHome();
+        var dest = Path.Combine(home.Path, "downloads", "asset.zip");
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            client.DownloadAssetAsync(Release040, "asset.zip", dest, cancellationToken: cts.Token)
+        );
+
+        Assert.Empty(StagingFiles(dest));
     }
 
     [Fact]
