@@ -114,32 +114,83 @@ try {
 }
 
 # --- PATH -----------------------------------------------------------------------------------
-if (-not $NoModifyPath) {
-    # Read the User scope specifically. $env:Path is Machine and User merged, so writing that
-    # back would permanently duplicate the entire machine PATH into the user's.
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if ($null -eq $userPath) { $userPath = '' }
-
-    $alreadyPresent = $false
-    foreach ($entry in $userPath -split ';') {
-        if ($entry.Trim().TrimEnd('\') -ieq $binDir.TrimEnd('\')) { $alreadyPresent = $true }
+# Writing the registry directly costs the WM_SETTINGCHANGE broadcast that
+# [Environment]::SetEnvironmentVariable does for free. Without it Explorer keeps handing its cached
+# environment to every terminal it launches, so this script's own "open a new terminal" advice would
+# not work until the next sign-in.
+function Publish-EnvironmentChange {
+    try {
+        # Guarded because Add-Type throws on a type it has already compiled, and re-running the
+        # installer in one session (irm | iex, twice) is an easy thing to do.
+        if (-not ('ZScheme.NativeEnv' -as [type])) {
+            Add-Type -Namespace 'ZScheme' -Name 'NativeEnv' -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint Msg, System.UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out System.UIntPtr lpdwResult);
+'@
+        }
+        # HWND_BROADCAST, WM_SETTINGCHANGE, SMTO_ABORTIFHUNG with a 5s cap: one hung top-level
+        # window must not hold up a finished install.
+        $ignored = [UIntPtr]::Zero
+        [ZScheme.NativeEnv]::SendMessageTimeout([IntPtr]0xffff, 0x1A, [UIntPtr]::Zero, 'Environment', 0x0002, 5000, [ref]$ignored) | Out-Null
+    } catch {
+        # Compiling the P/Invoke needs a compiler and a writable temp dir. Neither is worth failing
+        # an otherwise complete install over -- the registry value is written either way.
+        Write-Warning "Could not notify running programs of the change; sign out and back in to pick it up."
     }
+}
 
-    if ($alreadyPresent) {
-        Write-Host "$binDir is already on your PATH."
-    } elseif (($userPath.Length + $binDir.Length + 1) -gt 2000) {
-        # The user PATH is stored as REG_EXPAND_SZ with a ~2048 character limit; appending past
-        # it would silently truncate and destroy entries.
-        Write-Warning "Your user PATH is close to the length limit, so it was left unchanged."
-        Write-Warning "Add this directory to your PATH manually: $binDir"
-    } else {
-        if ($userPath -eq '') { $newPath = $binDir } else { $newPath = "$binDir;$userPath" }
-        [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
-        Write-Host "Added $binDir to your user PATH."
+if (-not $NoModifyPath) {
+    # The User scope specifically. $env:Path is Machine and User merged, so writing that back would
+    # permanently duplicate the entire machine PATH into the user's.
+    #
+    # And deliberately the registry rather than [Environment]::GetEnvironmentVariable('Path','User'),
+    # which expands the value on the way out and stores REG_SZ on the way back in: a user PATH
+    # holding %JAVA_HOME%\bin would come back as C:\jdk-21\bin and be written back that way,
+    # silently unhooking their PATH from the variable it was written against.
+    $envKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+    if ($null -eq $envKey) { throw "Could not open HKCU\Environment for writing." }
+    try {
+        $userPath = ''
+        # REG_EXPAND_SZ is what Windows itself creates the value as, and the right default for a
+        # profile that somehow has no user PATH at all. An existing value keeps its own kind:
+        # demoting a REG_EXPAND_SZ to REG_SZ would stop Windows expanding the very %VAR% entries
+        # this reads unexpanded to preserve.
+        $pathKind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+        $rawPath = $envKey.GetValue('Path', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        if ($null -ne $rawPath) {
+            $userPath = [string]$rawPath
+            $pathKind = $envKey.GetValueKind('Path')
+        }
+
+        $alreadyPresent = $false
+        foreach ($entry in $userPath -split ';') {
+            # Compared expanded -- a hand-written %USERPROFILE%\.zscheme\bin names this same
+            # directory -- while the string written back keeps every entry as the user wrote it.
+            $expanded = [Environment]::ExpandEnvironmentVariables($entry.Trim())
+            if ($expanded.TrimEnd('\') -ieq $binDir.TrimEnd('\')) { $alreadyPresent = $true }
+        }
+
+        if ($alreadyPresent) {
+            Write-Host "$binDir is already on your PATH."
+        } elseif (($userPath.Length + $binDir.Length + 1) -gt 2000) {
+            # The user PATH has a ~2048 character limit; appending past it would silently truncate
+            # and destroy entries. Measured against the stored form, which is what the limit is on.
+            Write-Warning "Your user PATH is close to the length limit, so it was left unchanged."
+            Write-Warning "Add this directory to your PATH manually: $binDir"
+        } else {
+            if ($userPath -eq '') { $newPath = $binDir } else { $newPath = "$binDir;$userPath" }
+            $envKey.SetValue('Path', $newPath, $pathKind)
+            Publish-EnvironmentChange
+            Write-Host "Added $binDir to your user PATH."
+        }
+    } finally {
+        $envKey.Close()
     }
 
     # Persisted alongside PATH, or the next terminal's `zs` resolves an empty ~/.zscheme. The
     # current session already has it -- a custom home can only have come from the environment.
+    # SetEnvironmentVariable is fine here where it is not for PATH: this writes a literal path and
+    # never reads one back, so there is no %VAR% to expand away, and REG_SZ is what it wants.
     if ($customHome) {
         [Environment]::SetEnvironmentVariable('ZSCHEME_HOME', $zschemeHome, 'User')
         Write-Host "Set ZSCHEME_HOME to $zschemeHome in your user environment."
