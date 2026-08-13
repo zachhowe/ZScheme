@@ -104,6 +104,18 @@ Expand-Any (Join-Path $DistDir "zsup-$version-$Rid.$archiveExt") $binDir
 $zsup = Join-Path $binDir "zsup$exe"
 if (-not $targetsWindows) { chmod +x $zsup }
 
+# `zsup which` prints the resolved path on stdout and a `note:` explaining where the selection came
+# from on stderr, so stderr is dropped rather than merged into the answer. Its exit code has to be
+# checked here and not left to the caller's regex: a failed resolve prints nothing, `$resolved` is
+# then $null, and `$null -notmatch '...'` evaluates to an empty array -- which is falsy, so every
+# assertion below would silently pass instead of reporting the failure.
+function Resolve-Tool {
+    param([string]$Tool = 'zs')
+    $path = & $zsup which $Tool 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "which $Tool exited $LASTEXITCODE" }
+    return "$path"
+}
+
 $toolchainArchive = Join-Path $DistDir "zscheme-$version-$Rid.$archiveExt"
 
 Write-Host "=== zsup end-to-end ($Rid, version $version) ==="
@@ -165,11 +177,13 @@ Check "install a second toolchain and switch between them" {
     }
 
     & $zsup use "0.0.1-e2e"
-    $resolved = & $zsup which zs 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "use 0.0.1-e2e exited $LASTEXITCODE" }
+    $resolved = Resolve-Tool
     if ($resolved -notmatch '0\.0\.1-e2e') { throw "expected the second toolchain, got '$resolved'" }
 
     & $zsup use $version
-    $resolved = & $zsup which zs 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "use $version exited $LASTEXITCODE" }
+    $resolved = Resolve-Tool
     if ($resolved -notmatch [regex]::Escape($version)) { throw "expected $version, got '$resolved'" }
 }
 
@@ -182,13 +196,13 @@ Check "a .zscheme-version pin applies in its own tree only" {
 
         Push-Location $nested
         try {
-            $pinned = & $zsup which zs 2>$null
+            $pinned = Resolve-Tool
             if ($pinned -notmatch '0\.0\.1-e2e') { throw "pin did not apply in a nested dir, got '$pinned'" }
         } finally { Pop-Location }
 
         Push-Location ([System.IO.Path]::GetTempPath())
         try {
-            $unpinned = & $zsup which zs 2>$null
+            $unpinned = Resolve-Tool
             if ($unpinned -match '0\.0\.1-e2e') { throw "pin leaked outside its tree" }
         } finally { Pop-Location }
     } finally {
@@ -199,7 +213,7 @@ Check "a .zscheme-version pin applies in its own tree only" {
 Check "ZSCHEME_VERSION overrides the default" {
     $env:ZSCHEME_VERSION = '0.0.1-e2e'
     try {
-        $resolved = & $zsup which zs 2>$null
+        $resolved = Resolve-Tool
         if ($resolved -notmatch '0\.0\.1-e2e') { throw "env var did not win, got '$resolved'" }
     } finally {
         Remove-Item Env:\ZSCHEME_VERSION
@@ -314,6 +328,7 @@ Check "uninstall removes a toolchain and keeps a cache another one shares" {
     & $zsup uninstall "0.0.1-e2e" --purge-cache | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "uninstall exited $LASTEXITCODE" }
     $listed = & $zsup list | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "list exited $LASTEXITCODE" }
     if ($listed -match '0\.0\.1-e2e') { throw "the toolchain is still listed" }
     if (-not (Test-Path $shared)) { throw "the package cache $version still depends on was purged" }
 }
