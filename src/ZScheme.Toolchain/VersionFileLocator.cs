@@ -15,8 +15,17 @@ public static class VersionFileLocator
     ///     no depth limit: a project can be nested arbitrarily deep and each level costs one
     ///     <c>File.Exists</c>.
     /// </summary>
-    public static Hit? Find(string startDir)
+    /// <param name="startDir">
+    ///     Where to start walking, or <c>null</c> when the caller has no directory to offer. On Unix
+    ///     a process keeps running with its working directory unlinked and <c>getcwd</c> then fails,
+    ///     so "no directory to search" is a state callers genuinely reach — and it is
+    ///     indistinguishable from "no pin found", which is what it answers.
+    /// </param>
+    public static Hit? Find(string? startDir)
     {
+        if (string.IsNullOrEmpty(startDir))
+            return null;
+
         DirectoryInfo? dir;
         try
         {

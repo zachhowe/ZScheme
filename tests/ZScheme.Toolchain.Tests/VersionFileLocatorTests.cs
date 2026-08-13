@@ -14,6 +14,15 @@ public sealed class VersionFileLocatorTests
     }
 
     [Fact]
+    public void Find_NoStartDir_ReturnsNull()
+    {
+        // What a caller passes when getcwd failed -- on Unix the working directory can be unlinked
+        // while a process still runs in it. Indistinguishable from "no pin found".
+        Assert.Null(VersionFileLocator.Find(null));
+        Assert.Null(VersionFileLocator.Find(""));
+    }
+
+    [Fact]
     public void Find_PinInStartDir_IsFound()
     {
         using var home = new TempHome();

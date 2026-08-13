@@ -4,6 +4,32 @@ namespace ZScheme.Zsup;
 
 internal static class ZsupHelpers
 {
+    /// <summary>
+    ///     The working directory to search for a <c>.zscheme-version</c> pin, or <c>null</c> when
+    ///     there is none.
+    /// </summary>
+    /// <remarks>
+    ///     On Unix a process keeps running with its working directory unlinked — a scratch directory
+    ///     a sibling build step cleaned, a tree `git clean` removed, a worktree pruned under a
+    ///     running language server — and <c>getcwd</c> then fails with <c>ENOENT</c>, which .NET
+    ///     surfaces as a <see cref="DirectoryNotFoundException" />. Answering rather than throwing
+    ///     matters most on the shim path, which every <c>zs</c> invocation takes and where zsup's
+    ///     compiled-out stack traces leave one bare line as the whole diagnosis. "No directory to
+    ///     search" is indistinguishable from "no pin found", so resolution simply falls through to
+    ///     the global default.
+    /// </remarks>
+    internal static string? CurrentDirectoryOrNull()
+    {
+        try
+        {
+            return Directory.GetCurrentDirectory();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Writes a message to stderr and returns the failure exit code.</summary>
     internal static int Error(string message)
     {

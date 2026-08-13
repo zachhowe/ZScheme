@@ -14,7 +14,12 @@ public sealed class ToolchainResolver(ToolchainRegistry registry)
     ///     Resolves in precedence order: <c>ZSCHEME_VERSION</c>, then the nearest
     ///     <c>.zscheme-version</c> at or above <paramref name="startDir" />, then the global default.
     /// </summary>
-    public ToolchainResolution Resolve(string? envVersion, string startDir)
+    /// <param name="startDir">
+    ///     Where to look for a pin, or <c>null</c> when the caller has none to offer — see
+    ///     <see cref="VersionFileLocator.Find" />. The pin step is then skipped and resolution falls
+    ///     through to the global default.
+    /// </param>
+    public ToolchainResolution Resolve(string? envVersion, string? startDir)
     {
         // Sanitized, not merely trimmed, and for the same reason a pin file is: the value comes
         // from whatever direnv or CI config the cloned repository ships, and an unresolvable one is

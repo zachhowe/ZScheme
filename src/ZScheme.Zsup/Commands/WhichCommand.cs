@@ -36,7 +36,7 @@ internal static class WhichCommand
         var registry = new ToolchainRegistry(ZSchemeHome.GetHome());
         var resolution = new ToolchainResolver(registry).Resolve(
             Environment.GetEnvironmentVariable(ZSchemeHome.VersionEnvironmentVariable),
-            Directory.GetCurrentDirectory()
+            ZsupHelpers.CurrentDirectoryOrNull()
         );
 
         if (resolution is not ToolchainResolution.Resolved resolved)

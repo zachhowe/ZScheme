@@ -39,7 +39,7 @@ internal static class ShimRunner
         var registry = new ToolchainRegistry(home);
         var resolution = new ToolchainResolver(registry).Resolve(
             Environment.GetEnvironmentVariable(ZSchemeHome.VersionEnvironmentVariable),
-            Directory.GetCurrentDirectory()
+            ZsupHelpers.CurrentDirectoryOrNull()
         );
 
         if (resolution is not ToolchainResolution.Resolved resolved)

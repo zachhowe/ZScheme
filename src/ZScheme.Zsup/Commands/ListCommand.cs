@@ -66,7 +66,7 @@ internal static class ListCommand
     {
         var resolution = new ToolchainResolver(registry).Resolve(
             Environment.GetEnvironmentVariable(ZSchemeHome.VersionEnvironmentVariable),
-            Directory.GetCurrentDirectory()
+            ZsupHelpers.CurrentDirectoryOrNull()
         );
 
         return resolution is ToolchainResolution.Resolved r ? r.Toolchain.Name : null;

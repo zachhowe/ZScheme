@@ -41,6 +41,21 @@ public sealed class ToolchainResolverTests
     }
 
     [Fact]
+    public void Resolve_NoStartDir_FallsThroughToTheGlobalDefault()
+    {
+        // The shim passes null when getcwd failed, which on Unix happens whenever the working
+        // directory has been unlinked underneath a running process. Resolution has to carry on:
+        // this is the path every `zs` invocation takes.
+        using var home = new TempHome();
+        home.AddInstalled("0.4.0");
+        new ToolchainRegistry(home.Path).SetDefault("0.4.0");
+
+        var result = ResolverFor(home).Resolve(envVersion: null, startDir: null);
+
+        Assert.Equal("0.4.0", Assert.IsType<ToolchainResolution.Resolved>(result).Toolchain.Name);
+    }
+
+    [Fact]
     public void Resolve_NothingSelected_ReportsNoToolchains()
     {
         using var home = new TempHome();
