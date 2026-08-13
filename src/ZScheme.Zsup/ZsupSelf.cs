@@ -77,8 +77,8 @@ internal static class ZsupSelf
     /// </remarks>
     /// <returns>
     ///     The shim stamping outcome, for the caller to report. A name that fails here has already
-    ///     been moved aside, so it is absent rather than stale -- the update is not complete until
-    ///     the user hears about it.
+    ///     been moved aside, so it is absent unless the copy could be put back -- either way the
+    ///     update is not complete until the user hears about it.
     /// </returns>
     internal static ShimInstaller.Result ReplaceInstalledBinaries(
         string newBinary,
@@ -126,6 +126,19 @@ internal static class ZsupSelf
 
             var stamped = ShimInstaller.Install(binDir, zsupPath);
 
+            // A shim that failed to stamp was already moved aside, so its name is absent and the
+            // only working binary left for it is the `.old-<guid>` copy -- which the sweep below
+            // deletes unconditionally, leaving nothing to restore behind a warning that says to
+            // restore it. Putting the copy back first leaves the user a shim on the previous zsup:
+            // still a version mismatch, and WarnAboutUnstampedShims reads the name off the
+            // filesystem, so it reports exactly that instead of a missing file.
+            //
+            // Matched ordinally: both sides are Path.Combine(binDir, ExeName(name)) built from this
+            // same binDir, so the strings are identical rather than merely equivalent.
+            var failedPaths = stamped.Failed.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
+            if (failedPaths.Count > 0)
+                Restore([.. movedAside.Where(m => failedPaths.Contains(m.Original))]);
+
             SweepStaleBinaries(home);
             return stamped;
         }
@@ -169,11 +182,12 @@ internal static class ZsupSelf
 
     /// <summary>Renames the previous binaries back over a replacement that did not happen.</summary>
     /// <remarks>
-    ///     Best-effort per name and never allowed to throw: it runs while the exception describing
-    ///     the actual failure is on its way out, and that is the one the user needs to read. A name
-    ///     that cannot be put back is parked under <see cref="RescueSuffix" /> and named out loud --
-    ///     a bare <c>.old-&lt;guid&gt;</c> tells the user nothing about what the file is, and
-    ///     <see cref="SweepStaleBinaries" /> would delete it on the next run.
+    ///     Best-effort per name and never allowed to throw. On the rollback path it runs while the
+    ///     exception describing the actual failure is on its way out, and that is the one the user
+    ///     needs to read; on the stamping path it is one name out of an update that otherwise
+    ///     succeeded. A name that cannot be put back is parked under <see cref="RescueSuffix" /> and
+    ///     named out loud -- a bare <c>.old-&lt;guid&gt;</c> tells the user nothing about what the
+    ///     file is, and <see cref="SweepStaleBinaries" /> would delete it on the next run.
     /// </remarks>
     private static void Restore(List<(string Original, string Aside)> movedAside)
     {
