@@ -100,6 +100,44 @@ public static class ZSchemeHome
         }
     }
 
+    /// <summary>
+    ///     True when <paramref name="ancestor" /> is <paramref name="path" /> or a directory
+    ///     containing it.
+    /// </summary>
+    /// <remarks>
+    ///     Answers <c>false</c> when either side is something the OS will not parse, for the same
+    ///     reason <see cref="IsBinDir" /> does: a path that names nothing contains nothing, and
+    ///     every caller is asking on a path where throwing is worse than answering.
+    /// </remarks>
+    public static bool Contains(string ancestor, string path)
+    {
+        if (FullPathOrNull(ancestor) is not { } root || FullPathOrNull(path) is not { } candidate)
+            return false;
+
+        return string.Equals(root, candidate, ToolchainName.Comparison)
+            || candidate.StartsWith(root + Path.DirectorySeparatorChar, ToolchainName.Comparison);
+    }
+
+    /// <summary>
+    ///     <paramref name="path" /> made absolute and stripped of a trailing separator, or
+    ///     <c>null</c> when the OS will not parse it.
+    /// </summary>
+    private static string? FullPathOrNull(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return null;
+
+        try
+        {
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        }
+        catch (Exception e)
+            when (e is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
     public static string GetToolchainsDir(string? home = null)
     {
         return Path.Combine(GetHome(home), "toolchains");

@@ -21,7 +21,7 @@ internal static class ZsupProcess
     internal sealed record Result(int ExitCode, string Stdout, string Stderr);
 
     /// <summary>The <c>zsup</c> apphost sitting beside the test assembly.</summary>
-    private static string Executable =>
+    internal static string Executable =>
         Path.Combine(
             Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!,
             OperatingSystem.IsWindows() ? "zsup.exe" : "zsup"
@@ -32,14 +32,22 @@ internal static class ZsupProcess
     ///     Extra variables for the child. A null value removes an inherited one, which is how a test
     ///     makes sure the runner's own ZSCHEME_VERSION cannot reach the command.
     /// </param>
+    /// <param name="executable">
+    ///     Which zsup to run, when it matters where it lives — <c>self uninstall</c>'s Windows
+    ///     refusal turns on whether the running binary is inside the home. Defaults to the one
+    ///     beside the tests.
+    /// </param>
     internal static Result Run(
         string home,
         string[] args,
         IReadOnlyDictionary<string, string?>? environment = null,
-        string? workingDirectory = null
+        string? workingDirectory = null,
+        string? executable = null
     )
     {
-        var psi = new ProcessStartInfo(Executable)
+        executable ??= Executable;
+
+        var psi = new ProcessStartInfo(executable)
         {
             UseShellExecute = false,
             RedirectStandardOutput = true,
@@ -63,7 +71,7 @@ internal static class ZsupProcess
 
         using var process =
             Process.Start(psi)
-            ?? throw new InvalidOperationException($"could not start {Executable}");
+            ?? throw new InvalidOperationException($"could not start {executable}");
 
         // Both pipes drained concurrently: reading one to the end while the other fills its buffer
         // deadlocks.

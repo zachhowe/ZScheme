@@ -187,13 +187,18 @@ internal static class SelfCommand
             return 0;
         }
 
-        // The running binary lives inside the tree being deleted. On Windows that file cannot be
-        // removed while it is executing, so leave the removal to the user rather than half-deleting
-        // their home directory.
+        // Only when the running binary is actually inside the tree being deleted. On Windows an
+        // executing file cannot be removed, so removing the home would half-delete it -- but that
+        // premise is a claim about *this* process, and it is only true when the running zsup is the
+        // one installed under this home. A zsup run from elsewhere -- a repo build against a
+        // ZSCHEME_HOME scratch directory, which is how a Windows CI job tears one down -- is not in
+        // the tree and can remove it perfectly well. Refusing unconditionally made the script
+        // reimplement the teardown by hand, over a `help:` line telling the user to close a shell
+        // that had nothing to do with it.
         //
         // Ahead of the confirmation gate, not behind it: the refusal does not depend on --yes, so
         // asking first would tell a Windows user to re-run with a flag that then always fails.
-        if (OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows() && IsRunningFromHome(home))
         {
             Console.Error.WriteLine($"error: zsup cannot remove itself while running on Windows");
             Console.Error.WriteLine($"help: close this shell, then delete {home}");
@@ -236,5 +241,22 @@ internal static class SelfCommand
             $"note: remove the {ZSchemeHome.GetEnvFile(home)} line from your shell profile to finish"
         );
         return 0;
+    }
+
+    /// <summary>
+    ///     Whether the running binary sits inside <paramref name="home" /> — the premise the Windows
+    ///     refusal above rests on.
+    /// </summary>
+    /// <remarks>
+    ///     Anywhere under the home rather than only its <c>bin/</c>: a zsup copied to
+    ///     <c>&lt;home&gt;/downloads</c> is equally undeletable while it runs.
+    ///     <see cref="Environment.ProcessPath" /> is documented as possibly null, and an unknown
+    ///     location answers <c>true</c> so that the conservative behaviour is what a caller falls
+    ///     back to rather than what it loses.
+    /// </remarks>
+    private static bool IsRunningFromHome(string home)
+    {
+        return Environment.ProcessPath is not { } processPath
+            || ZSchemeHome.Contains(home, processPath);
     }
 }
