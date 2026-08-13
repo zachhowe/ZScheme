@@ -115,7 +115,17 @@ internal static class ZsupDoctor
             return process.ExitCode == 0 ? stdout.Result : null;
         }
         catch (Exception e)
-            when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
+            when (e
+                    is System.ComponentModel.Win32Exception
+                        or InvalidOperationException
+                        // What both Task.WaitAll and stdout.Result raise for a faulted pipe read,
+                        // and it is neither of the others. This runs after `zsup install` has
+                        // committed and printed success, and neither InstallCommand nor
+                        // SelfCommand catches it -- so an unhandled one turns a completed install
+                        // into a bare exception line and a non-zero exit. A runtime check that
+                        // cannot answer is exactly the "return null" case above.
+                        or AggregateException
+            )
         {
             return null;
         }
