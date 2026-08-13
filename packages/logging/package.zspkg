@@ -1,6 +1,6 @@
 (package
   (name "zscheme-logging")
-  (version "0.4.0")
+  (version "0.5.0")
   (import-prefix "logging")
   (description "Logger factory creation and provider/builder configuration over Microsoft.Extensions.Logging")
   (license "MIT")
