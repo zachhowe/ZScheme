@@ -92,40 +92,40 @@ internal static class SelfCommand
 
         var assetName = GitHubReleaseClient.ZsupAssetName(release.Version, rid);
         var downloads = ZSchemeHome.GetDownloadsDir(home);
-        var archivePath = Path.Combine(downloads, assetName);
 
         // This command stages in downloads/ but never reaches ToolchainInstaller, so without this
         // a user who only ever self-updates never sweeps: every archive and staging tree its own
         // cleanup could not remove would sit there forever.
         ToolchainInstaller.SweepTransients(downloads);
 
-        var expected = Checksums.Find(
-            await client.GetTextAssetAsync(release, Checksums.FileName),
-            assetName
-        );
-        if (expected is null)
-            throw new InvalidDataException(
-                $"{Checksums.FileName} for {release.Version} does not list {assetName}"
-            );
-
-        Console.WriteLine($"downloading {assetName}");
-        var actual = await client.DownloadAssetAsync(release, assetName, archivePath);
-        if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
-        {
-            // Best-effort, and deliberately not allowed to replace the mismatch below -- see
-            // ZsupHelpers.TryDeleteDownload.
-            ZsupHelpers.TryDeleteDownload(archivePath);
-            throw new InvalidDataException(
-                $"checksum mismatch for {assetName}"
-                    + $"{Environment.NewLine}  expected {expected}"
-                    + $"{Environment.NewLine}    actual {actual}"
-            );
-        }
-
+        // Private to this process, for the reason the extraction tree below is: the asset name says
+        // nothing about who is downloading it, so two zsup processes updating to one version would
+        // share the file and delete it out from under each other.
+        var slot = ToolchainInstaller.CreateDownloadSlot(downloads);
+        var archivePath = Path.Combine(slot, assetName);
         var staging = Path.Combine(downloads, ".zsup-" + Guid.NewGuid().ToString("N")[..8]);
+
         ShimInstaller.Result stamped;
         try
         {
+            var expected = Checksums.Find(
+                await client.GetTextAssetAsync(release, Checksums.FileName),
+                assetName
+            );
+            if (expected is null)
+                throw new InvalidDataException(
+                    $"{Checksums.FileName} for {release.Version} does not list {assetName}"
+                );
+
+            Console.WriteLine($"downloading {assetName}");
+            var actual = await client.DownloadAssetAsync(release, assetName, archivePath);
+            if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException(
+                    $"checksum mismatch for {assetName}"
+                        + $"{Environment.NewLine}  expected {expected}"
+                        + $"{Environment.NewLine}    actual {actual}"
+                );
+
             ArchiveExtractor.Extract(archivePath, staging);
 
             var newBinary = Path.Combine(staging, ZSchemeHome.ExeName("zsup"));
@@ -136,8 +136,9 @@ internal static class SelfCommand
         }
         finally
         {
-            // The binaries have already been replaced by this point, so letting a cleanup failure
-            // escape the `finally` would report a completed update as a failure.
+            // The binaries may already have been replaced by this point, so letting a cleanup
+            // failure escape the `finally` would report a completed update as a failure -- and on
+            // the paths that did fail it would bury the reason.
             try
             {
                 if (Directory.Exists(staging))
@@ -149,7 +150,7 @@ internal static class SelfCommand
                 // prefixes ToolchainInstaller.SweepTransients ages out of downloads/.
             }
 
-            ZsupHelpers.TryDeleteDownload(archivePath);
+            ZsupHelpers.TryDeleteDownloadSlot(slot);
         }
 
         Console.WriteLine($"updated zsup to {release.Version}");

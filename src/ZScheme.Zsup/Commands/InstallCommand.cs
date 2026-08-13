@@ -167,48 +167,47 @@ internal static class InstallCommand
 
         var assetName = GitHubReleaseClient.ToolchainAssetName(release.Version, rid);
         var downloads = ZSchemeHome.GetDownloadsDir(home);
-        var archivePath = Path.Combine(downloads, assetName);
 
-        // Fetched before the archive so a mismatch is caught without a second download, and so a
-        // release published without checksums fails loudly rather than installing unverified.
-        var expected = Checksums.Find(
-            await client.GetTextAssetAsync(release, Checksums.FileName),
-            assetName
-        );
-
-        if (expected is null)
-            throw new InvalidDataException(
-                $"{Checksums.FileName} for {release.Version} does not list {assetName}"
-            );
-
-        Console.WriteLine($"downloading {assetName}");
-        var actual = await client.DownloadAssetAsync(release, assetName, archivePath);
-
-        if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
-        {
-            // The unverified archive is worth removing, but its removal must never replace the
-            // mismatch: a scanner holding the file would otherwise report "access denied" and
-            // bury the one fact that matters here. Nothing trusts a leftover archive either --
-            // the next download overwrites it and re-hashes what it wrote.
-            ZsupHelpers.TryDeleteDownload(archivePath);
-            throw new InvalidDataException(
-                $"checksum mismatch for {assetName}"
-                    + $"{Environment.NewLine}  expected {expected}"
-                    + $"{Environment.NewLine}    actual {actual}"
-            );
-        }
+        // Private to this process: the asset name is the same for everyone installing this version,
+        // so a shared path would have a CI job and an editor -- or two terminals -- download over
+        // each other and delete the archive the other is still extracting.
+        var slot = ToolchainInstaller.CreateDownloadSlot(downloads);
+        var archivePath = Path.Combine(slot, assetName);
 
         try
         {
+            // Fetched before the archive so a mismatch is caught without a second download, and so
+            // a release published without checksums fails loudly rather than installing unverified.
+            var expected = Checksums.Find(
+                await client.GetTextAssetAsync(release, Checksums.FileName),
+                assetName
+            );
+
+            if (expected is null)
+                throw new InvalidDataException(
+                    $"{Checksums.FileName} for {release.Version} does not list {assetName}"
+                );
+
+            Console.WriteLine($"downloading {assetName}");
+            var actual = await client.DownloadAssetAsync(release, assetName, archivePath);
+
+            if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException(
+                    $"checksum mismatch for {assetName}"
+                        + $"{Environment.NewLine}  expected {expected}"
+                        + $"{Environment.NewLine}    actual {actual}"
+                );
+
             return installer.InstallFrom(archivePath, release.Version, force, actual);
         }
         finally
         {
-            // The extracted toolchain is the artifact worth keeping, not the archive. This runs
-            // after the install has committed, so letting a delete failure escape the `finally`
-            // would report a toolchain that is installed and working as
-            // `error: Access to the path ... is denied`.
-            ZsupHelpers.TryDeleteDownload(archivePath);
+            // The extracted toolchain is the artifact worth keeping, not the archive -- and an
+            // archive that failed its checksum is worth even less. This runs both after the install
+            // has committed and alongside the error that rejected it, so a delete failure must
+            // never escape: a scanner holding the file would otherwise report a working install, or
+            // a checksum mismatch, as `error: Access to the path ... is denied`.
+            ZsupHelpers.TryDeleteDownloadSlot(slot);
         }
     }
 

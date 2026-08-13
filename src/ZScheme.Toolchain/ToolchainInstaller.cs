@@ -13,9 +13,19 @@ public sealed class ToolchainInstaller(string? home = null)
 
     /// <summary>
     ///     Prefixes of the directories <c>downloads/</c> is staged under: an install's extraction
-    ///     tree, the installation it moved aside, and <c>zsup self update</c>'s own staging tree.
+    ///     tree, the installation it moved aside, <c>zsup self update</c>'s own staging tree, and
+    ///     the slot a download streams into.
     /// </summary>
-    private static readonly string[] TransientDirPrefixes = [".staging-", ".trash-", ".zsup-"];
+    private static readonly string[] TransientDirPrefixes =
+    [
+        ".staging-",
+        ".trash-",
+        ".zsup-",
+        DownloadSlotPrefix,
+    ];
+
+    /// <summary>Prefix of the per-download directory <see cref="CreateDownloadSlot" /> hands out.</summary>
+    private const string DownloadSlotPrefix = ".dl-";
 
     /// <summary>What the two release assets zsup downloads are named after.</summary>
     private static readonly string[] ReleaseAssetPrefixes = ["zscheme-", "zsup-"];
@@ -336,7 +346,31 @@ public sealed class ToolchainInstaller(string? home = null)
     }
 
     /// <summary>
-    ///     Removes the debris of an interrupted install or self-update: staging and trash
+    ///     Creates a directory under <paramref name="downloads" /> for one download to land in.
+    /// </summary>
+    /// <remarks>
+    ///     An archive is written under a slot of its own rather than to
+    ///     <c>downloads/&lt;asset name&gt;</c>, because that path is a function of the version
+    ///     alone: two zsup processes fetching one version — a CI job and an editor, or two
+    ///     terminals — otherwise write the same file, and whichever finishes first deletes the
+    ///     archive the other is still extracting. Inside the slot the asset keeps its published
+    ///     name, which is what tells <see cref="ArchiveExtractor" /> whether it has a zip or a
+    ///     tarball.
+    ///     <para>
+    ///         Swept by <see cref="SweepTransients" /> along with every other transient here, so a
+    ///         run killed mid-download does not leave a toolchain-sized file behind for good.
+    ///     </para>
+    /// </remarks>
+    public static string CreateDownloadSlot(string downloads)
+    {
+        var slot = Path.Combine(downloads, DownloadSlotPrefix + Guid.NewGuid().ToString("N")[..12]);
+
+        Directory.CreateDirectory(slot);
+        return slot;
+    }
+
+    /// <summary>
+    ///     Removes the debris of an interrupted install or self-update: staging, trash and download
     ///     directories, partial downloads, and downloaded release archives.
     /// </summary>
     /// <remarks>

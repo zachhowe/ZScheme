@@ -59,7 +59,7 @@ internal static class ZsupHelpers
     }
 
     /// <summary>
-    ///     Deletes a downloaded file if it is there, ignoring a failure to do so.
+    ///     Deletes a download slot and the archive in it, ignoring a failure to do so.
     /// </summary>
     /// <remarks>
     ///     Every caller is cleaning up an archive it no longer needs, either after the install it
@@ -67,14 +67,15 @@ internal static class ZsupHelpers
     ///     is the least important thing happening, so it must not become the reported outcome --
     ///     an antivirus scanner still holding a freshly written file is routine on Windows. A
     ///     leftover is swept by <see cref="ToolchainInstaller.SweepTransients" /> on a later run
-    ///     and is never trusted in the meantime: the next download overwrites it and hashes what
-    ///     it wrote.
+    ///     and is never trusted in the meantime: nothing but the process that created the slot ever
+    ///     looks inside it.
     /// </remarks>
-    internal static void TryDeleteDownload(string path)
+    internal static void TryDeleteDownloadSlot(string slot)
     {
         try
         {
-            File.Delete(path);
+            if (Directory.Exists(slot))
+                Directory.Delete(slot, recursive: true);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

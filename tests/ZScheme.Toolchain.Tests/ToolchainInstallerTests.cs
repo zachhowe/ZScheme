@@ -420,6 +420,44 @@ public sealed class ToolchainInstallerTests
     }
 
     [Fact]
+    public void CreateDownloadSlot_GivesEachDownloadAPathOfItsOwn()
+    {
+        // Two installs of one version -- a CI job and an editor, or two terminals -- resolve the
+        // same asset name. Sharing downloads/<asset> had whichever finished first delete the
+        // archive the other was mid-extraction on.
+        using var home = new TempHome();
+        var downloads = ZSchemeHome.GetDownloadsDir(home.Path);
+        Directory.CreateDirectory(downloads);
+
+        var first = ToolchainInstaller.CreateDownloadSlot(downloads);
+        var second = ToolchainInstaller.CreateDownloadSlot(downloads);
+
+        Assert.NotEqual(first, second);
+        Assert.True(Directory.Exists(first) && Directory.Exists(second));
+        Assert.Equal(downloads, Path.GetDirectoryName(first));
+    }
+
+    [Fact]
+    public void SweepTransients_RemovesAnAbandonedDownloadSlot()
+    {
+        // The slot and the archive in it are toolchain-sized, and the command that created it
+        // deletes it itself -- so what is left here is a killed run, which nothing else removes.
+        using var home = new TempHome();
+        var downloads = ZSchemeHome.GetDownloadsDir(home.Path);
+        Directory.CreateDirectory(downloads);
+
+        var stale = ToolchainInstaller.CreateDownloadSlot(downloads);
+        var inFlight = ToolchainInstaller.CreateDownloadSlot(downloads);
+        File.WriteAllText(Path.Combine(stale, "zscheme-0.3.0-win-x64.zip"), "archive");
+        Directory.SetLastWriteTimeUtc(stale, DateTime.UtcNow.AddDays(-2));
+
+        ToolchainInstaller.SweepTransients(downloads);
+
+        Assert.False(Directory.Exists(stale));
+        Assert.True(Directory.Exists(inFlight), "a download in progress must not be swept");
+    }
+
+    [Fact]
     public void InstallFrom_LeavesARecentStagingDirectoryAlone()
     {
         // A staging directory that was created moments ago belongs to a concurrent install --
