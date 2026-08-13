@@ -40,6 +40,7 @@ jobs:
           - { os: macos-13,        rid: osx-x64 }
           - { os: macos-latest,    rid: osx-arm64 }
           - { os: windows-latest,  rid: win-x64 }
+          - { os: windows-11-arm,  rid: win-arm64 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
