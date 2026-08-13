@@ -107,6 +107,12 @@ internal static class ZsupSelf
             Stamp(staged);
 
             var movedAside = new List<(string Original, string Aside)>();
+
+            // Names MoveAside could not rename and deleted instead. Tracked separately from
+            // movedAside because there is nothing to put them back from: they cannot be restored,
+            // only reported, and a rollback that left them out would tell the user the previous
+            // installation is back while one of its binaries is gone.
+            var deleted = new List<string>();
             try
             {
                 // The shims are moved aside too: any of them may be the image currently executing,
@@ -114,8 +120,15 @@ internal static class ZsupSelf
                 foreach (var name in new[] { "zsup" }.Concat(ShimInstaller.ShimNames))
                 {
                     var path = Path.Combine(binDir, ZSchemeHome.ExeName(name));
-                    if (MoveAside(path) is { } aside)
-                        movedAside.Add((path, aside));
+                    switch (MoveAside(path))
+                    {
+                        case (MoveAsideOutcome.Parked, { } aside):
+                            movedAside.Add((path, aside));
+                            break;
+                        case (MoveAsideOutcome.Deleted, _):
+                            deleted.Add(path);
+                            break;
+                    }
                 }
 
                 File.Move(staged, zsupPath, overwrite: true);
@@ -130,7 +143,7 @@ internal static class ZsupSelf
                 // deletes -- populated under sudo, or on a network home with its own ACL -- fails
                 // part-way through, and by then the names it did reach are already parked. Rolling
                 // back only the rename would leave the user with no zsup to retry with.
-                Restore(movedAside);
+                Restore(movedAside, deleted);
                 throw;
             }
 
@@ -150,12 +163,17 @@ internal static class ZsupSelf
                 //
                 // zsup stays replaced, which is what the per-name path below does too: the rename
                 // that put it there has already succeeded, and a shim on the previous zsup is a
-                // version mismatch rather than a missing file.
-                Restore([
-                    .. movedAside.Where(m =>
-                        !string.Equals(m.Original, zsupPath, StringComparison.Ordinal)
-                    ),
-                ]);
+                // version mismatch rather than a missing file. A zsup that was deleted rather than
+                // parked is left out for the same reason: the rename that got this far put a
+                // working binary back under the name, so nothing was lost with it.
+                Restore(
+                    [
+                        .. movedAside.Where(m =>
+                            !string.Equals(m.Original, zsupPath, StringComparison.Ordinal)
+                        ),
+                    ],
+                    [.. deleted.Where(d => !string.Equals(d, zsupPath, StringComparison.Ordinal))]
+                );
                 throw;
             }
 
@@ -167,9 +185,13 @@ internal static class ZsupSelf
             //
             // Matched ordinally: both sides are Path.Combine(binDir, ExeName(name)) built from this
             // same binDir, so the strings are identical rather than merely equivalent.
+            //
+            // Nothing is passed as deleted here: a name that was deleted rather than parked has no
+            // copy to restore, and this path is already covered by WarnAboutUnstampedShims, which
+            // reads the name off the filesystem and reports the missing file per shim.
             var failedPaths = stamped.Failed.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
             if (failedPaths.Count > 0)
-                Restore([.. movedAside.Where(m => failedPaths.Contains(m.Original))]);
+                Restore([.. movedAside.Where(m => failedPaths.Contains(m.Original))], []);
 
             // This update's own copies, deleted by name rather than left to the sweep. The sweep is
             // age-gated so that a *concurrent* zsup cannot take a rollback copy out from under an
@@ -191,11 +213,36 @@ internal static class ZsupSelf
         }
     }
 
-    /// <returns>Where the file was parked, or <c>null</c> when there was nothing to move.</returns>
-    private static string? MoveAside(string path)
+    /// <summary>What became of a name <see cref="MoveAside" /> was asked to park.</summary>
+    private enum MoveAsideOutcome
+    {
+        /// <summary>
+        ///     Nothing was moved: either there was no file at the path, or it could neither be
+        ///     renamed nor deleted and is still sitting there. Nothing to put back, nothing lost.
+        /// </summary>
+        Untouched,
+
+        /// <summary>Renamed out of the way, and restorable from the accompanying path.</summary>
+        Parked,
+
+        /// <summary>
+        ///     Not renameable, so it was deleted instead. The name is gone and no copy of it was
+        ///     made, so a rollback can only report it.
+        /// </summary>
+        Deleted,
+    }
+
+    /// <returns>
+    ///     What happened to the name, and where it was parked when it was parked. The delete is a
+    ///     distinct outcome on purpose: folding it into <see cref="MoveAsideOutcome.Untouched" />
+    ///     leaves the caller recording nothing for a binary this function destroyed, and
+    ///     <see cref="Restore" /> then reports the previous installation put back with one of its
+    ///     binaries silently missing.
+    /// </returns>
+    private static (MoveAsideOutcome Outcome, string? Aside) MoveAside(string path)
     {
         if (!File.Exists(path))
-            return null;
+            return (MoveAsideOutcome.Untouched, null);
 
         var aside = path + StaleSuffix + Guid.NewGuid().ToString("N")[..8];
         try
@@ -207,7 +254,7 @@ internal static class ZsupSelf
             // already a month old, and a concurrent zsup would sweep it on its very next run. That
             // is precisely the case the age gate in SweepStaleBinaries exists to rule out.
             Stamp(aside);
-            return aside;
+            return (MoveAsideOutcome.Parked, aside);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -221,10 +268,12 @@ internal static class ZsupSelf
             }
             catch (Exception inner) when (inner is IOException or UnauthorizedAccessException)
             {
-                // Fall through and let the caller's rename report the problem.
+                // The file is still where it was, so there is nothing for a rollback to say about
+                // it. Fall through and let the caller's rename report the problem.
+                return (MoveAsideOutcome.Untouched, null);
             }
 
-            return null;
+            return (MoveAsideOutcome.Deleted, null);
         }
     }
 
@@ -237,7 +286,16 @@ internal static class ZsupSelf
     ///     named out loud -- a bare <c>.old-&lt;guid&gt;</c> tells the user nothing about what the
     ///     file is, and <see cref="SweepStaleBinaries" /> would delete it on the next run.
     /// </remarks>
-    private static void Restore(List<(string Original, string Aside)> movedAside)
+    /// <param name="deleted">
+    ///     Names <see cref="MoveAside" /> deleted because it could not rename them. Nothing can be
+    ///     put back for these, which is exactly why they are passed in: this method is what tells
+    ///     the user the previous installation is back, and it must not say so over a binary that no
+    ///     longer exists.
+    /// </param>
+    private static void Restore(
+        List<(string Original, string Aside)> movedAside,
+        List<string> deleted
+    )
     {
         foreach (var (original, aside) in movedAside)
         {
@@ -266,6 +324,17 @@ internal static class ZsupSelf
                         + "later zsup run sweeps it"
                 );
             }
+        }
+
+        foreach (var original in deleted)
+        {
+            // No `.rescue-` line to offer: the copy the loop above restores from was never made.
+            // Said out loud all the same, and for the same reason -- the caller reports a rollback,
+            // and this is the one name the rollback did not cover.
+            ZsupHelpers.Warn($"could not restore {original}: it was deleted rather than renamed");
+            Console.Error.WriteLine(
+                $"help: `{Path.GetFileName(original)}` is gone; run the installer to put it back"
+            );
         }
     }
 
