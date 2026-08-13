@@ -128,6 +128,11 @@ Each toolchain ships both the `packages/` sources and a prebuilt `pkgcache/`, wh
 copies into `cache/pkg/<version>/`. That makes the first compile instant and entirely offline —
 building stdlib from source would otherwise need a NuGet restore and the .NET SDK.
 
+Each entry is seeded the way the install itself is committed: assembled under a private `.seed-*`
+name and renamed into place. An entry that exists is therefore an entry that is complete, which
+matters because existence is the whole of what a later seed reads as "already cached" — there is no
+marker file. `zsup install --force` reseeds, replacing an entry rather than merging into it.
+
 The prebuilt cache is stored as `pkgcache/<compiler version>/…`, and it is that version — not the
 name the toolchain was installed under — that decides where it is seeded. The two differ whenever a
 toolchain is installed under another name (`zsup install dev --from …`), and the compiler only ever

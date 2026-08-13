@@ -84,6 +84,40 @@ public sealed class ToolchainInstallerTests
     }
 
     [Fact]
+    public void InstallFrom_Force_ReplacesACacheEntryRatherThanMergingIntoIt()
+    {
+        // A cache entry is committed by a rename, so it becomes visible only once it is whole. That
+        // matters because its mere existence is the whole of what a later seed reads as "already
+        // cached": a seed interrupted part-way used to leave a directory that exists and is missing
+        // files, which every subsequent non-force seed then skipped, so nothing ever repaired it.
+        // Standing in for one here, since the repair path is --force either way.
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+
+        var dest = Path.Combine(
+            ZSchemeHome.GetPackageCacheRootFor(PayloadVersion, home.Path),
+            "zscheme-stdlib",
+            "1.0.0"
+        );
+        Directory.CreateDirectory(dest);
+        File.WriteAllText(Path.Combine(dest, "leftover.dll"), "from a seed that was killed");
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(
+            payload,
+            PayloadVersion,
+            force: true
+        );
+
+        Assert.Equal(1, result.PackagesSeeded);
+        Assert.True(File.Exists(Path.Combine(dest, "zscheme-stdlib.dll")));
+        Assert.False(
+            File.Exists(Path.Combine(dest, "leftover.dll")),
+            "the entry is replaced wholesale, so a half-written one cannot survive the repair"
+        );
+        Assert.Empty(Directory.EnumerateDirectories(Path.GetDirectoryName(dest)!, ".seed-*"));
+    }
+
+    [Fact]
     public void InstallFrom_UnderADifferentName_StillSeedsTheCompilerVersionsCache()
     {
         // The compiler reads cache/pkg/<its own version>/, which has nothing to do with the name

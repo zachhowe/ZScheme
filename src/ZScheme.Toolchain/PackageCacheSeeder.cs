@@ -63,12 +63,142 @@ public static class PackageCacheSeeder
                 if (!force && Directory.Exists(dest))
                     continue;
 
-                ArchiveExtractor.CopyDirectory(versionDir, dest);
+                CopyThenCommit(versionDir, dest);
                 seeded++;
             }
         }
 
         return seeded;
+    }
+
+    /// <summary>Prefix of the private directory one cache entry is assembled in.</summary>
+    private const string StagingPrefix = ".seed-";
+
+    /// <summary>
+    ///     Copies one package version into place through a staging directory, so the entry only
+    ///     ever becomes visible whole.
+    /// </summary>
+    /// <remarks>
+    ///     The presence of <paramref name="dest" /> is the whole of what a later seed reads as
+    ///     "already cached" — there is no marker file and no manifest. Copying straight into it
+    ///     means a seed interrupted part-way (Ctrl-C, a full disk, a killed install) leaves a
+    ///     directory that exists and is missing files, and every subsequent non-force seed then
+    ///     skips it, so nothing ever repairs it: the first compile fails on a package that looks
+    ///     cached, and reinstalling the toolchain does not help. Assembling under a private name and
+    ///     renaming makes the directory appear only once it is complete. Beside the destination
+    ///     rather than in the system temp directory, because the commit is a rename and that
+    ///     requires one volume — <c>ZSCHEME_CACHE_DIR</c> can put the cache anywhere.
+    /// </remarks>
+    private static void CopyThenCommit(string source, string dest)
+    {
+        var parent = Path.GetDirectoryName(dest)!;
+        Directory.CreateDirectory(parent);
+        SweepStaleStaging(parent);
+
+        var staging = Path.Combine(parent, StagingPrefix + Guid.NewGuid().ToString("N")[..12]);
+        try
+        {
+            ArchiveExtractor.CopyDirectory(source, staging);
+
+            // Only under --force, which is the one caller that reaches here with the entry already
+            // present. Directory.Move has no overwrite overload, so the previous entry is moved out
+            // of the way first and deleted once the new one is committed -- a delete-then-move would
+            // reintroduce, for the width of a copy, the very half-populated entry this exists to
+            // rule out.
+            string? previous = null;
+            if (Directory.Exists(dest))
+            {
+                previous = Path.Combine(parent, StagingPrefix + Guid.NewGuid().ToString("N")[..12]);
+                Directory.Move(dest, previous);
+
+                // A rename carries the directory's original timestamps, so the entry cached last
+                // month arrives here already older than the sweep's cutoff -- and a concurrent seed
+                // would take it while it is still the only copy of what this one moved aside.
+                try
+                {
+                    Directory.SetLastWriteTimeUtc(previous, DateTime.UtcNow);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    // A timestamp is not worth failing a seed over.
+                }
+            }
+
+            try
+            {
+                Directory.Move(staging, dest);
+            }
+            catch
+            {
+                if (previous is not null && !Directory.Exists(dest))
+                    TryMoveBack(previous, dest);
+                throw;
+            }
+
+            if (previous is not null)
+                TryDelete(previous);
+        }
+        finally
+        {
+            // A no-op once the rename consumed it.
+            TryDelete(staging);
+        }
+    }
+
+    private static void TryMoveBack(string previous, string dest)
+    {
+        try
+        {
+            Directory.Move(previous, dest);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Reported through the original exception on its way out: that one says why the seed
+            // failed, and it is the only thing that would explain a cache entry that is now gone.
+            // The copy is left under its staging name, so the payload is still recoverable.
+        }
+    }
+
+    /// <summary>
+    ///     Deletes staging directories older than <see cref="ZSchemeHome.StagingMaxAge" /> beside
+    ///     <paramref name="parent" />.
+    /// </summary>
+    /// <remarks>
+    ///     The <c>finally</c> around the rename covers a failure but not a kill during the copy, and
+    ///     nothing else walks the cache looking for these. Age-gated for the reason every other
+    ///     staging sweep here is: a concurrent install seeding the same package has one of its own,
+    ///     and deleting it leaves that process renaming a path that no longer exists. They are
+    ///     invisible to the compiler either way — it looks a package version up by exact path, and
+    ///     the leading '.' is not a version any manifest names.
+    /// </remarks>
+    private static void SweepStaleStaging(string parent)
+    {
+        var cutoff = DateTime.UtcNow - ZSchemeHome.StagingMaxAge;
+
+        try
+        {
+            foreach (var stale in Directory.EnumerateDirectories(parent, StagingPrefix + "*"))
+                if (Directory.GetLastWriteTimeUtc(stale) < cutoff)
+                    TryDelete(stale);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort: a stale directory costs disk, not correctness, and must never be the
+            // reason a package was left unseeded.
+        }
+    }
+
+    private static void TryDelete(string dir)
+    {
+        try
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, recursive: true);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Swept by a later seed.
+        }
     }
 
     /// <summary>
