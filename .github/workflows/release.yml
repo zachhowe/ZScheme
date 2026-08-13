@@ -3,11 +3,11 @@ name: Release
 on:
   push:
     tags: ['[0-9]+.[0-9]+.[0-9]+*']
+  # No version input on purpose: the version is a property of the tree, bumped across the compiler,
+  # the editors and every package manifest by bump-version.ps1 at the start of a cycle. A dispatch
+  # build reports what the tree says; it cannot override it.
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version to build (defaults to Directory.Build.props)'
-        required: false
       dry_run:
         description: 'Build the artifacts but do not publish a release'
         type: boolean
