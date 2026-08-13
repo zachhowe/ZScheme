@@ -61,6 +61,10 @@ without the other installs cleanly and then fails from inside an editor, far fro
 caused it. This is reachable in practice only through `--from`, pointed at a single project's build
 output — see [Developing on the compiler itself](#developing-on-the-compiler-itself).
 
+`--from` also refuses a source directory that contains the home. Installs stage under
+`~/.zscheme/downloads/`, so `--from ~/.zscheme` — or `--from ~` — would have the copy writing into
+its own source, which has no fixed point.
+
 `link` refuses `~/.zscheme/bin`, and the home directory above it, because the `zs` there is the shim
 itself: a toolchain pointing at it would make `zs` hand off to `zs` for as long as the machine held
 out. The shim refuses the same handoff when it is asked to make it, and gives up after eight
@@ -93,6 +97,9 @@ ZSCHEME_VERSION=0.3.0 zs --version  # just this command
 ```
 
 `zsup which` reports which rule applied, which is the quickest way to explain a surprising version.
+It fails, printing nothing to stdout, when the selected toolchain does not actually hold the tool —
+so `$(zsup which zs-lsp)` never hands an editor a path to a binary that is not there. Linking a
+build output directory holding only `zs` is the usual way to reach that.
 
 Note that `package.zspkg` is deliberately *not* a pin source. The manifest parser rejects unknown
 fields, so a `(toolchain ...)` entry would make the manifest unreadable by every already-released
