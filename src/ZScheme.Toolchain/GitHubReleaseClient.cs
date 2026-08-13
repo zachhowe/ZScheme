@@ -53,7 +53,6 @@ public sealed class GitHubReleaseClient : IDisposable
     private readonly string _repository;
     private readonly string? _baseUrlOverride;
     private readonly string _apiBaseUrl;
-    private readonly bool _ownsClient;
 
     /// <param name="apiBaseUrlOverride">
     ///     Where <c>latest</c> is resolved from. Separate from <paramref name="baseUrlOverride" />,
@@ -86,7 +85,10 @@ public sealed class GitHubReleaseClient : IDisposable
             ?? DefaultApiBaseUrl
         ).TrimEnd('/');
 
-        _ownsClient = handler is null;
+        // disposeHandler carries the only ownership question there is: an injected handler belongs
+        // to the caller, and a shared one is the standard way to share a connection pool. The
+        // wrapper itself is constructed here either way and is disposed here either way -- see
+        // Dispose.
         _http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
 
         // Mandatory: the GitHub API rejects requests that do not identify themselves.
@@ -378,7 +380,11 @@ public sealed class GitHubReleaseClient : IDisposable
 
     public void Dispose()
     {
-        if (_ownsClient)
-            _http.Dispose();
+        // Unconditionally: the wrapper is constructed here in both branches and owned here in both
+        // branches, so skipping this leaks whatever it holds -- its own cancellation registrations
+        // and the timer behind Timeout. Whether the *handler* goes with it is the disposeHandler
+        // argument in the constructor, which is the only ownership question there is; a flag
+        // restating it here would apply it to the wrong object.
+        _http.Dispose();
     }
 }

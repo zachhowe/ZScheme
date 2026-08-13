@@ -249,6 +249,56 @@ public sealed class GitHubReleaseClientTests
 
     private static readonly ReleaseRef Release040 = ReleaseRef.Explicit("0.4.0");
 
+    /// <summary>Records whether it was disposed, which is the whole assertion below.</summary>
+    private sealed class TrackingHandler : HttpMessageHandler
+    {
+        public bool Disposed { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken
+        )
+        {
+            return Task.FromResult(Ok("payload"));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            Disposed = true;
+            base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>
+    ///     One flag used to govern two decisions that are not the same decision: an injected handler
+    ///     belongs to the caller, but the HttpClient wrapper is constructed here in both branches
+    ///     and owned here in both branches, so skipping its Dispose leaked what the wrapper itself
+    ///     holds. Sharing a handler is the standard way to share a connection pool and exactly what
+    ///     the parameter is there to allow.
+    /// </summary>
+    [Fact]
+    public async Task Dispose_DisposesTheClientButNotAnInjectedHandler()
+    {
+        var handler = new TrackingHandler();
+        var client = new GitHubReleaseClient("owner/repo", "", handler);
+
+        Assert.Equal("payload", await client.GetTextAssetAsync(Release040, "SHA256SUMS"));
+
+        client.Dispose();
+
+        // The handler is the caller's, and stays usable for the next client sharing the pool.
+        Assert.False(handler.Disposed);
+
+        // The wrapper is not: a disposed HttpClient refuses every further request, which is how
+        // this observes that it was disposed at all.
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+            client.GetTextAssetAsync(Release040, "SHA256SUMS")
+        );
+
+        handler.Dispose();
+        Assert.True(handler.Disposed);
+    }
+
     [Fact]
     public void GetAssetUrl_UsesTheReleaseDownloadPath()
     {
