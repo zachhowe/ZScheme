@@ -9,6 +9,37 @@ public sealed class ToolchainResolverTests
         return new ToolchainResolver(new ToolchainRegistry(home.Path));
     }
 
+    /// <summary>
+    ///     ZSCHEME_VERSION is as attacker-controlled as a checked-in <c>.zscheme-version</c> — it is
+    ///     set by whatever direnv or CI config the cloned repository ships — and an unresolvable
+    ///     value is echoed back to the terminal by <c>ResolutionErrorFormatter</c>. It was only
+    ///     trimmed, so escape sequences in it reached the terminal intact.
+    /// </summary>
+    [Fact]
+    public void Resolve_EnvironmentVariableWithControlCharacters_IsSanitizedBeforeItIsReported()
+    {
+        using var home = new TempHome();
+
+        var result = ResolverFor(home).Resolve("\u001b[31m0.4.0", home.Dir("proj"));
+
+        var notInstalled = Assert.IsType<ToolchainResolution.NotInstalled>(result);
+        Assert.Equal("[31m0.4.0", notInstalled.Name);
+        Assert.DoesNotContain('\u001b', ResolutionErrorFormatter.Format(result));
+    }
+
+    [Fact]
+    public void Resolve_EnvironmentVariableOfNothingButControlCharacters_FallsThrough()
+    {
+        // Sanitizing to the empty string must not count as a selection: `toolchain '' is not
+        // installed` on every command is worse than the answer the rest of the chain would give.
+        using var home = new TempHome();
+        home.AddInstalled("0.4.0");
+
+        var result = ResolverFor(home).Resolve("\u001b\u0007", home.Dir("proj"));
+
+        Assert.IsType<ToolchainResolution.NoDefault>(result);
+    }
+
     [Fact]
     public void Resolve_NothingSelected_ReportsNoToolchains()
     {

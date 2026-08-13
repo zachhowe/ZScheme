@@ -16,8 +16,11 @@ public sealed class ToolchainResolver(ToolchainRegistry registry)
     /// </summary>
     public ToolchainResolution Resolve(string? envVersion, string startDir)
     {
-        var fromEnv = envVersion?.Trim();
-        if (!string.IsNullOrEmpty(fromEnv))
+        // Sanitized, not merely trimmed, and for the same reason a pin file is: the value comes
+        // from whatever direnv or CI config the cloned repository ships, and an unresolvable one is
+        // echoed back to the terminal by ResolutionErrorFormatter.
+        var fromEnv = ToolchainName.Sanitize(envVersion);
+        if (fromEnv is not null)
             return Select(fromEnv, ToolchainOrigin.EnvironmentVariable, originDetail: null);
 
         var pin = VersionFileLocator.Find(startDir);

@@ -44,6 +44,38 @@ public sealed class ToolchainNameTests
         Assert.False(ToolchainName.IsValid(name));
     }
 
+    [Theory]
+    [InlineData("0.4.0", "0.4.0")]
+    [InlineData("  0.4.0  ", "0.4.0")]
+    // An ANSI colour escape and an OSC title sequence. Both reach ResolutionErrorFormatter, which
+    // prints the requested name straight back to the terminal when it is not installed.
+    [InlineData("\u001b[31m0.4.0", "[31m0.4.0")]
+    [InlineData("\u001b]0;pwned\u0007", "]0;pwned")]
+    // The trim has to happen after the strip, or the spaces the escape sat between survive it.
+    [InlineData(" \u001b[2J 0.4.0 ", "[2J 0.4.0")]
+    public void Sanitize_StripsControlCharactersAndTrims(string value, string expected)
+    {
+        Assert.Equal(expected, ToolchainName.Sanitize(value));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\u001b\u0007")]
+    public void Sanitize_ReturnsNullWhenNothingSurvives(string? value)
+    {
+        // Not the empty string: that is not a toolchain name, and a caller taking it as one would
+        // fail every command from that directory with "toolchain '' is not installed".
+        Assert.Null(ToolchainName.Sanitize(value));
+    }
+
+    [Fact]
+    public void Sanitize_BoundsTheLength()
+    {
+        Assert.Equal(64, ToolchainName.Sanitize(new string('x', 500))!.Length);
+    }
+
     [Fact]
     public void IsValid_RejectsControlCharacters()
     {

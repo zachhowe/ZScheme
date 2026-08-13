@@ -43,9 +43,11 @@ public static class VersionFileLocator
     }
 
     /// <summary>
-    ///     Reads the selected name: the first non-empty, non-comment line, trimmed. Anything after
-    ///     that first line is ignored, which leaves room to grow the format later without breaking
-    ///     files written today.
+    ///     Reads the selected name: the first non-empty, non-comment line, put through
+    ///     <see cref="ToolchainName.Sanitize" />. Anything after that first line is ignored, which
+    ///     leaves room to grow the format later without breaking files written today. A line that
+    ///     sanitizes away entirely reads as null, so <see cref="Find" /> treats it as the blank line
+    ///     it effectively is and carries on to the next ancestor.
     /// </summary>
     public static string? ReadToolchainName(string versionFilePath)
     {
@@ -57,7 +59,7 @@ public static class VersionFileLocator
                 if (trimmed.Length == 0 || trimmed.StartsWith('#'))
                     continue;
 
-                return Sanitize(trimmed);
+                return ToolchainName.Sanitize(trimmed);
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
@@ -68,29 +70,5 @@ public static class VersionFileLocator
         }
 
         return null;
-    }
-
-    /// <summary>
-    ///     Makes a pin's contents safe to echo, or returns <c>null</c> if nothing survives.
-    /// </summary>
-    /// <remarks>
-    ///     The value is attacker-controlled — it arrives in a file checked into whatever repository
-    ///     the user cloned — and an invalid one is reported back to the terminal, so control
-    ///     characters (ANSI/OSC escapes) are stripped and the length is bounded. A line that was
-    ///     nothing but control characters therefore sanitizes to the empty string, which is not a
-    ///     toolchain name: returning it would make <see cref="Find" /> report a hit and
-    ///     <c>ToolchainResolver</c> fail every command from that directory with
-    ///     <c>toolchain '' is not installed</c>. Null instead, so it behaves like the blank line it
-    ///     effectively is and the walk continues to the next ancestor.
-    /// </remarks>
-    private static string? Sanitize(string value)
-    {
-        const int maxLength = 64;
-
-        var cleaned = new string([.. value.Where(c => !char.IsControl(c))]);
-        if (cleaned.Length == 0)
-            return null;
-
-        return cleaned.Length > maxLength ? cleaned[..maxLength] : cleaned;
     }
 }

@@ -65,6 +65,40 @@ public static class ToolchainName
     }
 
     /// <summary>
+    ///     Makes a name that arrived from outside safe to echo, or returns <c>null</c> if nothing
+    ///     survives.
+    /// </summary>
+    /// <remarks>
+    ///     Both sources of a selected name are attacker-controlled in the same way — a
+    ///     <c>.zscheme-version</c> checked into whatever repository the user cloned, and the
+    ///     <c>ZSCHEME_VERSION</c> that repository's direnv or CI config exports — and an invalid one
+    ///     is reported straight back to the terminal by <c>ResolutionErrorFormatter</c>. Control
+    ///     characters (ANSI/OSC escapes) are therefore stripped and the length is bounded before the
+    ///     value goes anywhere.
+    ///     <para>
+    ///         A value that was nothing but control characters sanitizes to the empty string, which
+    ///         is not a toolchain name: returning it would have <c>VersionFileLocator</c> report a
+    ///         hit and fail every command from that directory with <c>toolchain '' is not
+    ///         installed</c>. Null instead, so it behaves like the blank line it effectively is.
+    ///     </para>
+    /// </remarks>
+    public static string? Sanitize(string? value)
+    {
+        const int maxLength = 64;
+
+        if (value is null)
+            return null;
+
+        // Trimmed after stripping rather than before: an escape sequence wrapped in spaces would
+        // otherwise leave the spaces behind once its control characters were removed.
+        var cleaned = new string([.. value.Where(c => !char.IsControl(c))]).Trim();
+        if (cleaned.Length == 0)
+            return null;
+
+        return cleaned.Length > maxLength ? cleaned[..maxLength] : cleaned;
+    }
+
+    /// <summary>
     ///     Throws when <paramref name="name" /> is not a valid toolchain name. Used at the point
     ///     where a name is turned into a filesystem path.
     /// </summary>
