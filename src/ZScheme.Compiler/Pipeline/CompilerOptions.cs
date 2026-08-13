@@ -142,11 +142,13 @@ public sealed class CompilerOptions
     /// <summary>
     ///     Overrides the base directory for ZScheme caches (compiled packages under
     ///     <c>pkg/{Version}/</c> and git-cloned ZScheme dependencies under <c>git/</c>) for this
-    ///     compilation. When <c>null</c>, falls back to the process-wide default (which the CLI
-    ///     populates from the <c>ZSCHEME_CACHE_DIR</c> environment variable), and ultimately to
-    ///     <c>~/.zscheme/cache</c>. An explicit value here takes precedence over the env var.
-    ///     NuGet caches are intentionally unaffected and remain at
-    ///     <c>~/.zscheme/cache/nuget</c>.
+    ///     compilation. When <c>null</c>, falls back to the process-wide default (see
+    ///     <see cref="Cache.ZSchemePaths.SetProcessDefaultCacheRoot" />), then to the
+    ///     <c>ZSCHEME_CACHE_DIR</c> environment variable, and ultimately to
+    ///     <c>&lt;ZSCHEME_HOME&gt;/cache</c> — the env var is read by
+    ///     <see cref="Cache.ZSchemePaths.GetCacheRoot" /> itself, so a host has no reason to feed it
+    ///     in. NuGet caches are intentionally unaffected and remain at
+    ///     <c>&lt;ZSCHEME_HOME&gt;/cache/nuget</c>.
     /// </summary>
     public string? CacheDirectory { get; set; }
 
