@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -520,12 +521,17 @@ public sealed class GitHubReleaseClientTests
     /// <summary>
     ///     The regression this guards: the budget used to be an <c>HttpClient.Timeout</c> covering
     ///     the whole streamed response, so a large archive over a slow link was cancelled part-way
-    ///     through a transfer that was making steady progress. Here 25 pieces 20 ms apart run for
-    ///     ten times the per-step budget and must still arrive.
+    ///     through a transfer that was making steady progress. The budget is therefore set *under*
+    ///     what the whole download takes (25 pieces 20 ms apart, so ~500 ms of transfer against a
+    ///     200 ms budget) and well over the gap between two pieces: a per-call budget cancels this
+    ///     download, a per-step one carries it through. The elapsed assert holds that shape --
+    ///     without it, a payload that shrinks or a budget that grows leaves a test that passes
+    ///     whichever way the timeout is applied.
     /// </summary>
     [Fact]
     public async Task DownloadAssetAsync_SlowButSteady_IsNotCancelled()
     {
+        var budget = TimeSpan.FromMilliseconds(200);
         var payload = new string('z', 25 * 64);
         var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
@@ -535,15 +541,23 @@ public sealed class GitHubReleaseClientTests
         });
         using var client = new GitHubReleaseClient("owner/repo", "", handler)
         {
-            NetworkTimeout = TimeSpan.FromMilliseconds(2000),
+            NetworkTimeout = budget,
         };
         using var home = new TempHome();
         var dest = Path.Combine(home.Path, "downloads", "asset.zip");
 
+        var started = Stopwatch.GetTimestamp();
         var digest = await client.DownloadAssetAsync(Release040, "asset.zip", dest);
+        var elapsed = Stopwatch.GetElapsedTime(started);
 
         Assert.Equal(payload, File.ReadAllText(dest));
         Assert.Equal(Sha256Of(payload), digest);
+        Assert.True(
+            elapsed > budget,
+            $"the download took {elapsed.TotalMilliseconds:F0} ms, inside the "
+                + $"{budget.TotalMilliseconds:F0} ms budget -- a per-call timeout would have "
+                + "survived this too, so it no longer guards the regression"
+        );
     }
 
     [Fact]
