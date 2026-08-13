@@ -20,9 +20,6 @@ internal static class ZsupSelf
     /// </summary>
     private const string RescueSuffix = ".rescue-";
 
-    /// <summary>How long a staging slot is left alone before it counts as abandoned.</summary>
-    private static readonly TimeSpan StagingMaxAge = TimeSpan.FromHours(1);
-
     /// <summary>
     ///     Deletes binaries left behind by a previous update. Runs at the start of every invocation,
     ///     because on Windows the file being replaced is still locked at the moment it is renamed.
@@ -43,7 +40,7 @@ internal static class ZsupSelf
         // them -- but age-gated, because unlike a moved-aside binary a staging slot can still be
         // live. The point of naming it per-process is that a concurrent `zsup self update` has one
         // of its own, and deleting that one leaves it renaming a path that no longer exists.
-        var cutoff = DateTime.UtcNow - StagingMaxAge;
+        var cutoff = DateTime.UtcNow - ZSchemeHome.StagingMaxAge;
         foreach (var path in Directory.EnumerateFiles(binDir, "*" + StagingSuffix + "*"))
         {
             try

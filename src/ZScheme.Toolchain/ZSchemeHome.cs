@@ -23,6 +23,22 @@ public static class ZSchemeHome
     public const string LinkFileExtension = ".link";
 
     /// <summary>
+    ///     How old a leftover staging slot must be before a sweep treats it as debris and deletes
+    ///     it.
+    /// </summary>
+    /// <remarks>
+    ///     Every write in the home that has to be atomic stages under a per-process name and renames
+    ///     it into place, and every one of those sweeps the slots a killed run left behind. The gate
+    ///     is what keeps a sweep off the slots that are still live: the point of naming a slot
+    ///     per-process is that a concurrent zsup has one of its own, and deleting that one leaves it
+    ///     renaming a path that no longer exists. A live slot is written and renamed in
+    ///     milliseconds, so an hour is far outside any real one while still bounding what an
+    ///     interrupted run can accumulate. Shared rather than restated at each sweep so the sites
+    ///     cannot drift into disagreeing about what counts as abandoned.
+    /// </remarks>
+    public static readonly TimeSpan StagingMaxAge = TimeSpan.FromHours(1);
+
+    /// <summary>
     ///     Resolves the ZScheme home. Priority: <paramref name="explicitOverride" /> &gt;
     ///     <c>ZSCHEME_HOME</c> &gt; <c>~/.zscheme</c>.
     /// </summary>

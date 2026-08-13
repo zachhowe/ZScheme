@@ -35,13 +35,6 @@ public sealed class ToolchainRegistry(string home)
         public string ToolchainName { get; } = name;
     }
 
-    /// <summary>
-    ///     How old a leftover settings staging file must be before a later write sweeps it. Long
-    ///     enough that a concurrent zsup's slot -- written and renamed in milliseconds -- is never
-    ///     mistaken for debris and unlinked out from under it.
-    /// </summary>
-    private static readonly TimeSpan StagingMaxAge = TimeSpan.FromHours(1);
-
     /// <summary>The resolved home this registry operates on.</summary>
     public string Home { get; } = ZSchemeHome.GetHome(home);
 
@@ -373,7 +366,7 @@ public sealed class ToolchainRegistry(string home)
     }
 
     /// <summary>
-    ///     Deletes settings staging files older than <see cref="StagingMaxAge" />.
+    ///     Deletes settings staging files older than <see cref="ZSchemeHome.StagingMaxAge" />.
     /// </summary>
     /// <remarks>
     ///     The <c>finally</c> around the rename only covers a failure. A kill between the write and
@@ -385,7 +378,7 @@ public sealed class ToolchainRegistry(string home)
     /// </remarks>
     private void SweepStaleStaging(string settingsPath)
     {
-        var cutoff = DateTime.UtcNow - StagingMaxAge;
+        var cutoff = DateTime.UtcNow - ZSchemeHome.StagingMaxAge;
 
         try
         {

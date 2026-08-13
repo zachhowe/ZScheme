@@ -146,14 +146,27 @@ public static partial class ShimInstaller
         File.CreateSymbolicLink(shimPath, relative);
     }
 
-    /// <summary>Deletes staging slots a killed run left beside <paramref name="shimPath" />.</summary>
+    /// <summary>
+    ///     Deletes staging slots older than <see cref="ZSchemeHome.StagingMaxAge" /> beside
+    ///     <paramref name="shimPath" />.
+    /// </summary>
     /// <remarks>
     ///     The <c>finally</c> around the rename covers a failure, but not a kill between the copy
     ///     and the rename. Nothing else walks the bin directory looking for these, so without a
     ///     sweep they would pile up one zsup-sized file at a time.
+    ///     <para>
+    ///         Age-gated, because a slot this sweep can see is not necessarily debris: a concurrent
+    ///         zsup stamping the same shim has one of its own, and deleting it leaves that process
+    ///         renaming a path that no longer exists. It then reports a shim it could not refresh —
+    ///         naming the exact drift this class exists to rule out, for a shim the other process
+    ///         went on to stamp perfectly — and tells the user to close whatever is holding a file
+    ///         nothing is holding.
+    ///     </para>
     /// </remarks>
     private static void SweepStaging(string shimPath)
     {
+        var cutoff = DateTime.UtcNow - ZSchemeHome.StagingMaxAge;
+
         try
         {
             foreach (
@@ -162,7 +175,8 @@ public static partial class ShimInstaller
                     Path.GetFileName(shimPath) + StagingSuffix + "*"
                 )
             )
-                TryDeleteFile(stale);
+                if (File.GetLastWriteTimeUtc(stale) < cutoff)
+                    TryDeleteFile(stale);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

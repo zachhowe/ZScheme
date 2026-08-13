@@ -199,6 +199,10 @@ public sealed class ShimInstallerTests
         // the rename, which is what leaves one of these.
         var abandoned = Path.Combine(binDir, ZSchemeHome.ExeName("zs") + ".tmp-deadbeef");
         File.WriteAllText(abandoned, "an interrupted stamp");
+        File.SetLastWriteTimeUtc(
+            abandoned,
+            DateTime.UtcNow - ZSchemeHome.StagingMaxAge - TimeSpan.FromMinutes(1)
+        );
 
         ShimInstaller.Install(binDir, zsup);
 
@@ -207,6 +211,29 @@ public sealed class ShimInstallerTests
             "zsup binary",
             File.ReadAllText(Path.Combine(binDir, ZSchemeHome.ExeName("zs")))
         );
+    }
+
+    [Fact]
+    public void Install_LeavesAConcurrentInstallsStagingFileAlone()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        using var home = new TempHome();
+        var zsup = MakeZsup(home);
+        var binDir = ZSchemeHome.GetBinDir(home.Path);
+
+        // A slot another zsup is stamping through right now: it copied into this a moment ago and
+        // is about to rename it over `zs`. Sweeping it would leave that process renaming a path
+        // that no longer exists -- reported as a shim it could not refresh, for a shim that ends up
+        // perfectly current, with recovery advice naming a lock that does not exist.
+        var live = Path.Combine(binDir, ZSchemeHome.ExeName("zs") + ".tmp-a1b2c3d4");
+        File.WriteAllText(live, "another process mid-stamp");
+
+        ShimInstaller.Install(binDir, zsup);
+
+        Assert.True(File.Exists(live));
+        Assert.Equal("another process mid-stamp", File.ReadAllText(live));
     }
 
     [Fact]
