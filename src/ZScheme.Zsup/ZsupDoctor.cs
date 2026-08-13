@@ -11,7 +11,16 @@ internal static class ZsupDoctor
 {
     internal static void WarnIfBinDirNotOnPath(string? home = null)
     {
-        var binDir = Path.GetFullPath(ZSchemeHome.GetBinDir(home));
+        // Guarded like the comparison below, and for the same reason it is: this runs at
+        // InstallCommand.cs:123, after the toolchain has been installed, after `installed toolchain
+        // '...'` has been printed and after the default has been recorded -- so an escaping
+        // exception turns a completed install into a bare line and a non-zero exit, and scripts
+        // keyed on that exit code read a finished install as a failure. WarnIfRuntimeMissing's own
+        // catch documents that hazard; this advisory took the same lesson. An over-long or
+        // unparseable ZSCHEME_HOME is a problem the install itself would already have reported.
+        if (FullPathOrNull(ZSchemeHome.GetBinDir(home)) is not { } binDir)
+            return;
+
         var path = Environment.GetEnvironmentVariable("PATH") ?? "";
 
         var onPath = path.Split(Path.PathSeparator)
@@ -31,6 +40,7 @@ internal static class ZsupDoctor
 
     /// <summary>
     ///     Compares two directory paths, ignoring a trailing separator and — on Windows — case.
+    ///     A path neither side can resolve is not a match.
     /// </summary>
     private static bool PathsEqual(string a, string b)
     {
@@ -38,18 +48,32 @@ internal static class ZsupDoctor
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
 
+        return FullPathOrNull(a) is { } left
+            && FullPathOrNull(b) is { } right
+            && string.Equals(left, right, comparison);
+    }
+
+    /// <summary>
+    ///     <paramref name="path" /> made absolute and stripped of a trailing separator, or
+    ///     <c>null</c> when the OS will not parse it.
+    /// </summary>
+    /// <remarks>
+    ///     The triple every other path-parsing site in zsup catches — <c>ZSchemeHome.IsBinDir</c>,
+    ///     <c>ToolchainRegistry.ReadLinkTarget</c>, <c>ToolchainInstaller.FullPathOrNull</c>,
+    ///     <c>LinkCommand</c>'s own normalization. Only <see cref="ArgumentException" /> was caught
+    ///     here, and <see cref="PathTooLongException" /> derives from <see cref="IOException" />
+    ///     rather than from it, so one over-long entry in the user's PATH escaped.
+    /// </remarks>
+    private static string? FullPathOrNull(string path)
+    {
         try
         {
-            return string.Equals(
-                Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)),
-                Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)),
-                comparison
-            );
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         }
-        catch (ArgumentException)
+        catch (Exception e)
+            when (e is ArgumentException or PathTooLongException or NotSupportedException)
         {
-            // A malformed PATH entry simply is not a match.
-            return false;
+            return null;
         }
     }
 
