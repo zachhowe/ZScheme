@@ -211,10 +211,21 @@ public static class PackageCacheSeeder
         if (!Directory.Exists(source))
             return null;
 
-        return Directory
-            .EnumerateDirectories(source)
-            .Select(Path.GetFileName)
-            .FirstOrDefault(name => name is not null && ToolchainName.IsValid(name));
+        try
+        {
+            return Directory
+                .EnumerateDirectories(source)
+                .Select(Path.GetFileName)
+                .FirstOrDefault(name => name is not null && ToolchainName.IsValid(name));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Guarded for the same reason ResolveCompilerVersion guards the metadata read it tries
+            // first: `zsup uninstall` calls that with no handler of its own, and an unreadable
+            // payload -- the root-owned case -- must not kill the command before it has removed
+            // anything. Reporting no shipped cache is the same answer as shipping none.
+            return null;
+        }
     }
 
     /// <summary>

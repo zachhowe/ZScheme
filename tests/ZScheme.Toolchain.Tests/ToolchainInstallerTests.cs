@@ -198,6 +198,39 @@ public sealed class ToolchainInstallerTests
     }
 
     [Fact]
+    public void ResolveCompilerVersion_UnreadablePayloadCache_FallsBackToTheInstallName()
+    {
+        using var home = new TempHome();
+        var result = new ToolchainInstaller(home.Path).InstallFrom(
+            MakeToolchainPayload(home, "payload"),
+            "dev"
+        );
+
+        // Removing the metadata is what puts the payload cache on the path at all: it is the only
+        // source left, and the fallback the guard on the metadata read hands off to.
+        File.Delete(Path.Combine(result.Dir, "toolchain.json"));
+        var shipped = Path.Combine(result.Dir, PackageCacheSeeder.DirectoryName);
+
+        if (!TempHome.TryMakeDirectoryUnreadable(shipped))
+            return;
+
+        try
+        {
+            // Same story as the unreadable toolchain.json above: `zsup uninstall` calls this with no
+            // handler, so a payload it cannot read costs the recovered version and nothing more.
+            Assert.Equal(
+                "dev",
+                PackageCacheSeeder.ResolveCompilerVersion(result.Dir, installedAs: "dev")
+            );
+            Assert.Null(PackageCacheSeeder.FindCompilerVersion(result.Dir));
+        }
+        finally
+        {
+            TempHome.MakeDirectoryReadable(shipped);
+        }
+    }
+
+    [Fact]
     public void InstallFrom_FlatArchive_IsNormalizedIntoBin()
     {
         using var home = new TempHome();
