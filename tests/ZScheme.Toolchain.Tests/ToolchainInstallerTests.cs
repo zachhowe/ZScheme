@@ -388,11 +388,25 @@ public sealed class ToolchainInstallerTests
         var staleToolchain = Path.Combine(downloads, "zscheme-0.3.0-win-x64.zip");
         var staleZsup = Path.Combine(downloads, "zsup-0.3.0-linux-x64.tar.gz");
         var inFlight = Path.Combine(downloads, "zscheme-0.4.0-win-x64.zip");
-        // Not one of ours: a file the user parked here to install with --from.
-        var userSupplied = Path.Combine(downloads, "my-build.zip");
-        foreach (var path in new[] { staleToolchain, staleZsup, inFlight, userSupplied })
+
+        // Files the user parked here to install with --from. Naming one after the project is the
+        // obvious thing to do, so the shape has to be matched all the way down to the RID: none of
+        // these is an asset any release ever published, and deleting one is deleting a user's file.
+        string[] userSupplied =
+        [
+            Path.Combine(downloads, "my-build.zip"),
+            Path.Combine(downloads, "zscheme-nightly.tar.gz"),
+            Path.Combine(downloads, "zsup-patched.zip"),
+            // A RID we publish for, but not with this extension.
+            Path.Combine(downloads, "zscheme-0.3.0-linux-x64.zip"),
+            // Right shape, no version at all.
+            Path.Combine(downloads, "zscheme--win-x64.zip"),
+        ];
+
+        string[] stale = [staleToolchain, staleZsup, .. userSupplied];
+        foreach (var path in new[] { inFlight }.Concat(stale))
             File.WriteAllText(path, "archive");
-        foreach (var path in new[] { staleToolchain, staleZsup, userSupplied })
+        foreach (var path in stale)
             File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-2));
 
         ToolchainInstaller.SweepTransients(downloads);
@@ -400,7 +414,9 @@ public sealed class ToolchainInstallerTests
         Assert.False(File.Exists(staleToolchain));
         Assert.False(File.Exists(staleZsup));
         Assert.True(File.Exists(inFlight), "a download in progress must not be swept");
-        Assert.True(File.Exists(userSupplied), "only zsup's own release assets are swept");
+
+        foreach (var path in userSupplied)
+            Assert.True(File.Exists(path), $"only zsup's own release assets are swept: {path}");
     }
 
     [Fact]

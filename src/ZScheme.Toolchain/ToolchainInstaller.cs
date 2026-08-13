@@ -17,6 +17,9 @@ public sealed class ToolchainInstaller(string? home = null)
     /// </summary>
     private static readonly string[] TransientDirPrefixes = [".staging-", ".trash-", ".zsup-"];
 
+    /// <summary>What the two release assets zsup downloads are named after.</summary>
+    private static readonly string[] ReleaseAssetPrefixes = ["zscheme-", "zsup-"];
+
     private readonly string _home = ZSchemeHome.GetHome(home);
 
     /// <param name="Name">Toolchain name, normally the version.</param>
@@ -395,19 +398,35 @@ public sealed class ToolchainInstaller(string? home = null)
     /// </summary>
     /// <remarks>
     ///     Matched on the exact shape <see cref="GitHubReleaseClient.ToolchainAssetName" /> and
-    ///     <see cref="GitHubReleaseClient.ZsupAssetName" /> produce rather than sweeping every
-    ///     archive, so a file the user parked here to install with <c>--from</c> is left alone.
+    ///     <see cref="GitHubReleaseClient.ZsupAssetName" /> produce — prefix, a version, a supported
+    ///     RID, and the extension that RID publishes — rather than on the prefix and extension
+    ///     alone, so a file the user parked here to install with <c>--from</c> is left alone even
+    ///     when they named it after the project. <c>zscheme-nightly.tar.gz</c> is nobody's release
+    ///     asset, and deleting it six hours later is not a sweep of zsup's own debris.
     /// </remarks>
     private static bool IsReleaseArchive(string name)
     {
-        return (
-                name.StartsWith("zscheme-", StringComparison.Ordinal)
-                || name.StartsWith("zsup-", StringComparison.Ordinal)
-            )
-            && (
-                name.EndsWith(".zip", StringComparison.Ordinal)
-                || name.EndsWith(".tar.gz", StringComparison.Ordinal)
-            );
+        foreach (var prefix in ReleaseAssetPrefixes)
+        {
+            if (!name.StartsWith(prefix, StringComparison.Ordinal))
+                continue;
+
+            foreach (var rid in RuntimeIdentifier.Supported)
+            {
+                var suffix = $"-{rid}{RuntimeIdentifier.ArchiveExtension(rid)}";
+                if (!name.EndsWith(suffix, StringComparison.Ordinal))
+                    continue;
+
+                // What is left between the two is the version the asset was published for. It is
+                // validated rather than merely required to be non-empty because it is the same
+                // string a toolchain is named after, and nothing else here says the file came from
+                // a release rather than from the user.
+                if (ToolchainName.IsValid(name[prefix.Length..^suffix.Length]))
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsOlderThan(string path, DateTime cutoff, Func<string, DateTime> writeTime)
