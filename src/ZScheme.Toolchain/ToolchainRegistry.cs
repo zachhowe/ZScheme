@@ -323,10 +323,13 @@ public sealed class ToolchainRegistry(string home)
             return JsonSerializer.Deserialize(json, ToolchainJsonContext.Default.ToolchainSettings)
                 ?? new ToolchainSettings();
         }
-        catch (Exception e) when (e is JsonException or IOException)
+        catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {
-            // A corrupt settings file must not make zsup unusable — it degrades to "no default",
-            // which every command already has an error path for.
+            // A corrupt or unreadable settings file must not make zsup unusable — it degrades to
+            // "no default", which every command already has an error path for. That includes
+            // UnauthorizedAccessException, which is not an IOException and is what a settings.json
+            // written by a `sudo zsup use` raises: this runs on the shim's hot path through
+            // ToolchainResolver, so without it every `zs` invocation dies before it starts.
             return new ToolchainSettings();
         }
     }

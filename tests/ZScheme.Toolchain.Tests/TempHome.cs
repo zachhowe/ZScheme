@@ -49,6 +49,37 @@ internal sealed class TempHome : IDisposable
         );
     }
 
+    /// <summary>
+    ///     Makes <paramref name="path" /> unreadable, so a reader's permission-denied path can be
+    ///     exercised.
+    /// </summary>
+    /// <returns>
+    ///     False when this account cannot produce an unreadable file, which is the caller's cue to
+    ///     skip: Windows needs ACL surgery rather than mode bits, and root reads whatever it likes.
+    ///     Verified by reading the file back rather than assumed from the mode, so a filesystem that
+    ///     does not enforce it (a container bind mount, a network share) skips too instead of
+    ///     failing.
+    /// </returns>
+    public static bool TryMakeUnreadable(string path)
+    {
+        if (OperatingSystem.IsWindows())
+            return false;
+
+        File.SetUnixFileMode(path, UnixFileMode.None);
+
+        try
+        {
+            File.ReadAllText(path);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return true;
+        }
+
+        File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        return false;
+    }
+
     /// <summary>Creates a directory under the temp home, e.g. a scratch project tree.</summary>
     public string Dir(params string[] segments)
     {

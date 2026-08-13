@@ -177,6 +177,22 @@ public sealed class ToolchainRegistryTests
     }
 
     [Fact]
+    public void GetDefault_UnreadableSettingsFile_DegradesToNoDefault()
+    {
+        using var home = new TempHome();
+        home.AddInstalled("0.4.0");
+        new ToolchainRegistry(home.Path).SetDefault("0.4.0");
+
+        if (!TempHome.TryMakeUnreadable(ZSchemeHome.GetSettingsFile(home.Path)))
+            return;
+
+        // A settings.json left root-owned by a `sudo zsup use` is the case that matters: this is
+        // read on the shim's hot path, where nothing catches, so throwing here would turn every
+        // single `zs` invocation into an unhandled exception rather than losing the default.
+        Assert.Null(new ToolchainRegistry(home.Path).GetDefault());
+    }
+
+    [Fact]
     public void SetDefault_DoesNotStageThroughAFixedName()
     {
         using var home = new TempHome();
