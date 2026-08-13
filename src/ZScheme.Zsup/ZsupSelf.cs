@@ -24,24 +24,28 @@ internal static class ZsupSelf
     ///     Deletes binaries left behind by a previous update. Runs at the start of every invocation,
     ///     because on Windows the file being replaced is still locked at the moment it is renamed.
     /// </summary>
+    /// <remarks>
+    ///     Both kinds of leftover are age-gated, and for the same reason: a file this sweep can see
+    ///     is not necessarily debris. A staging slot belongs to a concurrent <c>zsup self update</c>,
+    ///     and deleting it leaves that process renaming a path that no longer exists. A moved-aside
+    ///     binary is the rollback copy of an update that may still be in flight — the window between
+    ///     <see cref="MoveAside" /> and the rename is short, but <see cref="Program" /> sweeps at the
+    ///     start of every manager-mode invocation, so a <c>zsup list</c> in a second terminal is
+    ///     enough to land in it. Take those and a failed update has nothing to put back, leaving
+    ///     <c>bin/</c> with no zsup, no zs and no zs-lsp: the state <see cref="Restore" /> exists to
+    ///     prevent. Nothing waits on the gate on the normal path — an update that gets past the
+    ///     rename deletes its own copies itself.
+    /// </remarks>
     internal static void SweepStaleBinaries(string? home = null)
     {
         var binDir = ZSchemeHome.GetBinDir(home);
         if (!Directory.Exists(binDir))
             return;
 
-        // A moved-aside binary is dead the instant it is renamed, so it goes as soon as whatever
-        // was holding it lets go.
-        foreach (var path in Directory.EnumerateFiles(binDir, "*" + StaleSuffix + "*"))
-            TryDelete(path);
-
-        // Staging slots are swept too -- the `finally` around the rename covers a failure but not a
-        // kill between the copy and the rename, and nothing else walks this directory looking for
-        // them -- but age-gated, because unlike a moved-aside binary a staging slot can still be
-        // live. The point of naming it per-process is that a concurrent `zsup self update` has one
-        // of its own, and deleting that one leaves it renaming a path that no longer exists.
         var cutoff = DateTime.UtcNow - ZSchemeHome.StagingMaxAge;
-        foreach (var path in Directory.EnumerateFiles(binDir, "*" + StagingSuffix + "*"))
+
+        foreach (var suffix in new[] { StaleSuffix, StagingSuffix })
+        foreach (var path in Directory.EnumerateFiles(binDir, "*" + suffix + "*"))
         {
             try
             {
@@ -96,6 +100,12 @@ internal static class ZsupSelf
             File.Copy(newBinary, staged, overwrite: true);
             ShimInstaller.MakeExecutable(staged);
 
+            // File.Copy carries the source's write time, and the source was just extracted from a
+            // release archive -- whose entries are stamped with the build. Without this the slot is
+            // born older than the sweep's cutoff and a concurrent zsup deletes it before the rename
+            // below can consume it.
+            Stamp(staged);
+
             var movedAside = new List<(string Original, string Aside)>();
             try
             {
@@ -127,17 +137,26 @@ internal static class ZsupSelf
             var stamped = ShimInstaller.Install(binDir, zsupPath);
 
             // A shim that failed to stamp was already moved aside, so its name is absent and the
-            // only working binary left for it is the `.old-<guid>` copy -- which the sweep below
-            // deletes unconditionally, leaving nothing to restore behind a warning that says to
-            // restore it. Putting the copy back first leaves the user a shim on the previous zsup:
-            // still a version mismatch, and WarnAboutUnstampedShims reads the name off the
-            // filesystem, so it reports exactly that instead of a missing file.
+            // only working binary left for it is the `.old-<guid>` copy. Putting the copy back
+            // leaves the user a shim on the previous zsup: still a version mismatch, and
+            // WarnAboutUnstampedShims reads the name off the filesystem, so it reports exactly that
+            // instead of a missing file.
             //
             // Matched ordinally: both sides are Path.Combine(binDir, ExeName(name)) built from this
             // same binDir, so the strings are identical rather than merely equivalent.
             var failedPaths = stamped.Failed.Select(f => f.Path).ToHashSet(StringComparer.Ordinal);
             if (failedPaths.Count > 0)
                 Restore([.. movedAside.Where(m => failedPaths.Contains(m.Original))]);
+
+            // This update's own copies, deleted by name rather than left to the sweep. The sweep is
+            // age-gated so that a *concurrent* zsup cannot take a rollback copy out from under an
+            // update still in flight; this one knows the update is past the point of rolling back,
+            // so nothing has to wait an hour to be reclaimed. The names Restore was asked to put
+            // back are skipped -- either it consumed them, or it parked what it could not move
+            // under `.rescue-` and told the user where to find it.
+            foreach (var (original, aside) in movedAside)
+                if (!failedPaths.Contains(original))
+                    TryDelete(aside);
 
             SweepStaleBinaries(home);
             return stamped;
@@ -159,6 +178,12 @@ internal static class ZsupSelf
         try
         {
             File.Move(path, aside);
+
+            // Not optional. A rename keeps the file's original timestamps, and that is when the
+            // binary was installed -- so a zsup put there last month becomes a `.old-` copy that is
+            // already a month old, and a concurrent zsup would sweep it on its very next run. That
+            // is precisely the case the age gate in SweepStaleBinaries exists to rule out.
+            Stamp(aside);
             return aside;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
@@ -214,10 +239,27 @@ internal static class ZsupSelf
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 Console.Error.WriteLine(
-                    $"help: the previous binary is at {aside}; rename it to {original} before "
-                        + "running zsup again, which sweeps it"
+                    $"help: the previous binary is at {aside}; rename it to {original} before a "
+                        + "later zsup run sweeps it"
                 );
             }
+        }
+    }
+
+    /// <summary>
+    ///     Stamps a transient as belonging to this update, which is what
+    ///     <see cref="SweepStaleBinaries" /> ages it by.
+    /// </summary>
+    private static void Stamp(string path)
+    {
+        try
+        {
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Worst case the file looks older than it is and a concurrent sweep takes it; the
+            // update itself has no reason to fail over a timestamp.
         }
     }
 
