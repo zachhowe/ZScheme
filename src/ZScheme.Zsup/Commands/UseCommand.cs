@@ -72,6 +72,14 @@ internal static class UseCommand
             }
 
             Console.WriteLine($"pinned '{name}' in {pin}");
+
+            // The environment half applies to a pin exactly as it applies to a default: with
+            // ZSCHEME_VERSION exported -- direnv, a CI job, a devcontainer -- the pin is written and
+            // simply outranked, and without this the user is told the command succeeded and gets no
+            // hint about the variable overriding it. The pin-file half below is deliberately not
+            // shared: the file just written in the current directory is the nearest one by
+            // definition, and a .zscheme-version in a subdirectory does not outrank it.
+            WarnIfEnvOverrides(name);
             return 0;
         }
 
@@ -96,15 +104,27 @@ internal static class UseCommand
                 $"{overriding.FilePath} pins '{overriding.ToolchainName}', which takes precedence here"
             );
 
-        if (
-            Environment.GetEnvironmentVariable(ZSchemeHome.VersionEnvironmentVariable) is { } env
-            && env.Trim().Length > 0
-            && !ToolchainName.AreSame(env.Trim(), name)
-        )
-            ZsupHelpers.Warn(
-                $"{ZSchemeHome.VersionEnvironmentVariable} is set to '{env.Trim()}', which takes precedence"
-            );
+        WarnIfEnvOverrides(name);
 
         return 0;
+    }
+
+    /// <summary>
+    ///     Warns when <c>ZSCHEME_VERSION</c> names something other than <paramref name="name" />,
+    ///     which outranks both a pin and the global default.
+    /// </summary>
+    private static void WarnIfEnvOverrides(string name)
+    {
+        if (
+            Environment.GetEnvironmentVariable(ZSchemeHome.VersionEnvironmentVariable)
+                is not { } env
+            || env.Trim().Length == 0
+            || ToolchainName.AreSame(env.Trim(), name)
+        )
+            return;
+
+        ZsupHelpers.Warn(
+            $"{ZSchemeHome.VersionEnvironmentVariable} is set to '{env.Trim()}', which takes precedence"
+        );
     }
 }
