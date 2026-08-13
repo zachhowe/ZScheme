@@ -11,19 +11,25 @@ internal static class WhichCommand
         string? tool = null;
 
         for (var i = 0; i < args.Length; i++)
-            switch (args[i])
+        {
+            if (args[i] is "--help" or "-h")
             {
-                case "--help" or "-h":
-                    Console.WriteLine("Usage: zsup which [zs|zs-lsp]");
-                    return 0;
-                case "zs" or "zs-lsp":
-                    if (tool is not null)
-                        return ZsupHelpers.Error($"error: unexpected argument: {args[i]}");
-                    tool = args[i];
-                    break;
-                default:
-                    return ZsupHelpers.Error($"error: unknown tool: {args[i]}");
+                Console.WriteLine("Usage: zsup which [zs|zs-lsp]");
+                return 0;
             }
+
+            // Matched the way the shim itself resolves the name rather than ordinally: on Windows
+            // and macOS typing `ZS` launches zs.exe, and ShimInstaller.MatchName is what routes it
+            // there. Answering `unknown tool: ZS` for a name that does run is the two disagreeing.
+            // The canonical spelling is kept, so the path below is built from ShimNames either way.
+            if (ShimInstaller.MatchName(args[i]) is not { } named)
+                return ZsupHelpers.Error($"error: unknown tool: {args[i]}");
+
+            if (tool is not null)
+                return ZsupHelpers.Error($"error: unexpected argument: {args[i]}");
+
+            tool = named;
+        }
 
         tool ??= "zs";
 
