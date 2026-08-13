@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.Versioning;
 using ZScheme.Toolchain;
 
@@ -16,10 +17,26 @@ internal static class ShimRunner
     /// <summary>Exit code for "command not found", matching shell convention.</summary>
     private const int NotFound = 127;
 
+    /// <summary>
+    ///     Carries how many shim handoffs deep the process is, so a chain of them is bounded.
+    /// </summary>
+    /// <remarks>
+    ///     Private to the shim rather than part of the documented home layout: nothing outside this
+    ///     file writes it, and nothing but <see cref="CurrentDepth" /> reads it.
+    /// </remarks>
+    private const string DepthEnvironmentVariable = "ZSCHEME_SHIM_DEPTH";
+
+    /// <summary>
+    ///     Handoffs allowed before the chain is called a loop. Far above any real nesting -- a
+    ///     compiled program invoking <c>zs</c> is one level, and a build script driving it is two.
+    /// </summary>
+    private const int MaxDepth = 8;
+
     /// <param name="toolName">Either <c>zs</c> or <c>zs-lsp</c>.</param>
     internal static int Run(string toolName, string[] args)
     {
-        var registry = new ToolchainRegistry(ZSchemeHome.GetHome());
+        var home = ZSchemeHome.GetHome();
+        var registry = new ToolchainRegistry(home);
         var resolution = new ToolchainResolver(registry).Resolve(
             Environment.GetEnvironmentVariable(ZSchemeHome.VersionEnvironmentVariable),
             Directory.GetCurrentDirectory()
@@ -33,6 +50,27 @@ internal static class ShimRunner
 
         var toolchain = resolved.Toolchain;
         var target = toolchain.GetExecutablePath(toolName);
+
+        // Both of these refuse a handoff that would come straight back here. Left unchecked the
+        // chain never ends: on Unix each round execve's this process onto the same image and spins
+        // in one pid, on Windows each round starts another shim that waits on the next, climbing
+        // process and handle count until the machine gives out.
+        if (ZSchemeHome.IsBinDir(toolchain.BinDir, home))
+            return RefuseLoop(
+                toolchain,
+                $"error: toolchain '{toolchain.Name}' points at zsup's own bin directory",
+                $"note: the {toolName} in {toolchain.BinDir} is this shim"
+            );
+
+        // The check above knows only about the shims in this home; a copy of the bin directory
+        // elsewhere holds shims too, and linking that loops just as tightly. Nothing distinguishes
+        // such a copy from a real toolchain by inspection, so the chain is bounded instead.
+        if (CurrentDepth() >= MaxDepth)
+            return RefuseLoop(
+                toolchain,
+                $"error: {toolName} handed off {MaxDepth} times without reaching a compiler",
+                $"note: '{toolchain.Name}' resolves to {target}, which hands back to this shim"
+            );
 
         if (!File.Exists(target))
         {
@@ -176,6 +214,40 @@ internal static class ShimRunner
         }
     }
 
+    /// <summary>Reports a handoff that would come back here, and names the way out of it.</summary>
+    private static int RefuseLoop(InstalledToolchain toolchain, string error, string note)
+    {
+        Console.Error.WriteLine(error);
+        Console.Error.WriteLine(note);
+        Console.Error.WriteLine(
+            toolchain.IsLinked
+                ? $"help: run `zsup unlink {toolchain.Name}` and link a ZScheme build output "
+                    + "directory instead"
+                : "help: run `zsup use <toolchain>` to select a toolchain that holds a compiler"
+        );
+        return NotFound;
+    }
+
+    /// <summary>How many shim handoffs led to this process.</summary>
+    /// <remarks>
+    ///     An unparseable or negative value counts as zero: the variable is inherited by everything
+    ///     the toolchain goes on to run, so a user or a script that sets it by hand must not be able
+    ///     to make <c>zs</c> refuse to start.
+    /// </remarks>
+    private static int CurrentDepth()
+    {
+        return
+            int.TryParse(
+                Environment.GetEnvironmentVariable(DepthEnvironmentVariable),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var depth
+            )
+            && depth > 0
+            ? depth
+            : 0;
+    }
+
     /// <summary>
     ///     Variables the child gets on top of the inherited environment.
     /// </summary>
@@ -184,6 +256,11 @@ internal static class ShimRunner
         var environment = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["ZSCHEME_TOOLCHAIN"] = toolchain.Name,
+            // Inherited by everything the toolchain starts, which is the point: a shim reached
+            // through a compiled program or a build script continues the same count.
+            [DepthEnvironmentVariable] = (CurrentDepth() + 1).ToString(
+                CultureInfo.InvariantCulture
+            ),
         };
 
         // A linked developer build reports the same compiler version as the released toolchain of

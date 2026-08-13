@@ -50,6 +50,12 @@ so a name never ends up with an installed directory and a link at once. The refu
 as the version is known and before any asset is fetched, so `zsup install latest` on an up-to-date
 installation costs one API call rather than a full release download.
 
+`link` refuses `~/.zscheme/bin`, and the home directory above it, because the `zs` there is the shim
+itself: a toolchain pointing at it would make `zs` hand off to `zs` for as long as the machine held
+out. The shim refuses the same handoff when it is asked to make it, and gives up after eight
+handoffs in a row that never reach a compiler, so a link made by hand — or one pointing at a copy of
+the bin directory somewhere else — ends in an error rather than a runaway.
+
 ## How a toolchain is selected
 
 `~/.zscheme/bin/zs` and `zs-lsp` are the `zsup` binary under another name; it recognises how it was

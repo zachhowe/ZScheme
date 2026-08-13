@@ -70,6 +70,36 @@ public static class ZSchemeHome
         return Path.Combine(GetHome(home), "bin");
     }
 
+    /// <summary>True when <paramref name="dir" /> is this home's own <see cref="GetBinDir" />.</summary>
+    /// <remarks>
+    ///     A toolchain whose binaries resolve to this directory is a trap rather than a toolchain:
+    ///     the <c>zs</c> here is the zsup shim, so handing off to it re-enters the shim, which
+    ///     resolves the same toolchain and hands off again. <c>zsup link dev ~/.zscheme/bin</c> --
+    ///     or linking the home itself, whose <c>bin/</c> is found the same way -- is all it takes to
+    ///     reach it, so both the link and the handoff check.
+    /// </remarks>
+    public static bool IsBinDir(string dir, string? home = null)
+    {
+        try
+        {
+            return string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(dir)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(GetBinDir(home))),
+                OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal
+            );
+        }
+        catch (Exception e)
+            when (e is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            // A path the OS will not even parse is not this directory. Answering rather than
+            // throwing matters here: every `zs` invocation asks this question, and the caller's
+            // own "no zs there" path already covers a toolchain pointing somewhere unusable.
+            return false;
+        }
+    }
+
     public static string GetToolchainsDir(string? home = null)
     {
         return Path.Combine(GetHome(home), "toolchains");

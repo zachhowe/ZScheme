@@ -165,8 +165,38 @@ public sealed class ToolchainRegistry(string home)
                 $"'{name}' is an installed toolchain; pick another name or run `zsup uninstall {name}` first"
             );
 
+        // A tree whose binaries are the shims themselves makes `zs` dispatch to `zs` forever --
+        // see ZSchemeHome.IsBinDir. The shim refuses that handoff, but this is where the state
+        // would be created, and a toolchain sitting in `zsup list` looking selectable is worth
+        // never creating.
+        if (ZSchemeHome.IsBinDir(full, Home))
+            throw ShimDirectory(full, via: null);
+
+        // The target and its resolved bin directory are separate tests: linking the home resolves
+        // one level down into the trap, and linking `bin/` before any shim is stamped resolves to
+        // `bin/bin` and would slip past -- then becomes the loop the moment a `zs` appears there.
+        var resolvedBin = ResolveBinDir(full);
+        if (ZSchemeHome.IsBinDir(resolvedBin, Home))
+            throw ShimDirectory(resolvedBin, via: full);
+
         Directory.CreateDirectory(ZSchemeHome.GetToolchainsDir(Home));
         File.WriteAllText(ZSchemeHome.GetToolchainLinkFile(name, Home), full + Environment.NewLine);
+    }
+
+    /// <summary>Rejects a link target that would make <c>zs</c> hand off to the shim itself.</summary>
+    /// <param name="via">
+    ///     The directory the user actually named, when it is not <paramref name="dir" /> -- the
+    ///     error has to say which of the two is the problem, or it reads as a claim about a
+    ///     directory the user can see is not the bin directory.
+    /// </param>
+    private static IOException ShimDirectory(string dir, string? via)
+    {
+        var subject = via is null ? $"{dir} is" : $"{via} resolves to {dir}, which is";
+
+        return new IOException(
+            $"{subject} zsup's own bin directory, where `zs` is the shim rather than a compiler; "
+                + "link a ZScheme build output directory instead"
+        );
     }
 
     /// <exception cref="DefaultNotClearedException">

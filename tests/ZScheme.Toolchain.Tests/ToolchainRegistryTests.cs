@@ -326,6 +326,48 @@ public sealed class ToolchainRegistryTests
         Assert.Throws<IOException>(() => registry.Link("0.4.0", home.Dir("devtree")));
     }
 
+    /// <summary>
+    ///     The <c>zs</c> in <c>~/.zscheme/bin</c> is the zsup shim, so a toolchain resolving there
+    ///     makes <c>zs</c> hand off to itself for as long as the machine holds out.
+    /// </summary>
+    [Fact]
+    public void Link_RejectsZsupsOwnBinDirectory()
+    {
+        using var home = new TempHome();
+        var binDir = ZSchemeHome.GetBinDir(home.Path);
+        Directory.CreateDirectory(binDir);
+        File.WriteAllText(Path.Combine(binDir, ZSchemeHome.ExeName("zs")), "shim");
+
+        Assert.Throws<IOException>(() => new ToolchainRegistry(home.Path).Link("dev", binDir));
+        Assert.False(File.Exists(ZSchemeHome.GetToolchainLinkFile("dev", home.Path)));
+    }
+
+    /// <summary>The home is the same trap one level up: its <c>bin/</c> is what would resolve.</summary>
+    [Fact]
+    public void Link_RejectsTheHomeItself()
+    {
+        using var home = new TempHome();
+        var binDir = ZSchemeHome.GetBinDir(home.Path);
+        Directory.CreateDirectory(binDir);
+        File.WriteAllText(Path.Combine(binDir, ZSchemeHome.ExeName("zs")), "shim");
+
+        Assert.Throws<IOException>(() => new ToolchainRegistry(home.Path).Link("dev", home.Path));
+    }
+
+    /// <summary>
+    ///     Linking <c>bin/</c> before any shim is stamped resolves to <c>bin/bin</c>, so the guard
+    ///     cannot rely on the resolved directory alone -- the loop appears as soon as a shim does.
+    /// </summary>
+    [Fact]
+    public void Link_RejectsZsupsOwnBinDirectoryBeforeTheShimsExist()
+    {
+        using var home = new TempHome();
+        var binDir = ZSchemeHome.GetBinDir(home.Path);
+        Directory.CreateDirectory(binDir);
+
+        Assert.Throws<IOException>(() => new ToolchainRegistry(home.Path).Link("dev", binDir));
+    }
+
     [Fact]
     public void Remove_DeletesTheToolchainAndClearsTheDefault()
     {

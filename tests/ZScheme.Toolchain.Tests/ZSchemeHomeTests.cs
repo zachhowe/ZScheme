@@ -149,6 +149,50 @@ public sealed class ZSchemeHomeTests
         Assert.Throws<ArgumentException>(() => ZSchemeHome.GetToolchainLinkFile("../evil", home));
     }
 
+    /// <summary>
+    ///     The predicate behind the shim's self-dispatch guard. Spellings matter here because the
+    ///     directory arrives from a hand-written <c>.link</c> file as often as from the layout.
+    /// </summary>
+    [Fact]
+    public void IsBinDir_RecognizesTheHomesOwnBinDirectory()
+    {
+        var home = Path.GetFullPath("/tmp/zshome");
+        var binDir = ZSchemeHome.GetBinDir(home);
+
+        Assert.True(ZSchemeHome.IsBinDir(binDir, home));
+        Assert.True(ZSchemeHome.IsBinDir(binDir + Path.DirectorySeparatorChar, home));
+        Assert.True(ZSchemeHome.IsBinDir(Path.Combine(home, "toolchains", "..", "bin"), home));
+    }
+
+    [Fact]
+    public void IsBinDir_RejectsEveryOtherDirectory()
+    {
+        var home = Path.GetFullPath("/tmp/zshome");
+
+        Assert.False(ZSchemeHome.IsBinDir(home, home));
+        Assert.False(ZSchemeHome.IsBinDir(Path.Combine(home, "bin", "nested"), home));
+        Assert.False(
+            ZSchemeHome.IsBinDir(
+                Path.Combine(ZSchemeHome.GetToolchainDir("0.4.0", home), "bin"),
+                home
+            )
+        );
+        // Another home's bin directory holds its own shims, not this home's.
+        Assert.False(
+            ZSchemeHome.IsBinDir(ZSchemeHome.GetBinDir(Path.GetFullPath("/tmp/other")), home)
+        );
+    }
+
+    /// <summary>
+    ///     Answered rather than thrown: this runs on every <c>zs</c> invocation, and the caller's
+    ///     "no zs there" path already covers a toolchain pointing somewhere unusable.
+    /// </summary>
+    [Fact]
+    public void IsBinDir_UnparseablePath_IsNotThatDirectory()
+    {
+        Assert.False(ZSchemeHome.IsBinDir("", Path.GetFullPath("/tmp/zshome")));
+    }
+
     [Fact]
     public void ExeName_AddsExtensionOnWindowsOnly()
     {
