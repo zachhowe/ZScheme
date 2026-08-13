@@ -68,7 +68,14 @@ public sealed class ToolchainInstaller(string? home = null)
 
         var downloads = ZSchemeHome.GetDownloadsDir(_home);
         Directory.CreateDirectory(downloads);
-        SweepTransients(downloads);
+
+        // The source is exempted rather than the sweep moved after it, because the source is read
+        // in pieces from here to the commit point and a sweep at any of them is the same race. A
+        // release archive left in downloads/ is exactly what a user reinstalls from -- `zsup
+        // install 0.4.0 --from ~/.zscheme/downloads/zscheme-0.4.0-linux-x64.tar.gz` names one by
+        // hand -- and once it is six hours old the sweep would delete it and the install would
+        // then fail with "No such archive or directory" for a file that was there when it started.
+        SweepTransients(downloads, keep: source);
 
         var staging = Path.Combine(downloads, ".staging-" + Guid.NewGuid().ToString("N")[..12]);
         string? trash = null;
@@ -426,15 +433,24 @@ public sealed class ToolchainInstaller(string? home = null)
     ///         sweep leaves hundreds of megabytes in <c>downloads/</c> permanently.
     ///     </para>
     /// </remarks>
-    public static void SweepTransients(string downloads)
+    /// <param name="keep">
+    ///     An entry the sweep must leave alone whatever its age — the archive or directory an
+    ///     install is reading from. Only <see cref="InstallFrom" /> passes one; every other caller
+    ///     sweeps a directory it is not simultaneously reading out of.
+    /// </param>
+    public static void SweepTransients(string downloads, string? keep = null)
     {
         if (!Directory.Exists(downloads))
             return;
 
         var cutoff = DateTime.UtcNow - TransientMaxAge;
+        var kept = FullPathOrNull(keep);
 
         foreach (var dir in Directory.EnumerateDirectories(downloads))
         {
+            if (IsSamePath(dir, kept))
+                continue;
+
             var name = Path.GetFileName(dir);
             if (
                 !Array.Exists(
@@ -454,6 +470,9 @@ public sealed class ToolchainInstaller(string? home = null)
         // it wrote -- so nothing else would ever remove them.
         foreach (var file in Directory.EnumerateFiles(downloads))
         {
+            if (IsSamePath(file, kept))
+                continue;
+
             var name = Path.GetFileName(file);
             if (!name.EndsWith(".part", StringComparison.Ordinal) && !IsReleaseArchive(name))
                 continue;
@@ -461,6 +480,42 @@ public sealed class ToolchainInstaller(string? home = null)
             if (IsOlderThan(file, cutoff, File.GetLastWriteTimeUtc))
                 TryDeleteFile(file);
         }
+    }
+
+    /// <summary>
+    ///     <paramref name="path" /> made absolute, or <c>null</c> when it is null or cannot be
+    ///     resolved.
+    /// </summary>
+    private static string? FullPathOrNull(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return null;
+
+        try
+        {
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        }
+        catch (Exception e)
+            when (e is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            // A path this malformed names nothing on disk, so it matches nothing either -- and the
+            // install about to read it fails on its own with a message about the source.
+            return null;
+        }
+    }
+
+    /// <summary>
+    ///     Whether <paramref name="path" /> is the entry <paramref name="fullPath" /> already names.
+    /// </summary>
+    /// <remarks>
+    ///     Compared the way the filesystem resolves names, since both sides are paths: a
+    ///     <c>--from</c> spelled with a different case on Windows or macOS is still the file the
+    ///     install is about to read.
+    /// </remarks>
+    private static bool IsSamePath(string path, string? fullPath)
+    {
+        return fullPath is not null
+            && string.Equals(fullPath, FullPathOrNull(path), ToolchainName.Comparison);
     }
 
     /// <summary>

@@ -484,6 +484,32 @@ public sealed class ToolchainInstallerTests
     }
 
     [Fact]
+    public void InstallFrom_DoesNotSweepTheArchiveItWasPointedAt()
+    {
+        // downloads/ is where zsup puts release archives, so it is where a user reinstalling from
+        // one finds it: `zsup install 0.4.0 --from ~/.zscheme/downloads/zscheme-0.4.0-win-x64.zip`.
+        // The sweep runs before the source is read, and the source is shaped exactly like the debris
+        // it deletes -- so once the archive was six hours old the install deleted it and then failed
+        // with "No such archive or directory" for a file that was there when it started.
+        using var home = new TempHome();
+        var downloads = ZSchemeHome.GetDownloadsDir(home.Path);
+        Directory.CreateDirectory(downloads);
+
+        var payload = MakeToolchainPayload(home, "payload");
+        var archive = Path.Combine(downloads, "zscheme-0.4.0-win-x64.zip");
+        ZipFile.CreateFromDirectory(payload, archive);
+        File.SetLastWriteTimeUtc(archive, DateTime.UtcNow.AddDays(-2));
+
+        var result = new ToolchainInstaller(home.Path).InstallFrom(archive, "0.4.0");
+
+        Assert.True(File.Exists(Path.Combine(result.Dir, "bin", ZSchemeHome.ExeName("zs"))));
+        Assert.True(
+            File.Exists(archive),
+            "the archive being installed from must survive the sweep"
+        );
+    }
+
+    [Fact]
     public void CreateDownloadSlot_GivesEachDownloadAPathOfItsOwn()
     {
         // Two installs of one version -- a CI job and an editor, or two terminals -- resolve the
