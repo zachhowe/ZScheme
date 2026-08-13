@@ -232,6 +232,53 @@ public sealed class ToolchainInstallerTests
     }
 
     [Fact]
+    public void ExplainNameTaken_FreeName_IsNull()
+    {
+        using var home = new TempHome();
+
+        Assert.Null(new ToolchainInstaller(home.Path).ExplainNameTaken("0.4.0"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExplainNameTaken_SaysExactlyWhatInstallFromRefusesWith(bool linked)
+    {
+        // The release path asks this before downloading anything, so a disagreement between the two
+        // would either wave through an install that InstallFrom then rejects with the archive
+        // already fetched -- the whole cost this exists to avoid -- or reject one that would have
+        // been fine. Same method, so they cannot say different things.
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+        var installer = new ToolchainInstaller(home.Path);
+
+        if (linked)
+            home.AddLink("dev", home.Dir("devtree"));
+        else
+            installer.InstallFrom(payload, "dev");
+
+        var explained = installer.ExplainNameTaken("dev");
+        var thrown = Assert.Throws<IOException>(() => installer.InstallFrom(payload, "dev"));
+
+        Assert.NotNull(explained);
+        Assert.Equal(thrown.Message, explained);
+    }
+
+    [Fact]
+    public void ExplainNameTaken_IsNotConsultedUnderForce()
+    {
+        // It reports what --force overrides, so the caller checks `!force` rather than this
+        // reporting nothing: an installed name is still installed when it is about to be replaced.
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload");
+        var installer = new ToolchainInstaller(home.Path);
+        installer.InstallFrom(payload, "0.4.0");
+
+        Assert.NotNull(installer.ExplainNameTaken("0.4.0"));
+        installer.InstallFrom(payload, "0.4.0", force: true);
+    }
+
+    [Fact]
     public void InstallFrom_NotAToolchain_ThrowsAndLeavesNothingBehind()
     {
         using var home = new TempHome();

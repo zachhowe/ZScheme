@@ -155,6 +155,16 @@ internal static class InstallCommand
         if (spec == "latest")
             Console.WriteLine($"latest release is {release.Version}");
 
+        var installer = new ToolchainInstaller(home);
+
+        // Asked here as well as inside InstallFrom, which is where it is enforced. Resolving the
+        // version is one cheap API call and everything after it is skippable, so a name that is
+        // already taken is rejected before the SHA256SUMS fetch and the archive download rather
+        // than after them. `zsup install latest` is the case that makes this matter: it is the
+        // natural "am I up to date?" command, and answering "yes" cost a full release every time.
+        if (!force && installer.ExplainNameTaken(release.Version) is { } taken)
+            throw new IOException(taken);
+
         var assetName = GitHubReleaseClient.ToolchainAssetName(release.Version, rid);
         var downloads = ZSchemeHome.GetDownloadsDir(home);
         var archivePath = Path.Combine(downloads, assetName);
@@ -190,12 +200,7 @@ internal static class InstallCommand
 
         try
         {
-            return new ToolchainInstaller(home).InstallFrom(
-                archivePath,
-                release.Version,
-                force,
-                actual
-            );
+            return installer.InstallFrom(archivePath, release.Version, force, actual);
         }
         finally
         {

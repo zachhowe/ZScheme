@@ -46,7 +46,9 @@ missing. It warns rather than failing, so you can install the runtime afterwards
 
 `install` also takes `--force` (replace an existing installation, or a linked toolchain of the same
 name) and `--no-default` (install without changing the default). Without `--force` it refuses both,
-so a name never ends up with an installed directory and a link at once.
+so a name never ends up with an installed directory and a link at once. The refusal happens as soon
+as the version is known and before any asset is fetched, so `zsup install latest` on an up-to-date
+installation costs one API call rather than a full release download.
 
 ## How a toolchain is selected
 

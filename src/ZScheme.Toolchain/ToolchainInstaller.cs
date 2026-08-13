@@ -47,21 +47,11 @@ public sealed class ToolchainInstaller(string? home = null)
     {
         ToolchainName.Validate(name);
 
-        var destDir = ZSchemeHome.GetToolchainDir(name, _home);
-        if (Directory.Exists(destDir) && !force)
-            throw new IOException(
-                $"toolchain '{name}' is already installed; pass --force to replace it"
-            );
+        if (!force && ExplainNameTaken(name) is { } taken)
+            throw new IOException(taken);
 
-        // The reciprocal of the guard in ToolchainRegistry.Link. Without it a name can end up with
-        // both a directory and a .link file, where the directory shadows the link in List and
-        // TryGet -- so nothing but `zsup unlink <name>` would ever mention the link again. List and
-        // Remove both cope with the collision; this keeps it from being made in the first place.
+        var destDir = ZSchemeHome.GetToolchainDir(name, _home);
         var linkFile = ZSchemeHome.GetToolchainLinkFile(name, _home);
-        if (File.Exists(linkFile) && !force)
-            throw new IOException(
-                $"'{name}' is a linked toolchain; run `zsup unlink {name}` first, or pass --force to replace it"
-            );
 
         var downloads = ZSchemeHome.GetDownloadsDir(_home);
         Directory.CreateDirectory(downloads);
@@ -156,6 +146,35 @@ public sealed class ToolchainInstaller(string? home = null)
         }
 
         return new Result(name, destDir, seeded, warnings);
+    }
+
+    /// <summary>
+    ///     Why installing under <paramref name="name" /> would be refused without <c>--force</c>, or
+    ///     <c>null</c> when the name is free.
+    /// </summary>
+    /// <remarks>
+    ///     <see cref="InstallFrom" /> is the enforcement point and asks this first — <c>--from</c>,
+    ///     the installer scripts and any future caller reach it directly, so nothing may bypass it.
+    ///     It is public because the release path reaches <see cref="InstallFrom" /> only with the
+    ///     archive already on disk, and the answer here needs no archive at all: without an earlier
+    ///     look, `zsup install latest` pays a full download and a SHA-256 over it to learn what a
+    ///     <see cref="Directory.Exists" /> would have said. One method rather than a second pair of
+    ///     Exists calls, so the early check and the guard cannot drift apart about what counts as
+    ///     installed.
+    /// </remarks>
+    public string? ExplainNameTaken(string name)
+    {
+        if (Directory.Exists(ZSchemeHome.GetToolchainDir(name, _home)))
+            return $"toolchain '{name}' is already installed; pass --force to replace it";
+
+        // The reciprocal of the guard in ToolchainRegistry.Link. Without it a name can end up with
+        // both a directory and a .link file, where the directory shadows the link in List and
+        // TryGet -- so nothing but `zsup unlink <name>` would ever mention the link again. List and
+        // Remove both cope with the collision; this keeps it from being made in the first place.
+        if (File.Exists(ZSchemeHome.GetToolchainLinkFile(name, _home)))
+            return $"'{name}' is a linked toolchain; run `zsup unlink {name}` first, or pass --force to replace it";
+
+        return null;
     }
 
     /// <summary>
