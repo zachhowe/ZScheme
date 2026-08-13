@@ -198,6 +198,12 @@ public sealed class AnalysisBudgetTests
         ws.Open("app.zs");
         Assert.NotNull(ws.Service.GetDocument(ws.UriOf("app.zs"))?.Ast);
 
+        // The AST the request just served has to be the document's stored state, not a private
+        // answer to that one request. Until GetDocument adopted the result it read off the task,
+        // whether the next analysis saw it depended on whether the publishing continuation had
+        // been scheduled yet -- so this assertion, and the stale.Ast one below, were a coin flip.
+        Assert.NotNull(ws.Service.PeekDocument(ws.UriOf("app.zs"))?.Ast);
+
         // Re-analysing perfectly good source, with a budget nothing can meet.
         var edited = App.Replace("bpkg", "fpkg") + "\n";
         var stale = ws.Service.AnalyzeImmediate(ws.UriOf("app.zs"), edited, 2);

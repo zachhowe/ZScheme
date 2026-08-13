@@ -108,16 +108,34 @@ public sealed class AnalysisService
                 // own, and that state is the best answer available.
             }
 
-        // The stored state is published slightly after the task completes, so fall back to
-        // the task's own result rather than losing the race to it.
+        // The stored state is published by a continuation that runs slightly after the task
+        // completes, so fall back to the task's own result rather than losing the race to it.
         var refreshed = PeekDocument(uri);
         if (refreshed?.Ast is not null)
             return refreshed;
 
         // Completed, so reading the result does not block.
 #pragma warning disable VSTHRD002
-        return pending.Task.IsCompletedSuccessfully ? pending.Task.Result : refreshed;
+        if (!pending.Task.IsCompletedSuccessfully)
+            return refreshed;
+
+        var result = pending.Task.Result;
 #pragma warning restore VSTHRD002
+
+        // Stored here rather than only answered with. Returning it while leaving the AST-less
+        // timed-out state in _documents makes the win private to this one request: the next
+        // analysis of this document builds its placeholder from what is stored, so Failed finds
+        // no last-good AST to carry forward and the document loses navigation it demonstrably
+        // had -- which is exactly what the last-good stance exists to prevent. Whether that
+        // next analysis reads before or after the continuation lands is pure timing, so
+        // without this the behaviour is a coin flip.
+        //
+        // Guarded by the same Retire the continuation uses, so exactly one of the two publishes
+        // and neither can clobber a newer analysis or resurrect a closed document.
+        if (Retire(uri, pending))
+            _documents[uri] = result;
+
+        return result;
     }
 
     /// <summary>The stored state for a document, without waiting on an in-flight analysis.
