@@ -142,6 +142,26 @@ public sealed class ToolchainInstallerTests
     }
 
     [Fact]
+    public void ResolveCompilerVersion_UnreadableMetadata_FallsBackToThePayload()
+    {
+        using var home = new TempHome();
+        var result = new ToolchainInstaller(home.Path).InstallFrom(
+            MakeToolchainPayload(home, "payload"),
+            "dev"
+        );
+
+        if (!TempHome.TryMakeUnreadable(Path.Combine(result.Dir, "toolchain.json")))
+            return;
+
+        // `zsup uninstall` calls this without a handler, so a toolchain.json it cannot read -- a
+        // toolchain installed under sudo -- has to cost the recorded version and nothing more.
+        Assert.Equal(
+            PayloadVersion,
+            PackageCacheSeeder.ResolveCompilerVersion(result.Dir, installedAs: "dev")
+        );
+    }
+
+    [Fact]
     public void InstallFrom_FlatArchive_IsNormalizedIntoBin()
     {
         using var home = new TempHome();

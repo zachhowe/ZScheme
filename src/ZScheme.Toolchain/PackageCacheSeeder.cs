@@ -110,9 +110,18 @@ public static class PackageCacheSeeder
                 )
                     return recorded;
             }
-            catch (Exception e) when (e is System.Text.Json.JsonException or IOException)
+            catch (Exception e)
+                when (e
+                        is System.Text.Json.JsonException
+                            or IOException
+                            or UnauthorizedAccessException
+                )
             {
-                // Fall through to the payload.
+                // Fall through to the payload. UnauthorizedAccessException is not an IOException
+                // and is what a toolchain.json under a root-owned toolchain directory raises;
+                // `zsup uninstall` calls this with no handler of its own, so throwing here would
+                // kill the command before it reported anything rather than costing it the recorded
+                // version it can recover from the payload anyway.
             }
         }
 
