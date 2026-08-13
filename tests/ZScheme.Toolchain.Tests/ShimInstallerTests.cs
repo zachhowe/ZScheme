@@ -171,6 +171,33 @@ public sealed class ShimInstallerTests
     }
 
     [Fact]
+    public void Install_AZsupThatIsNotThere_ReportsFailuresRatherThanWritingADeadShim()
+    {
+        using var home = new TempHome();
+        var binDir = ZSchemeHome.GetBinDir(home.Path);
+        var missing = Path.Combine(home.Path, "gone", ZSchemeHome.ExeName("zsup"));
+
+        var stamped = ShimInstaller.Install(binDir, missing);
+
+        // On Unix this is the dangling-symlink case: link(2) fails for any errno, not only the
+        // "no hardlinks here" ones, and File.CreateSymbolicLink never checks its target -- so
+        // without the resolve check the fallback would succeed, the rename would commit it, and
+        // every name would come back as written while `zs` failed with "No such file or
+        // directory". `zsup self update` moves the zsup binary aside and back around the stamp, so
+        // the window is real.
+        Assert.Empty(stamped.Written);
+        Assert.Equal(ShimInstaller.ShimNames.Length, stamped.Failed.Count);
+
+        foreach (var name in ShimInstaller.ShimNames)
+        {
+            var path = Path.Combine(binDir, ZSchemeHome.ExeName(name));
+            Assert.Contains(stamped.Failed, f => f.Name == name && f.Path == path);
+            // Not merely "does not resolve": nothing at all is left at the name.
+            Assert.False(Path.Exists(path));
+        }
+    }
+
+    [Fact]
     public void Install_LeavesNoStagingFileBehind()
     {
         using var home = new TempHome();

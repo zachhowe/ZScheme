@@ -148,17 +148,64 @@ public static partial class ShimInstaller
 
         // A hardlink makes both dispatch signals agree: argv[0] is the invoked name, and
         // /proc/self/exe resolves to this path rather than to zsup.
-        if (Link(zsupPath, staged) == 0)
+        if (TryLink(zsupPath, staged))
         {
             MakeExecutable(staged);
             return;
         }
 
-        // Different filesystem, or a filesystem without hardlinks. A relative target keeps the
-        // whole home directory movable -- relative to the shim's own directory, since zsup does not
-        // have to be the one sitting next to it.
+        // Different filesystem, a filesystem without hardlinks, or an image with no usable link(2)
+        // at all. A relative target keeps the whole home directory movable -- relative to the
+        // shim's own directory, since zsup does not have to be the one sitting next to it.
         var relative = Path.GetRelativePath(Path.GetDirectoryName(finalPath)!, zsupPath);
         File.CreateSymbolicLink(staged, relative);
+
+        // A dangling symlink is a legal symlink: CreateSymbolicLink never looks at the target, and
+        // Link returns non-zero for any errno rather than only for the "no hardlinks here" ones --
+        // so a zsupPath that is unreadable or absent at this instant lands here and succeeds,
+        // pointing at nothing. `zsup self update` moves the zsup binary aside and back around the
+        // stamp, and a network or automounted home can drop between the two. Without this the
+        // rename commits the dangling link, Install counts it as written, and the user gets a `zs`
+        // that fails with "No such file or directory" after an install that reported no problems.
+        // File.Exists follows the link, so it asks the right question, and IOException is what
+        // Install's per-name catch turns into a Failure -- the shim gets named rather than
+        // silently counted as stamped.
+        if (!File.Exists(staged))
+            throw new IOException(
+                $"created {staged} as a symlink to {relative}, which does not resolve to a file"
+            );
+    }
+
+    /// <summary>
+    ///     Creates a hardlink, answering <c>false</c> rather than throwing when this image has no
+    ///     usable <c>link(2)</c> to call.
+    /// </summary>
+    /// <remarks>
+    ///     A library that does not resolve under the name <c>libc</c> — a musl image, a hardened
+    ///     container with a stripped libc — raises <see cref="DllNotFoundException" />, and a missing
+    ///     entry point raises <see cref="EntryPointNotFoundException" />. Both derive from
+    ///     <c>TypeLoadException</c>, so neither is an <see cref="IOException" /> or an
+    ///     <see cref="UnauthorizedAccessException" /> — and every catch between here and
+    ///     <c>Program.Main</c> filters on exactly those two, including <see cref="Install" />'s
+    ///     per-name catch. Left to escape, a bind failure on the first name aborts the loop that
+    ///     exists to attempt every name, after the install has committed and printed success.
+    ///     <para>
+    ///         Caught here rather than by widening <see cref="Install" />'s filter, because a bind
+    ///         failure is a property of the process, not of one shim: "there is no link(2)" is the
+    ///         same answer as "this filesystem has no hardlinks", and the symlink fallback below is
+    ///         already the right response to it.
+    ///     </para>
+    /// </remarks>
+    private static bool TryLink(string existing, string created)
+    {
+        try
+        {
+            return Link(existing, created) == 0;
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
