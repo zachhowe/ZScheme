@@ -167,10 +167,14 @@ public static partial class ShimInstaller
         // stamp, and a network or automounted home can drop between the two. Without this the
         // rename commits the dangling link, Install counts it as written, and the user gets a `zs`
         // that fails with "No such file or directory" after an install that reported no problems.
-        // File.Exists follows the link, so it asks the right question, and IOException is what
-        // Install's per-name catch turns into a Failure -- the shim gets named rather than
-        // silently counted as stamped.
-        if (!File.Exists(staged))
+        //
+        // Asked through ResolveLinkTarget rather than File.Exists, which is true of a dangling
+        // symlink on Unix: .NET falls back to lstat when stat says ENOENT, so "the link is there"
+        // comes back as "the file is there" and the guard never fires on the one platform that can
+        // reach this branch. Resolving to the final target and asking whether *it* exists is the
+        // question the shim actually depends on. IOException is what Install's per-name catch turns
+        // into a Failure, so the shim gets named rather than silently counted as stamped.
+        if (File.ResolveLinkTarget(staged, returnFinalTarget: true) is not { Exists: true })
             throw new IOException(
                 $"created {staged} as a symlink to {relative}, which does not resolve to a file"
             );
