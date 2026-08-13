@@ -230,7 +230,11 @@ internal static class SelfCommand
         }
 
         Console.WriteLine($"removed {home}");
-        Console.WriteLine("note: remove the ~/.zscheme/env line from your shell profile to finish");
+        // The real env file, not a hardcoded ~/.zscheme/env: a ZSCHEME_HOME install writes its
+        // profile line against the home it was installed into, and that is the line to remove.
+        Console.WriteLine(
+            $"note: remove the {ZSchemeHome.GetEnvFile(home)} line from your shell profile to finish"
+        );
         return 0;
     }
 }
