@@ -99,9 +99,11 @@ dotnet run --project src/ZScheme.Cli -- compile examples/factorial.zs -o out
 Or register your build as a toolchain, so `zs` runs it everywhere:
 
 ```bash
-zsup link dev src/ZScheme.Cli/bin/Debug/net10.0
-zsup use dev
+pwsh ./build-dev-toolchain.ps1 -Use
 ```
+
+That builds both `zs` and `zs-lsp` — they always ship together, so neither project's `bin/`
+directory is a toolchain on its own — links the result as `dev`, and makes it the default.
 
 ## Language Overview
 
