@@ -134,7 +134,30 @@ internal static class ZsupSelf
                 throw;
             }
 
-            var stamped = ShimInstaller.Install(binDir, zsupPath);
+            ShimInstaller.Result stamped;
+            try
+            {
+                stamped = ShimInstaller.Install(binDir, zsupPath);
+            }
+            catch
+            {
+                // Every shim is parked at this point and this path leaves none of them behind:
+                // Install reports what it could not stamp per name in its result, so what is left
+                // to throw is the bin directory itself being unusable -- every name at once.
+                // Without the rollback the update ends with a new zsup and no shims at all, the
+                // state Restore exists to prevent, and SweepStaleBinaries deletes the only
+                // remaining copies an hour later.
+                //
+                // zsup stays replaced, which is what the per-name path below does too: the rename
+                // that put it there has already succeeded, and a shim on the previous zsup is a
+                // version mismatch rather than a missing file.
+                Restore([
+                    .. movedAside.Where(m =>
+                        !string.Equals(m.Original, zsupPath, StringComparison.Ordinal)
+                    ),
+                ]);
+                throw;
+            }
 
             // A shim that failed to stamp was already moved aside, so its name is absent and the
             // only working binary left for it is the `.old-<guid>` copy. Putting the copy back
