@@ -4,7 +4,8 @@ Release notes for ZScheme, reconstructed from the git history at each tag. Newes
 
 | Version | Date | Commits | Theme |
 | --- | --- | --- | --- |
-| [0.4.0 (unreleased)](unreleased.md) | in development | — | — |
+| [0.5.0 (unreleased)](unreleased.md) | in development | — | — |
+| [0.4.0](0.4.0.md) | 2026-08-13 | 104 | `zsup` toolchain manager, `letrec`, nested and mutually recursive `define`s |
 | [0.3](0.3.md) | 2026-08-11 | 112 | Dead passes made live (TCO, closures, exhaustiveness), full LSP, verifiable IL |
 | [0.2](0.2.md) | 2026-07-05 | 163 | Racket-aligned renames, ASP.NET/DI/logging/json packages, codegen hardening |
 | [0.1.6](0.1.6.md) | 2026-05-05 | 120 | Differential fuzzer and the ~70 backend bugs it found |
