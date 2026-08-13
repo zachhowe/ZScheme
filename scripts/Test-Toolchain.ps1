@@ -293,6 +293,25 @@ Check "uninstall removes a toolchain and keeps a cache another one shares" {
     if (-not (Test-Path $shared)) { throw "the package cache $version still depends on was purged" }
 }
 
+# A link file zsup cannot parse still makes the name a link, and a link never writes to
+# cache/pkg/<name> -- so if a released toolchain of that name was ever installed, that directory is
+# its cache and purging it costs an SDK-and-network rebuild. Written by hand because zsup does not
+# produce a malformed link, which is the whole reason the parse can fail here.
+Check "uninstall keeps the shared cache for a link whose file cannot be parsed" {
+    $link = Join-Path $ZsHome "toolchains/e2e-badlink.link"
+    $cache = Join-Path $ZsHome "cache/pkg/e2e-badlink"
+    Set-Content -Path $link -Value '# comment-only: no target on any line'
+    New-Item -ItemType Directory -Path $cache -Force | Out-Null
+    Set-Content -Path (Join-Path $cache 'marker.txt') -Value 'released payload cache'
+
+    & $zsup uninstall "e2e-badlink" --purge-cache | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "uninstall exited $LASTEXITCODE" }
+    if (Test-Path $link) { throw "the link file was left behind" }
+    if (-not (Test-Path $cache)) { throw "the package cache was purged for a linked toolchain" }
+
+    Remove-Item -Recurse -Force $cache -ErrorAction SilentlyContinue
+}
+
 Write-Host ""
 Write-Host "================================================================"
 if ($failures.Count -gt 0) {

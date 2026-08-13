@@ -45,7 +45,13 @@ internal static class UninstallCommand
         // inside the toolchain and is not necessarily the name it was installed under. A linked
         // toolchain has no entry in the shared cache at all -- it compiles into the isolated
         // cache-dev/<name> root instead -- so it gets no compiler version to key one by.
-        var isLinked = existing?.IsLinked ?? false;
+        // Decided from the file rather than from a successful parse of it. TryGet answers null for a
+        // link file it cannot read -- empty, comment-only, permission-denied -- which would make a
+        // link look like an installation here and hand the purge below the name as a compiler
+        // version. What makes a toolchain a link is that the file is there, which is the same test
+        // Remove applies before deleting it.
+        var isLinked =
+            existing?.IsLinked ?? File.Exists(ZSchemeHome.GetToolchainLinkFile(name, home));
         var compilerVersion = isLinked
             ? null
             : PackageCacheSeeder.ResolveCompilerVersion(
