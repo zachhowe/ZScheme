@@ -481,6 +481,65 @@ public sealed class GitHubReleaseClientTests
     }
 
     [Fact]
+    public async Task DownloadAssetAsync_AnUnwritableDestination_LeavesNoPartFileBehind()
+    {
+        // The rename used to sit outside the cleanup try, so a sharing violation on it -- routine
+        // on Windows, where a scanner opens a file the instant it is closed -- orphaned a .part
+        // holding a download whose every byte had arrived and whose SHA-256 had been computed.
+        // Nothing then reclaimed it until the slot it sits in aged out.
+        if (!OperatingSystem.IsWindows())
+            return; // Only Windows refuses to rename over an open file.
+
+        var handler = new FakeHandler(_ => Ok("payload"));
+        using var client = new GitHubReleaseClient("owner/repo", "", handler);
+        using var home = new TempHome();
+        var dest = Path.Combine(home.Path, "downloads", "asset.zip");
+        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        File.WriteAllText(dest, "an earlier download");
+
+        using (new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            // Windows reports a held destination as ERROR_ACCESS_DENIED out of MoveFileEx, not as
+            // a sharing violation -- which is why the retry filter covers both.
+            await Assert.ThrowsAnyAsync<SystemException>(() =>
+                client.DownloadAssetAsync(Release040, "asset.zip", dest)
+            );
+        }
+
+        Assert.Empty(StagingFiles(dest));
+        Assert.Equal("an earlier download", File.ReadAllText(dest));
+    }
+
+    [Fact]
+    public async Task DownloadAssetAsync_ADestinationLockedOnlyBriefly_StillSucceeds()
+    {
+        // A scanner's hold is measured in milliseconds, so the rename waits it out rather than
+        // failing an install for a reason that has nothing to do with the release or the checksum.
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var handler = new FakeHandler(_ => Ok("payload"));
+        using var client = new GitHubReleaseClient("owner/repo", "", handler);
+        using var home = new TempHome();
+        var dest = Path.Combine(home.Path, "downloads", "asset.zip");
+        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        File.WriteAllText(dest, "an earlier download");
+
+        var hold = new FileStream(dest, FileMode.Open, FileAccess.Read, FileShare.None);
+        var release = Task.Run(async () =>
+        {
+            await Task.Delay(150);
+            hold.Dispose();
+        });
+
+        var digest = await client.DownloadAssetAsync(Release040, "asset.zip", dest);
+        await release;
+
+        Assert.Equal("payload", File.ReadAllText(dest));
+        Assert.Equal(Sha256Of("payload"), digest);
+    }
+
+    [Fact]
     public async Task DownloadAssetAsync_MissingAsset_ThrowsAHelpfulError()
     {
         var handler = new FakeHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));

@@ -211,13 +211,17 @@ public sealed class GitHubReleaseClient : IDisposable
         // Private to this download, the way every other transient zsup writes is -- a CI job
         // installing a pinned version twice over one home, or an editor's install racing the
         // user's, otherwise share this file, and each hashes whatever the other left in it. The
-        // guid goes before the extension rather than after: ToolchainInstaller.SweepTransients
-        // matches a trailing ".part", so a ".part-<guid>" slot would silently stop being swept and
-        // leave a toolchain-sized file behind after every killed run.
+        // guid goes before the extension rather than after so the name still ends in ".part": a
+        // destPath directly in downloads/ is then reclaimed by ToolchainInstaller.SweepTransients'
+        // trailing-".part" file rule, and this method is public API that does not require its
+        // destPath to be anywhere in particular. Through zsup's own callers the file lands inside a
+        // .dl-<guid> slot instead, and the slot-directory rule is what sweeps it -- the file rule
+        // enumerates downloads/ without recursing, so it never sees one there.
         var partPath = $"{destPath}.{Guid.NewGuid().ToString("N")[..8]}.part";
 
         Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
 
+        string digest;
         try
         {
             using var response = await GetHeadersAsync(url, cancellationToken);
@@ -230,36 +234,46 @@ public sealed class GitHubReleaseClient : IDisposable
 
             response.EnsureSuccessStatusCode();
 
-            await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using var target = File.Create(partPath);
-
-            var buffer = new byte[81920];
-            long total = 0;
-            while (true)
+            // Scoped rather than held to the end of the try, because the hash below reopens the
+            // .part and cannot do that while this handle is still on it.
+            await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken))
+            await using (var target = File.Create(partPath))
             {
-                // Each read gets its own budget, so a download only fails for going quiet -- never
-                // for taking a long time while bytes keep arriving.
-                int read;
-                using (var step = StartStep(cancellationToken))
+                var buffer = new byte[81920];
+                long total = 0;
+                while (true)
                 {
-                    try
+                    // Each read gets its own budget, so a download only fails for going quiet --
+                    // never for taking a long time while bytes keep arriving.
+                    int read;
+                    using (var step = StartStep(cancellationToken))
                     {
-                        read = await source.ReadAsync(buffer, step.Token);
+                        try
+                        {
+                            read = await source.ReadAsync(buffer, step.Token);
+                        }
+                        catch (OperationCanceledException)
+                            when (!cancellationToken.IsCancellationRequested)
+                        {
+                            throw Stalled(url);
+                        }
                     }
-                    catch (OperationCanceledException)
-                        when (!cancellationToken.IsCancellationRequested)
-                    {
-                        throw Stalled(url);
-                    }
+
+                    if (read <= 0)
+                        break;
+
+                    await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                    total += read;
+                    progress?.Report(total);
                 }
-
-                if (read <= 0)
-                    break;
-
-                await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-                total += read;
-                progress?.Report(total);
             }
+
+            // Inside the try, not after it: a sharing violation here -- on the .part just closed,
+            // or on an existing destPath -- fails a download whose every byte arrived and whose
+            // SHA-256 was computed successfully, and outside the try it orphaned the .part with no
+            // cleanup at all. Nothing would then reclaim it until the slot it sits in ages out.
+            digest = Checksums.ComputeSha256(partPath);
+            await MoveIntoPlaceAsync(partPath, destPath, cancellationToken);
         }
         catch
         {
@@ -278,9 +292,46 @@ public sealed class GitHubReleaseClient : IDisposable
             throw;
         }
 
-        var digest = Checksums.ComputeSha256(partPath);
-        File.Move(partPath, destPath, overwrite: true);
         return digest;
+    }
+
+    /// <summary>Attempts made to rename a finished download into place.</summary>
+    /// <remarks>
+    ///     On Windows a scanner routinely opens a file the instant it is closed, and this one was
+    ///     just written and then read end to end by the checksum — so the rename can meet a sharing
+    ///     violation on a download that is complete and verified, and the install would fail for a
+    ///     reason that has nothing to do with the release, the network, or the checksum. Such a hold
+    ///     is measured in milliseconds. <c>ShimInstaller</c> and <c>ToolchainRegistry</c> both
+    ///     already treat a lock on a freshly written file as an expected condition rather than an
+    ///     error; this is the same judgement in the one place waiting is enough on its own.
+    /// </remarks>
+    private const int MoveAttempts = 5;
+
+    private static readonly TimeSpan MoveRetryDelay = TimeSpan.FromMilliseconds(100);
+
+    /// <inheritdoc cref="MoveAttempts" />
+    private static async Task MoveIntoPlaceAsync(
+        string partPath,
+        string destPath,
+        CancellationToken cancellationToken
+    )
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(partPath, destPath, overwrite: true);
+                return;
+            }
+            // Both, because Windows reports the two ends differently: a hold on the .part comes
+            // back as a sharing-violation IOException, while one on an existing destPath makes
+            // MoveFileEx fail with ERROR_ACCESS_DENIED and surfaces as UnauthorizedAccessException.
+            catch (Exception e)
+                when (e is IOException or UnauthorizedAccessException && attempt < MoveAttempts)
+            {
+                await Task.Delay(MoveRetryDelay, cancellationToken);
+            }
+        }
     }
 
     /// <summary>Sends the request and waits only for the headers, under its own budget.</summary>
