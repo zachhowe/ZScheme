@@ -44,6 +44,15 @@ public static class ToolchainName
         if (name != name.Trim() || name.StartsWith('.'))
             return false;
 
+        // A trailing '.' is stripped by Win32 when the name becomes a path component, so `0.4.0.`
+        // and `0.4.0` name one directory while comparing as two different toolchains. That gap is
+        // enough for `zsup install 0.4.0. --from …` to pass ExplainNameTaken and overwrite `0.4.0`
+        // without --force, and for `zsup uninstall 0.4.0.` to delete its directory while leaving
+        // `0.4.0` recorded as the default -- which breaks every later `zs`. Rejected rather than
+        // trimmed: a name that does not survive round-tripping through a path is not a name.
+        if (name.EndsWith('.'))
+            return false;
+
         if (name.IndexOfAny(Forbidden) >= 0)
             return false;
 
