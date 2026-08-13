@@ -45,9 +45,21 @@ internal static class WhichCommand
             return 1;
         }
 
+        var path = resolved.Toolchain.GetExecutablePath(tool);
+
+        // `$(zsup which zs-lsp)` is the documented way to point an editor at the language server,
+        // so printing a path to a file that is not there hands the editor a dead path and exits 0
+        // while doing it. The gap is reachable in exactly the case LinkCommand already warns about:
+        // the CLI and the language server are separate projects with separate output directories,
+        // so linking one gives a working `zs` and no `zs-lsp` at all. Failing rather than printing
+        // keeps stdout honest for the command-substitution use, and the shim -- which `which`
+        // claims to describe -- already answers this way.
+        if (!File.Exists(path))
+            return ZsupHelpers.Error(ZsupHelpers.MissingToolLines(resolved.Toolchain, tool, path));
+
         // The path goes to stdout on its own so `$(zsup which zs)` stays usable; the explanation
         // of where the selection came from goes to stderr.
-        Console.WriteLine(resolved.Toolchain.GetExecutablePath(tool));
+        Console.WriteLine(path);
         Console.Error.WriteLine(DescribeOrigin(resolved));
         return 0;
     }

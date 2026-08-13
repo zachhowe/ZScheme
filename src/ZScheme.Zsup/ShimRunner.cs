@@ -74,13 +74,7 @@ internal static class ShimRunner
 
         if (!File.Exists(target))
         {
-            Console.Error.WriteLine($"error: toolchain '{toolchain.Name}' has no {toolName}");
-            Console.Error.WriteLine($"note: expected it at {target}");
-            Console.Error.WriteLine(
-                toolchain.IsLinked
-                    ? $"help: check that {toolchain.Dir} is a ZScheme build output directory"
-                    : $"help: run `zsup install {toolchain.Name} --force` to repair the installation"
-            );
+            ZsupHelpers.Error(ZsupHelpers.MissingToolLines(toolchain, toolName, target));
             return NotFound;
         }
 

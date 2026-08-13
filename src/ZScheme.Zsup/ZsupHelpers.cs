@@ -46,6 +46,35 @@ internal static class ZsupHelpers
         return 1;
     }
 
+    /// <summary>
+    ///     The stderr lines for a toolchain that resolved but holds no <paramref name="toolName" />.
+    /// </summary>
+    /// <remarks>
+    ///     Shared because two commands answer this question and must not disagree about it: the shim
+    ///     hits it on the way to a handoff, and <c>zsup which</c> -- whose whole job is to describe
+    ///     what the shim would do -- hits it while composing the path. `Resolved` only means a
+    ///     toolchain was selected and, for a link, that its target directory exists; it says nothing
+    ///     about the binary, and <c>ToolchainRegistry.ResolveBinDir</c> deliberately falls back to
+    ///     the conventional <c>&lt;dir&gt;/bin</c> when neither layout is present, precisely so that
+    ///     error messages point somewhere meaningful. That is the right answer for an error and the
+    ///     wrong one for stdout.
+    /// </remarks>
+    internal static string[] MissingToolLines(
+        InstalledToolchain toolchain,
+        string toolName,
+        string expectedPath
+    )
+    {
+        return
+        [
+            $"error: toolchain '{toolchain.Name}' has no {toolName}",
+            $"note: expected it at {expectedPath}",
+            toolchain.IsLinked
+                ? $"help: check that {toolchain.Dir} is a ZScheme build output directory"
+                : $"help: run `zsup install {toolchain.Name} --force` to repair the installation",
+        ];
+    }
+
     /// <summary>Writes an advisory to stderr without failing the command.</summary>
     internal static void Warn(string message)
     {
