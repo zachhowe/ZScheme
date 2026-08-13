@@ -250,13 +250,38 @@ Check "zs-lsp speaks LSP through the shim" {
         $process.StandardInput.Write($request)
         $process.StandardInput.Flush()
 
+        # A stream read returns what is available, not what was asked for, so the header and the
+        # body can land in separate reads. Accumulate until both assertions below can be answered,
+        # against one 60s budget rather than a fresh one per read -- a single read that returns
+        # only 'Content-Length: N\r\n\r\n' would otherwise fail the "result" assertion and blame
+        # the shim for a working build.
         $buffer = [char[]]::new(4096)
-        $read = $process.StandardOutput.ReadAsync($buffer, 0, $buffer.Length)
-        if (-not $read.Wait(60000)) { throw "no response within 60s" }
+        $response = [System.Text.StringBuilder]::new()
+        $clock = [System.Diagnostics.Stopwatch]::StartNew()
+        $budget = [timespan]::FromSeconds(60)
+        $complete = $false
+        $eof = $false
 
-        $response = -join $buffer[0..($read.Result - 1)]
-        if ($response -notmatch 'Content-Length:') { throw "no LSP framing in the response: '$response'" }
-        if ($response -notmatch '"result"') { throw "no result in the response: '$response'" }
+        while (-not $complete -and -not $eof) {
+            $remaining = $budget - $clock.Elapsed
+            if ($remaining -le [timespan]::Zero) { break }
+
+            $read = $process.StandardOutput.ReadAsync($buffer, 0, $buffer.Length)
+            if (-not $read.Wait($remaining)) { break }
+            if ($read.Result -le 0) { $eof = $true; break }
+
+            [void]$response.Append($buffer, 0, $read.Result)
+            $text = $response.ToString()
+            $complete = ($text -match 'Content-Length:') -and ($text -match '"result"')
+        }
+
+        $text = $response.ToString()
+        if (-not $complete -and -not $eof) {
+            if ($text.Length -eq 0) { throw "no response within 60s" }
+            throw "an incomplete response within 60s: '$text'"
+        }
+        if ($text -notmatch 'Content-Length:') { throw "no LSP framing in the response: '$text'" }
+        if ($text -notmatch '"result"') { throw "no result in the response: '$text'" }
     } finally {
         if (-not $process.HasExited) { $process.Kill($true) }
         $process.Dispose()
