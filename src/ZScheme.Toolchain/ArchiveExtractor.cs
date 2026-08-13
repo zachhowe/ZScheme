@@ -48,20 +48,58 @@ public static class ArchiveExtractor
     }
 
     /// <summary>Recursively copies a directory, used by <c>zsup install --from &lt;dir&gt;</c>.</summary>
+    /// <remarks>
+    ///     The whole source is listed before the destination is created, and the walk does not
+    ///     descend into reparse points. Both matter for termination rather than for tidiness.
+    ///     <see cref="SearchOption.AllDirectories" /> enumerates lazily, so a destination *inside*
+    ///     the source — <c>zsup install dev --from ~/.zscheme</c>, whose staging slot is under
+    ///     <c>downloads/</c> — has every directory this loop creates handed back to the same
+    ///     enumerator as one more level to descend into, and the copy writes until the disk fills.
+    ///     A junction or symlink pointing back at an ancestor does the same with no overlap needed,
+    ///     because the <c>SearchOption</c> overloads skip no attributes at all.
+    /// </remarks>
     public static void CopyDirectory(string sourceDir, string destDir)
     {
+        var dirs = new List<string>();
+        var files = new List<string>();
+        Collect(sourceDir, dirs, files);
+
         Directory.CreateDirectory(destDir);
 
-        foreach (
-            var dir in Directory.EnumerateDirectories(sourceDir, "*", SearchOption.AllDirectories)
-        )
+        foreach (var dir in dirs)
             Directory.CreateDirectory(Path.Combine(destDir, Path.GetRelativePath(sourceDir, dir)));
 
-        foreach (var file in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))
+        foreach (var file in files)
         {
             var target = Path.Combine(destDir, Path.GetRelativePath(sourceDir, file));
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             File.Copy(file, target, overwrite: true);
+        }
+    }
+
+    /// <summary>
+    ///     Lists every directory and file under <paramref name="root" />, without following
+    ///     directory symlinks or junctions.
+    /// </summary>
+    private static void Collect(string root, List<string> dirs, List<string> files)
+    {
+        var pending = new Stack<string>();
+        pending.Push(root);
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            files.AddRange(Directory.GetFiles(current));
+
+            foreach (var sub in Directory.GetDirectories(current))
+            {
+                dirs.Add(sub);
+
+                // Recreated as an empty directory rather than descended into: a reparse point can
+                // name an ancestor of itself, and following one has no fixed point.
+                if (!new DirectoryInfo(sub).Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    pending.Push(sub);
+            }
         }
     }
 }

@@ -436,6 +436,22 @@ public sealed class ToolchainInstallerTests
         );
     }
 
+    [Theory]
+    [InlineData(false)] // the home itself
+    [InlineData(true)] // an ancestor of it
+    public void InstallFrom_ASourceContainingTheHome_IsRefused(bool useParent)
+    {
+        using var home = new TempHome();
+        var source = useParent ? Path.GetDirectoryName(home.Path)! : home.Path;
+
+        var thrown = Assert.Throws<IOException>(() =>
+            new ToolchainInstaller(home.Path).InstallFrom(source, "dev")
+        );
+
+        Assert.Contains("staging directory", thrown.Message);
+        Assert.False(Directory.Exists(ZSchemeHome.GetToolchainDir("dev", home.Path)));
+    }
+
     [Fact]
     public void InstallFrom_UnsafeName_Throws()
     {

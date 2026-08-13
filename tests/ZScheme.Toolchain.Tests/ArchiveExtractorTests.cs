@@ -124,6 +124,23 @@ public sealed class ArchiveExtractorTests
         Assert.True(Directory.Exists(Path.Combine(dest, "empty")));
     }
 
+    [Fact]
+    public void CopyDirectory_IntoASubdirectoryOfItself_Terminates()
+    {
+        using var home = new TempHome();
+        var source = Path.Combine(home.Path, "src");
+        Directory.CreateDirectory(Path.Combine(source, "a"));
+        File.WriteAllText(Path.Combine(source, "a", "deep.txt"), "deep");
+
+        // The destination is inside the source, which is what `zsup install --from ~/.zscheme`
+        // produces: staging lives under downloads/, under the home being copied.
+        var dest = Path.Combine(source, "nested", "dst");
+        ArchiveExtractor.CopyDirectory(source, dest);
+
+        Assert.Equal("deep", File.ReadAllText(Path.Combine(dest, "a", "deep.txt")));
+        Assert.False(Directory.Exists(Path.Combine(dest, "nested", "dst", "nested")));
+    }
+
     private static void WriteEntry(ZipArchive archive, string name, string content)
     {
         using var stream = archive.CreateEntry(name).Open();

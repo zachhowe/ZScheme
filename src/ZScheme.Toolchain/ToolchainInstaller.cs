@@ -69,6 +69,17 @@ public sealed class ToolchainInstaller(string? home = null)
         var downloads = ZSchemeHome.GetDownloadsDir(_home);
         Directory.CreateDirectory(downloads);
 
+        // Staging happens under downloads/, so a source at or above it contains its own
+        // destination. `--from ~/.zscheme` and `--from ~` are the easy ways to spell that, and both
+        // are natural mistakes -- downloads/ is where zsup parks release archives, and reinstalling
+        // from a path inside the home is exactly what the sweep's `keep:` exemption exists for.
+        // Refused here rather than survived in the copy, because this is the only place that has
+        // both paths and can say what is actually wrong.
+        if (Directory.Exists(source) && ContainsPath(source, downloads))
+            throw new IOException(
+                $"{source} contains zsup's own staging directory ({downloads}); install from a path outside {_home}"
+            );
+
         // The source is exempted rather than the sweep moved after it, because the source is read
         // in pieces from here to the commit point and a sweep at any of them is the same race. A
         // release archive left in downloads/ is exactly what a user reinstalls from -- `zsup
@@ -502,6 +513,20 @@ public sealed class ToolchainInstaller(string? home = null)
             // install about to read it fails on its own with a message about the source.
             return null;
         }
+    }
+
+    /// <summary>
+    ///     Whether <paramref name="ancestor" /> is <paramref name="path" /> or a directory
+    ///     containing it. <c>false</c> when either side cannot be resolved, matching
+    ///     <see cref="ZSchemeHome.IsBinDir" />: a path the OS will not parse contains nothing.
+    /// </summary>
+    private static bool ContainsPath(string ancestor, string path)
+    {
+        if (FullPathOrNull(ancestor) is not { } root || FullPathOrNull(path) is not { } candidate)
+            return false;
+
+        return string.Equals(root, candidate, ToolchainName.Comparison)
+            || candidate.StartsWith(root + Path.DirectorySeparatorChar, ToolchainName.Comparison);
     }
 
     /// <summary>
