@@ -51,8 +51,21 @@ internal static class LinkCommand
             return ZsupHelpers.Error($"error: {e.Message}");
         }
 
-        var toolchain = registry.TryGet(name)!;
-        Console.WriteLine($"linked '{name}' -> {toolchain.Dir}");
+        // Reported from what was just written rather than from a read-back, and the read-back is
+        // no longer asserted to succeed. TryGet returns null for a link file it cannot read -- by
+        // design, since ReadLinkTarget makes an unreadable link behave as if it were absent rather
+        // than failing every command -- and two ordinary things reach that between the write and
+        // the read: a concurrent `zsup unlink <name>` or a --force install deleting the file, and a
+        // scanner holding the fresh file on Windows. The `!` turned both into a bare
+        // NullReferenceException, printed before the success line, for a link that had in fact been
+        // created. Concurrency here is the case the whole staging scheme exists for.
+        Console.WriteLine($"linked '{name}' -> {full}");
+
+        var toolchain = registry.TryGet(name);
+        if (toolchain is null)
+            // Something removed it underneath us; the link itself succeeded, and the two advisories
+            // below are about a link that is no longer there to advise on.
+            return 0;
 
         if (!File.Exists(toolchain.GetExecutablePath("zs")))
             ZsupHelpers.Warn(
