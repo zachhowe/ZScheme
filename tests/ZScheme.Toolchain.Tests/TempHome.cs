@@ -80,6 +80,49 @@ internal sealed class TempHome : IDisposable
         return false;
     }
 
+    /// <summary>
+    ///     Makes <paramref name="path" /> unreadable as a directory, so an enumerator's
+    ///     permission-denied path can be exercised. The caller must restore it with
+    ///     <see cref="MakeDirectoryReadable" /> once the assertion is done, or <see cref="Dispose" />
+    ///     cannot delete the tree.
+    /// </summary>
+    /// <returns>
+    ///     False when this account cannot produce an unreadable directory, which is the caller's cue
+    ///     to skip — see <see cref="TryMakeUnreadable" />, which sits out the same cases for the same
+    ///     reasons. Verified by enumerating rather than assumed from the mode.
+    /// </returns>
+    public static bool TryMakeDirectoryUnreadable(string path)
+    {
+        if (OperatingSystem.IsWindows())
+            return false;
+
+        File.SetUnixFileMode(path, UnixFileMode.None);
+
+        try
+        {
+            // Forced rather than left lazy: the enumeration is what the readers under test do, and
+            // an unforced sequence would not have reached the filesystem by the time this returns.
+            _ = Directory.EnumerateFileSystemEntries(path).ToList();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return true;
+        }
+
+        MakeDirectoryReadable(path);
+        return false;
+    }
+
+    /// <summary>Undoes <see cref="TryMakeDirectoryUnreadable" />.</summary>
+    public static void MakeDirectoryReadable(string path)
+    {
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(
+                path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+            );
+    }
+
     /// <summary>Creates a directory under the temp home, e.g. a scratch project tree.</summary>
     public string Dir(params string[] segments)
     {
@@ -95,9 +138,10 @@ internal sealed class TempHome : IDisposable
             if (Directory.Exists(Path))
                 Directory.Delete(Path, recursive: true);
         }
-        catch (IOException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            // Cleanup is best-effort; a locked file must not fail an otherwise passing test.
+            // Cleanup is best-effort; a locked file -- or a mode a test left behind -- must not fail
+            // an otherwise passing test.
         }
     }
 }

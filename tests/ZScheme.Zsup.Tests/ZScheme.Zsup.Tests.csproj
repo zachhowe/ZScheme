@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- zsup is published AOT, but nothing here is: this project references it as an ordinary
+         assembly, so the analyzers that gate the publish do not apply to the tests. -->
+    <PublishAot>false</PublishAot>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.2" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ZScheme.Zsup\ZScheme.Zsup.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Shared rather than copied: the rules for when an unreadable path can be produced at all
+         (Windows, root) are the reason half these tests skip, and two copies of them would drift. -->
+    <Compile Include="..\ZScheme.Toolchain.Tests\TempHome.cs" Link="TempHome.cs" />
+  </ItemGroup>
+</Project>

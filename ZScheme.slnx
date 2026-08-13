@@ -15,5 +15,6 @@
     <Project Path="tests/ZScheme.Runtime.Tests/ZScheme.Runtime.Tests.csproj" />
     <Project Path="tests/ZScheme.MacroDebugger.Tests/ZScheme.MacroDebugger.Tests.csproj" />
     <Project Path="tests/ZScheme.Toolchain.Tests/ZScheme.Toolchain.Tests.csproj" />
+    <Project Path="tests/ZScheme.Zsup.Tests/ZScheme.Zsup.Tests.csproj" />
   </Folder>
 </Solution>

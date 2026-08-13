@@ -44,21 +44,32 @@ internal static class ZsupSelf
 
         var cutoff = DateTime.UtcNow - ZSchemeHome.StagingMaxAge;
 
-        foreach (var suffix in new[] { StaleSuffix, StagingSuffix })
-        foreach (var path in Directory.EnumerateFiles(binDir, "*" + suffix + "*"))
+        try
         {
-            try
+            foreach (var suffix in new[] { StaleSuffix, StagingSuffix })
+            foreach (var path in Directory.EnumerateFiles(binDir, "*" + suffix + "*"))
             {
-                if (File.GetLastWriteTimeUtc(path) >= cutoff)
+                try
+                {
+                    if (File.GetLastWriteTimeUtc(path) >= cutoff)
+                        continue;
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    // Unreadable timestamp: leave it rather than guess it is abandoned.
                     continue;
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                // Unreadable timestamp: leave it rather than guess it is abandoned.
-                continue;
-            }
+                }
 
-            TryDelete(path);
+                TryDelete(path);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // An unreadable bin/ -- root-owned after a `sudo zsup install`, or a home restored with
+            // tight ACLs -- must not be fatal here, for two reasons. Program sweeps before dispatch,
+            // so this would kill `zsup list`/`which`/`use`, none of which otherwise touch bin/. And
+            // ReplaceInstalledBinaries sweeps *after* the binaries are in place, where a throw would
+            // report a completed update as a failure.
         }
     }
 
