@@ -88,12 +88,9 @@ internal static class ShimRunner
         var job = WindowsJobObject.TryCreate();
         var contained = job is not null && job.TryAssignCurrentProcess();
 
-        using var child = Process.Start(psi);
+        using var child = TryStart(psi, target, toolchain);
         if (child is null)
-        {
-            Console.Error.WriteLine($"error: failed to start {target}");
             return CannotExecute;
-        }
 
         // Where this process could not join the job, assigning the child still gets the child itself
         // reaped; only the startup window reopens. A job that could not be created at all is the
@@ -117,6 +114,45 @@ internal static class ShimRunner
         {
             Console.CancelKeyPress -= onCancel;
         }
+    }
+
+    /// <summary>Starts the toolchain's binary, reporting a launch failure rather than throwing.</summary>
+    /// <remarks>
+    ///     A <c>target</c> that exists is not a <c>target</c> that runs: an extraction interrupted
+    ///     part-way leaves a truncated image, a home directory can carry an ACL that denies execute,
+    ///     and a toolchain unpacked for the wrong architecture launches nowhere. Every one of those
+    ///     comes back as a <see cref="System.ComponentModel.Win32Exception" /> from
+    ///     <see cref="Process.Start(ProcessStartInfo)" />. zsup is published with stack trace support
+    ///     off, so an escaping exception is a single bare line -- and this is the code path every
+    ///     <c>zs</c> invocation takes, where that line would be the user's whole diagnosis.
+    /// </remarks>
+    private static Process? TryStart(
+        ProcessStartInfo psi,
+        string target,
+        InstalledToolchain toolchain
+    )
+    {
+        try
+        {
+            var child = Process.Start(psi);
+            if (child is not null)
+                return child;
+
+            // Documented as "no new process was started because one was reused", which cannot
+            // happen without UseShellExecute -- so there is no message to add beyond the name.
+            Console.Error.WriteLine($"error: failed to start {target}");
+        }
+        catch (System.ComponentModel.Win32Exception e)
+        {
+            Console.Error.WriteLine($"error: failed to start {target}: {e.Message}");
+        }
+
+        Console.Error.WriteLine(
+            toolchain.IsLinked
+                ? $"help: check that {toolchain.Dir} holds a working build for this machine"
+                : $"help: run `zsup install {toolchain.Name} --force` to reinstall it"
+        );
+        return null;
     }
 
     /// <summary>
