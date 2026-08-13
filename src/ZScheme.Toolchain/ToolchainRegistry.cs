@@ -189,7 +189,21 @@ public sealed class ToolchainRegistry(string home)
         ClearDefaultIf(name);
     }
 
-    /// <summary>Removes an installed toolchain's directory, or the link file if it is linked.</summary>
+    /// <summary>Removes an installed toolchain's directory and the link file if it is linked.</summary>
+    /// <remarks>
+    ///     Both, not either: <see cref="ToolchainInstaller.InstallFrom" /> refuses to create a name
+    ///     that carries a directory and a <c>.link</c> at once, but its own <c>--force</c> path
+    ///     deletes the link past the commit point and only warns when it cannot, so the collision
+    ///     stays reachable. Removing just the directory would report success and leave the name
+    ///     selectable through the link -- pointing at a build tree that has since moved on, or at
+    ///     nothing at all.
+    ///     <para>
+    ///         The directory goes first so that a locked payload fails with the link still in place,
+    ///         which is the state <c>zsup uninstall</c>'s "could not remove" path already describes.
+    ///         The other order would delete the link and then throw, quietly changing what the name
+    ///         resolves to on the way out.
+    ///     </para>
+    /// </remarks>
     /// <exception cref="DefaultNotClearedException">
     ///     The toolchain was removed, but the settings file still names it as the default.
     /// </exception>
@@ -197,12 +211,21 @@ public sealed class ToolchainRegistry(string home)
     {
         var dir = ZSchemeHome.GetToolchainDir(name, Home);
         var linkFile = ZSchemeHome.GetToolchainLinkFile(name, Home);
+        var removed = false;
 
         if (Directory.Exists(dir))
+        {
             Directory.Delete(dir, recursive: true);
-        else if (File.Exists(linkFile))
+            removed = true;
+        }
+
+        if (File.Exists(linkFile))
+        {
             File.Delete(linkFile);
-        else
+            removed = true;
+        }
+
+        if (!removed)
             throw new DirectoryNotFoundException($"Toolchain '{name}' is not installed");
 
         ClearDefaultIf(name);

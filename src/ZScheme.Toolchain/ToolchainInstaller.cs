@@ -54,8 +54,9 @@ public sealed class ToolchainInstaller(string? home = null)
             );
 
         // The reciprocal of the guard in ToolchainRegistry.Link. Without it a name can end up with
-        // both a directory and a .link file, which List reports twice and `zsup uninstall` only
-        // half removes -- leaving the stale link as the toolchain that name now selects.
+        // both a directory and a .link file, where the directory shadows the link in List and
+        // TryGet -- so nothing but `zsup unlink <name>` would ever mention the link again. List and
+        // Remove both cope with the collision; this keeps it from being made in the first place.
         var linkFile = ZSchemeHome.GetToolchainLinkFile(name, _home);
         if (File.Exists(linkFile) && !force)
             throw new IOException(

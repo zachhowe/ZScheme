@@ -339,6 +339,29 @@ public sealed class ToolchainRegistryTests
     }
 
     [Fact]
+    public void Remove_ADirectoryAndALinkOfTheSameName_TakesBoth()
+    {
+        // Reachable through `zsup install <name> --force`, whose link delete past the commit point
+        // is best-effort. Removing only the directory would leave the name still selectable -- and
+        // still resolvable as the default -- through a link the user was just told was gone.
+        using var home = new TempHome();
+        var target = home.Dir("devtree");
+        home.AddInstalled("dev");
+        home.AddLink("dev", target);
+        var registry = new ToolchainRegistry(home.Path);
+        registry.SetDefault("dev");
+
+        registry.Remove("dev");
+
+        Assert.Null(registry.TryGet("dev"));
+        Assert.Null(registry.GetDefault());
+        Assert.False(Directory.Exists(ZSchemeHome.GetToolchainDir("dev", home.Path)));
+        Assert.False(File.Exists(ZSchemeHome.GetToolchainLinkFile("dev", home.Path)));
+        // The link's target is not ours to delete, just as in Unlink.
+        Assert.True(Directory.Exists(target));
+    }
+
+    [Fact]
     public void Unlink_RemovesTheLinkButNotTheTarget()
     {
         using var home = new TempHome();
