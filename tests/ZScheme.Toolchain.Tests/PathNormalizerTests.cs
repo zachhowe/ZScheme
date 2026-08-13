@@ -46,6 +46,17 @@ public sealed class PathNormalizerTests
     }
 
     [Fact]
+    public void Normalize_AValueExpandingToNothing_ReturnsNullRatherThanThrowing()
+    {
+        // The blank check runs before the expansion, so a value that expands to nothing reaches
+        // GetFullPath as the empty string and is rejected there -- a %VAR% naming a variable set to
+        // the empty string is the way a user meets this. Every caller reads null as "this override
+        // is not usable" and falls through, which is the only tolerable answer on the shim's hot
+        // path, where the alternative is a bare unhandled-exception line.
+        Assert.Null(PathNormalizer.Normalize("\0"));
+    }
+
+    [Fact]
     public void Normalize_TrimsSurroundingWhitespace()
     {
         Assert.Equal(

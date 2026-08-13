@@ -9,8 +9,21 @@ public static class PathNormalizer
 {
     /// <summary>
     ///     Returns the normalized absolute path, or <c>null</c> when <paramref name="value" /> is
-    ///     null, empty, or whitespace.
+    ///     null, empty, whitespace, or something the OS will not parse as a path.
     /// </summary>
+    /// <remarks>
+    ///     Answering rather than throwing is what every caller needs: each treats <c>null</c> as
+    ///     "this override is not usable" and falls through to the next source, so a misconfigured
+    ///     <c>ZSCHEME_HOME</c> degrades to <c>~/.zscheme</c> instead of taking down every <c>zsup</c>
+    ///     command and every <c>zs</c> invocation with it. This matches
+    ///     <see cref="ZSchemeHome.IsBinDir" /> and <c>ToolchainInstaller.FullPathOrNull</c>, which
+    ///     answer the same way for the same reason.
+    ///     <para>
+    ///         The empty case is easy to reach rather than theoretical: the blank check runs before
+    ///         the expansion, and a <c>%VAR%</c> reference to a variable set to the empty string
+    ///         expands to nothing.
+    ///     </para>
+    /// </remarks>
     public static string? Normalize(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -28,6 +41,14 @@ public static class PathNormalizer
                 expanded = Path.Combine(home, expanded[2..]);
         }
 
-        return Path.GetFullPath(expanded);
+        try
+        {
+            return Path.GetFullPath(expanded);
+        }
+        catch (Exception e)
+            when (e is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            return null;
+        }
     }
 }

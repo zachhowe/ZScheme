@@ -11,6 +11,24 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        // Nothing below is expected to throw -- every command catches what it can act on. This is
+        // the backstop for the ones that get past them, and it earns its place because zsup is
+        // published with <StackTraceSupport>false</StackTraceSupport>: an escaping exception prints
+        // "Unhandled exception. System.IOException: ..." and nothing else, which carries strictly
+        // less than the formatted line below and looks like a crash rather than a failure.
+        try
+        {
+            return Dispatch(args);
+        }
+        catch (Exception e)
+        {
+            Console.Error.WriteLine($"error: {e.Message}");
+            return 1;
+        }
+    }
+
+    private static int Dispatch(string[] args)
+    {
         // The canonical name rather than what was typed: the rest of the shim path turns it into a
         // file name and an argv[0] for the child.
         var invokedShim = ShimInstaller.MatchName(GetInvokedName());

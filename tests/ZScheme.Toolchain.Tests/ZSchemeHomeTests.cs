@@ -40,6 +40,15 @@ public sealed class ZSchemeHomeTests
     }
 
     [Fact]
+    public void GetHome_UnparseableValues_FallThrough()
+    {
+        // Every zsup command and every zs invocation resolves the home first, so a variable the OS
+        // will not parse has to degrade to the default rather than throw.
+        Assert.Equal(DefaultHome, ZSchemeHome.GetHome("\0", "\0"));
+        Assert.Equal(Path.GetFullPath("/tmp/from-env"), ZSchemeHome.GetHome("\0", "/tmp/from-env"));
+    }
+
+    [Fact]
     public void GetHome_ExpandsTilde()
     {
         var expected = Path.GetFullPath(
