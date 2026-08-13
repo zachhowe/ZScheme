@@ -170,6 +170,9 @@ internal static class SelfCommand
         for (var i = 0; i < args.Length; i++)
             switch (args[i])
             {
+                case "--help" or "-h":
+                    Console.WriteLine("Usage: zsup self uninstall --yes");
+                    return 0;
                 case "--yes" or "-y":
                     assumeYes = true;
                     break;
@@ -203,7 +206,26 @@ internal static class SelfCommand
             return 1;
         }
 
-        Directory.Delete(home, recursive: true);
+        try
+        {
+            Directory.Delete(home, recursive: true);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // One entry is enough to stop this: a cache file a concurrent compile still holds, or a
+            // toolchain left root-owned by a `sudo zsup install`. zsup is published with stack trace
+            // support off, so without this the user gets a bare unhandled-exception line -- for a
+            // delete that is recursive and has already taken part of the home with it.
+            Console.Error.WriteLine($"error: could not remove {home}: {e.Message}");
+            Console.Error.WriteLine(
+                "note: some of it is already gone, so what is left is not a working installation"
+            );
+            Console.Error.WriteLine(
+                "help: close anything using ZScheme, then delete the directory by hand"
+            );
+            return 1;
+        }
+
         Console.WriteLine($"removed {home}");
         Console.WriteLine("note: remove the ~/.zscheme/env line from your shell profile to finish");
         return 0;
