@@ -60,6 +60,23 @@ internal static class LinkCommand
                     + "build the project before using this toolchain"
             );
 
+        // A warning rather than the refusal `zsup install` gives the same gap: a link points at a
+        // tree that is still being built, so the binary may simply not exist yet. It is worth
+        // saying out loud all the same, because the CLI and the language server are separate
+        // projects with separate output directories -- linking either one's bin/Debug/net10.0
+        // directly produces exactly this, and `zs` then works perfectly while every editor using
+        // the toolchain fails to start a language server.
+        if (!File.Exists(toolchain.GetExecutablePath("zs-lsp")))
+        {
+            ZsupHelpers.Warn(
+                $"no {ZSchemeHome.ExeName("zs-lsp")} found in {toolchain.BinDir}; "
+                    + "editors using this toolchain will fail to start a language server"
+            );
+            Console.Error.WriteLine(
+                "help: build zs and zs-lsp into one directory (see build-dev-toolchain.ps1) and link that"
+            );
+        }
+
         return 0;
     }
 

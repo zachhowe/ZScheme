@@ -50,6 +50,11 @@ so a name never ends up with an installed directory and a link at once. The refu
 as the version is known and before any asset is fetched, so `zsup install latest` on an up-to-date
 installation costs one API call rather than a full release download.
 
+A payload without both `zs` and `zs-lsp` is refused whatever the name: they ship together, and one
+without the other installs cleanly and then fails from inside an editor, far from the install that
+caused it. This is reachable in practice only through `--from`, pointed at a single project's build
+output — see [Developing on the compiler itself](#developing-on-the-compiler-itself).
+
 `link` refuses `~/.zscheme/bin`, and the home directory above it, because the `zs` there is the shim
 itself: a toolchain pointing at it would make `zs` hand off to `zs` for as long as the machine held
 out. The shim refuses the same handoff when it is asked to make it, and gives up after eight
@@ -146,10 +151,25 @@ never be shared, is removed.
 ## Developing on the compiler itself
 
 ```sh
-dotnet build
-zsup link dev src/ZScheme.Cli/bin/Debug/net10.0
-zsup use dev
+pwsh ./build-dev-toolchain.ps1 -Use
 ```
+
+That builds both `zs` and `zs-lsp` into `dist/toolchain-dev/bin/`, links it as `dev`, and makes it
+the default. `-Name` picks another name, `-Configuration Release` another configuration, and
+`-NoLink` just builds the tree. Rerun it after a change: the link is a pointer, not a copy, so
+nothing has to be reinstalled — though an editor has to restart the language server to pick up a
+new `zs-lsp`, and on Windows a running one locks its own binary and has to be stopped before the
+build can replace it.
+
+Both projects, because **`zs` and `zs-lsp` always ship together**. They are separate projects with
+separate output directories, so neither `bin/Debug/net10.0` is a toolchain by itself: linking the
+CLI's gives a working `zs` and an editor that cannot start a language server, and linking the
+language server's gives a tree with no `zs` in it at all. `zsup install` refuses a payload missing
+either one, and `zsup link` warns about it — the tree may simply not have been built yet.
+
+The dev tree lives inside the checkout on purpose. The compiler finds the standard library by
+scanning up from its own location for a `packages/` directory, so `dist/toolchain-dev/bin/` resolves
+to the repository's `packages/`: stdlib edits are live too, and nothing is copied.
 
 A linked toolchain gets its own package cache at `~/.zscheme/cache-dev/<name>/`. Without that it
 would report the same compiler version as the released toolchain and write to the same

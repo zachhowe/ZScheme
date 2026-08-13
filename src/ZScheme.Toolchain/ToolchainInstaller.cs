@@ -84,6 +84,7 @@ public sealed class ToolchainInstaller(string? home = null)
 
             Stamp(staging);
             NormalizeLayout(staging, source);
+            RequireShims(staging);
             MarkExecutables(staging);
             WriteMetadata(staging, name, source, sha256);
 
@@ -253,6 +254,41 @@ public sealed class ToolchainInstaller(string? home = null)
             MoveInto(entry, Path.Combine(binDir, Path.GetFileName(entry)));
 
         Directory.Delete(temp);
+    }
+
+    /// <summary>
+    ///     Rejects a payload that is missing any of the executables a toolchain is made of.
+    /// </summary>
+    /// <remarks>
+    ///     <c>zs</c> and <c>zs-lsp</c> ship together — <c>publish.ps1</c> publishes both projects
+    ///     into one <c>bin/</c>, and <see cref="ShimInstaller" /> stamps both names in
+    ///     <c>~/.zscheme/bin</c> whatever the selected toolchain turns out to hold. A payload
+    ///     carrying only one of them installs cleanly and lists as a working toolchain, so the gap
+    ///     surfaces much later as <c>toolchain 'x' has no zs-lsp</c> from inside an editor, where
+    ///     nothing connects it to the install that caused it. <c>--from</c> a per-project build
+    ///     output is how it happens in practice: the CLI and the language server are separate
+    ///     projects with separate output directories.
+    ///     <para>
+    ///         Checked after <see cref="NormalizeLayout" /> so it reads the settled <c>bin/</c>
+    ///         rather than having to know which of the two input layouts it was given, and before
+    ///         <see cref="MarkExecutables" /> because a payload being rejected is not worth chmod'ing.
+    ///     </para>
+    /// </remarks>
+    private static void RequireShims(string staging)
+    {
+        var binDir = Path.Combine(staging, "bin");
+        var missing = ShimInstaller
+            .ShimNames.Select(ZSchemeHome.ExeName)
+            .Where(exe => !File.Exists(Path.Combine(binDir, exe)))
+            .ToArray();
+
+        if (missing.Length == 0)
+            return;
+
+        throw new InvalidOperationException(
+            $"the archive does not contain {string.Join(" or ", missing)}; "
+                + "zs and zs-lsp ship together"
+        );
     }
 
     /// <summary>

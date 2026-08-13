@@ -14,7 +14,8 @@ public sealed class ToolchainInstallerTests
         string dirName,
         bool nested = true,
         bool withPkgCache = true,
-        string compilerVersion = PayloadVersion
+        string compilerVersion = PayloadVersion,
+        bool withLsp = true
     )
     {
         var root = home.Dir(dirName);
@@ -22,7 +23,8 @@ public sealed class ToolchainInstallerTests
         Directory.CreateDirectory(binDir);
 
         File.WriteAllText(Path.Combine(binDir, ZSchemeHome.ExeName("zs")), "zs binary");
-        File.WriteAllText(Path.Combine(binDir, ZSchemeHome.ExeName("zs-lsp")), "lsp binary");
+        if (withLsp)
+            File.WriteAllText(Path.Combine(binDir, ZSchemeHome.ExeName("zs-lsp")), "lsp binary");
         File.WriteAllText(Path.Combine(binDir, "ZScheme.Compiler.dll"), "dll");
 
         var stdlib = Path.Combine(root, "packages", "stdlib");
@@ -311,6 +313,47 @@ public sealed class ToolchainInstallerTests
 
         Assert.False(Directory.Exists(ZSchemeHome.GetToolchainDir("0.4.0", home.Path)));
         Assert.Empty(Directory.EnumerateDirectories(ZSchemeHome.GetDownloadsDir(home.Path)));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void InstallFrom_PayloadWithoutTheLanguageServer_IsRejected(bool nested)
+    {
+        // zs and zs-lsp ship together. Installed, a payload with only zs looks like a working
+        // toolchain right up until an editor asks the shim for zs-lsp -- so it is refused here,
+        // where the archive that caused it is still in front of the user. Both layouts, because
+        // NormalizeLayout returns early for a payload that already has bin/zs and the check has to
+        // sit past that, not inside it.
+        using var home = new TempHome();
+        var payload = MakeToolchainPayload(home, "payload", nested: nested, withLsp: false);
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            new ToolchainInstaller(home.Path).InstallFrom(payload, "0.4.0")
+        );
+
+        Assert.Contains(ZSchemeHome.ExeName("zs-lsp"), error.Message);
+        Assert.False(Directory.Exists(ZSchemeHome.GetToolchainDir("0.4.0", home.Path)));
+        Assert.Empty(Directory.EnumerateDirectories(ZSchemeHome.GetDownloadsDir(home.Path)));
+    }
+
+    [Fact]
+    public void InstallFrom_PayloadWithoutTheLanguageServer_LeavesAnExistingInstallInPlace()
+    {
+        // The rejection happens before the commit point, so --force over a working toolchain with
+        // a partial payload must not cost the user the toolchain they already had.
+        using var home = new TempHome();
+        var installer = new ToolchainInstaller(home.Path);
+        installer.InstallFrom(MakeToolchainPayload(home, "good"), "0.4.0");
+
+        var partial = MakeToolchainPayload(home, "partial", withLsp: false);
+        Assert.Throws<InvalidOperationException>(() =>
+            installer.InstallFrom(partial, "0.4.0", force: true)
+        );
+
+        var installed = ZSchemeHome.GetToolchainDir("0.4.0", home.Path);
+        Assert.True(File.Exists(Path.Combine(installed, "bin", ZSchemeHome.ExeName("zs"))));
+        Assert.True(File.Exists(Path.Combine(installed, "bin", ZSchemeHome.ExeName("zs-lsp"))));
     }
 
     [Fact]
