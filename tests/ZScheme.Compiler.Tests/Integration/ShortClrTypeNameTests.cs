@@ -54,22 +54,31 @@ public class ShortClrTypeNameTests
         return Assembly.Load(((CompilationResult.IlOutputResult)result).OutputBytes);
     }
 
-    private static string InvokeString(Assembly asm, string methodName)
+    private static MethodInfo FindMethod(Assembly asm, string methodName)
     {
-        var method = asm.GetExportedTypes()
+        return asm.GetExportedTypes()
             .SelectMany(t => t.GetMethods())
             .First(m =>
                 m.Name.Equals(methodName, StringComparison.OrdinalIgnoreCase)
                 && m.GetParameters().Length == 0
             );
+    }
+
+    private static T Invoke<T>(Assembly asm, string methodName)
+    {
         try
         {
-            return (string)method.Invoke(null, null)!;
+            return (T)FindMethod(asm, methodName).Invoke(null, null)!;
         }
         catch (TargetInvocationException tie) when (tie.InnerException is not null)
         {
             throw tie.InnerException;
         }
+    }
+
+    private static string InvokeString(Assembly asm, string methodName)
+    {
+        return Invoke<string>(asm, methodName);
     }
 
     /// <summary>
@@ -427,5 +436,49 @@ public class ShortClrTypeNameTests
               (int-str (counter-value (new Counter))))
             """;
         Assert.Equal("7", InvokeString(CompileIl(source), "Compute"));
+    }
+
+    // ---- A short type name as the (Task T) argument of an async function ----
+    //
+    // IR lowering unwraps a `define-async`'s annotation to the inner result type, and that unwrap
+    // read the annotation as written where every other position reads a canonicalized type. The
+    // short name then reached the IL backend, whose lookup is fully-qualified-only, and mapped to
+    // `object`: the state machine's AsyncTaskMethodBuilder<> was closed over `object` while the
+    // body returned the value unboxed. ilverify accepts the result in both severities, so these
+    // tests must actually run the method and read the emitted signature.
+
+    private const string AsyncShortTaskArgument = """
+        (module asynctaskarg)
+
+        (import-clr
+          [new-guid System.Guid/NewGuid]
+          [guid-cmp System.Guid.CompareTo :instance : (System.Guid System.Guid -> Int)]
+          System
+          System.Threading.Tasks)
+
+        (define-async (bare-result) : (Task Guid) (new-guid))
+
+        (define-async (compute) : (Task Int)
+          (let ([g (await (bare-result))])
+            (+ 7 (guid-cmp g g))))
+        """;
+
+    /// <summary>A value-typed result is the fatal half: the unboxed <c>Guid</c> returned into a
+    ///     builder closed over <c>object</c> is an <c>InvalidProgramException</c> at JIT time.</summary>
+    [Fact]
+    public async Task ShortNameAsAnAsyncTaskArgument_Runs_Il()
+    {
+        var task = Invoke<Task<int>>(CompileIl(AsyncShortTaskArgument), "Compute");
+        Assert.Equal(7, await task);
+    }
+
+    /// <summary>The quieter half: a reference-typed result survives unboxed, so only the emitted
+    ///     signature shows the erasure — and it is what a C# consumer or an interface conformance
+    ///     check sees.</summary>
+    [Fact]
+    public void ShortNameAsAnAsyncTaskArgument_EmitsTaskOfThatType_Il()
+    {
+        var method = FindMethod(CompileIl(AsyncShortTaskArgument), "BareResult");
+        Assert.Equal(typeof(Task<Guid>), method.ReturnType);
     }
 }

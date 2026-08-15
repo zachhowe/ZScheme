@@ -1220,22 +1220,30 @@ public sealed class IrLowering
             .ToList();
         var body = Lower(n.Body);
 
-        // Unwrap Task<T> to get the inner return type for the IR
+        // Unwrap Task<T> to get the inner return type for the IR. Canonicalized, unlike
+        // LowerDefine just above, which reads the *inferred* return type and so gets a name the
+        // canonicalizer already rewrote: the annotation here is the source text verbatim, so a
+        // short CLR name — `(Task Guid)` under an `(import-clr System)` — would reach codegen
+        // unresolved. The IL backend resolves names to metadata tokens itself and its lookup is
+        // fully-qualified-only, so a bare one erases to `object`: the state machine's builder
+        // closes over `object` while the body returns the value unboxed, which is an
+        // InvalidProgramException at JIT time for a value type and a wrong public
+        // `Task<object>` signature for a reference type.
+        var retAnnotation = CanonOrNull(n.ReturnTypeAnnotation);
         ZType retType;
         if (
-            n.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [var innerT] } taskNt
+            retAnnotation is ZType.ZNamedType { TypeArgs: [var innerT] } taskNt
             && _typeAliases.IsTaskName(taskNt.Name)
         )
             retType = innerT;
         else if (
-            n.ReturnTypeAnnotation is ZType.ZNamedType { TypeArgs: [] } nonGenericTask
+            retAnnotation is ZType.ZNamedType { TypeArgs: [] } nonGenericTask
             && _typeAliases.IsTaskName(nonGenericTask.Name)
         )
             retType = ZType.Unit;
         else
             retType =
-                n.ReturnTypeAnnotation
-                ?? (n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit);
+                retAnnotation ?? (n.ResolvedType is ZType.ZFuncType ft ? ft.Return : ZType.Unit);
 
         var isSelfRecursive = BodyReferences(n.Body, n.FnName);
 
