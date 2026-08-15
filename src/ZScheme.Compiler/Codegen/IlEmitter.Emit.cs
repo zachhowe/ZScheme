@@ -6172,10 +6172,27 @@ public sealed partial class IlEmitter
                         CurrentBaseTypeDefinition = baseTypeDef,
                     };
 
+                    // The two IR shapes for an async return type meet here. An IrObjectMethod
+                    // keeps the annotation as written — `(Task T)` — because the shell signature
+                    // above maps it straight to the method's declared return type; a FuncDef
+                    // carries the *result* T, IrLowering having unwrapped it, and the async
+                    // emitter closes AsyncTaskMethodBuilder<> over exactly that. Handing the
+                    // wrapped type over unchanged builds a state machine whose builder is
+                    // AsyncTaskMethodBuilder<Task<T>> while the method still declares Task<T>,
+                    // so SetResult stores a T where a reference is expected.
+                    var resultType = method.ReturnType switch
+                    {
+                        ZType.ZNamedType { TypeArgs: [var inner] } taskNt
+                            when _typeAliases.IsTaskName(taskNt.Name) => inner,
+                        ZType.ZNamedType { TypeArgs: [] } voidTask
+                            when _typeAliases.IsTaskName(voidTask.Name) => ZType.Unit,
+                        var other => other,
+                    };
+
                     var syntheticFunc = new IrNode.FuncDef(
                         method.Name,
                         method.Params,
-                        method.ReturnType,
+                        resultType,
                         method.Body,
                         false
                     )

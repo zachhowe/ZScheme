@@ -878,6 +878,125 @@ public class EndToEndTests
         Assert.Equal(3, CompileIlAndAwaitInt(source));
     }
 
+    // ---- An async class method's state-machine builder ----
+    //
+    // The two IR shapes for an async return type meet at the class-method path: an
+    // IrObjectMethod keeps the `(Task T)` annotation, a FuncDef carries the unwrapped result,
+    // and the async emitter takes the FuncDef convention. The synthetic FuncDef built for a
+    // class method handed the annotation over unchanged, so the state machine closed
+    // AsyncTaskMethodBuilder<> over `Task<T>` while the method still declared `Task<T>`.
+    // SetResult then stored a T where a reference was expected: silently wrong for a value
+    // type, an AccessViolationException in the worst shape. The assembly verifies clean under
+    // ilverify, so these tests run the method and read the emitted state machine.
+
+    private const string AsyncClassMethodReturningAValueType = """
+        (namespace IlAsyncClassMethodBuilder)
+        (module m)
+
+        (import-clr
+          [guid-parse System.Guid/Parse]
+          [guid-cmp   System.Guid.CompareTo :instance : (System.Guid System.Guid -> Int)]
+          System
+          System.Threading.Tasks)
+
+        (define (expected) : System.Guid
+          (guid-parse "11111111-1111-1111-1111-111111111111"))
+
+        (define-async (leaf) : (Task Int) 1)
+
+        (define-class Holder
+          [seed : Int]
+          (define-async (Get) : (Task System.Guid)
+            (let ([_ (await (leaf))]) (expected))))
+
+        (define-async (compute) : (Task Int)
+          (let ([g (await (Holder/Get (Holder 1)))])
+            (+ 7 (guid-cmp g (expected)))))
+        """;
+
+    /// <summary>A value-typed result is the silent half: a 16-byte <c>Guid</c> stored where the
+    ///     builder expects a reference, so the awaiting caller reads back something that is not
+    ///     the Guid the body produced. `guid-cmp` returns 0 only if it survived.</summary>
+    [Fact]
+    public void IlAsync_ClassMethodReturningAValueType_RoundTripsTheResult()
+    {
+        Assert.Equal(7, CompileIlAndAwaitInt(AsyncClassMethodReturningAValueType));
+    }
+
+    /// <summary>The structural half, which is what fails identically for a reference-typed
+    ///     result — that one only survives because a pointer stored where a pointer is expected
+    ///     reads back intact.</summary>
+    [Fact]
+    public void IlAsync_ClassMethodStateMachine_ClosesItsBuilderOverTheResultType()
+    {
+        var compilation = new Compilation(
+            new CompilerOptions
+            {
+                OutputMode = OutputMode.Il,
+                AllowsImplicitModuleName = true,
+                PackagePaths = new Dictionary<string, string> { ["stdlib"] = GetStdLibPath() },
+            }
+        );
+        var result = compilation.Compile(AsyncClassMethodReturningAValueType);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+
+        var ilResult = (CompilationResult.IlOutputResult)result;
+        var asm = Assembly.Load(ilResult.OutputBytes);
+        var holder = asm.GetExportedTypes().First(t => t.Name == "Holder");
+
+        // The method's declared return type and its state machine's builder must agree.
+        Assert.Equal(
+            typeof(System.Threading.Tasks.Task<Guid>),
+            holder.GetMethod("Get")!.ReturnType
+        );
+        var stateMachine = holder.GetNestedTypes(BindingFlags.NonPublic).Single(t => t.Name.Contains("Get"));
+        Assert.Equal(
+            typeof(System.Runtime.CompilerServices.AsyncTaskMethodBuilder<Guid>),
+            stateMachine.GetField("__builder", BindingFlags.Instance | BindingFlags.Public)!.FieldType
+        );
+    }
+
+    /// <summary>The same method under TCO: a non-tail await keeps the state machine, and the tail
+    ///     self-call is a back-edge inside MoveNext, so the loop's leaves store into the result
+    ///     local the builder is closed over.</summary>
+    [Fact]
+    public void IlAsync_ClassMethodLoopingOverAValueTypedResult_RoundTripsTheResult()
+    {
+        var source =
+            """
+            (namespace IlAsyncClassMethodBuilderTco)
+            (module m)
+
+            (import-clr
+              [guid-parse System.Guid/Parse]
+              [guid-cmp   System.Guid.CompareTo :instance : (System.Guid System.Guid -> Int)]
+              System
+              System.Threading.Tasks)
+
+            (define (expected) : System.Guid
+              (guid-parse "11111111-1111-1111-1111-111111111111"))
+
+            (define-async (leaf) : (Task Int) 1)
+
+            (define-class Holder
+              [seed : Int]
+              (define-async (Countdown [n : Int]) : (Task System.Guid)
+                (if (= n 0)
+                    (expected)
+                    (let ([_ (await (leaf))])
+                      (await (Countdown (- n 1)))))))
+
+            (define-async (compute) : (Task Int)
+              (let ([g (await (Holder/Countdown (Holder 1) 3))])
+                (+ 7 (guid-cmp g (expected)))))
+            """;
+
+        Assert.Equal(7, CompileIlAndAwaitInt(source));
+    }
+
     [Fact]
     public void AwaitNonGenericTask()
     {
