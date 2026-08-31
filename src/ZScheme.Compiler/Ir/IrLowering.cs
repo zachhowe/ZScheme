@@ -20,7 +20,6 @@ public sealed class IrLowering
     // member name cannot be recovered from the string.
     private readonly Dictionary<string, string> _classFieldAccessors = new();
     private readonly Dictionary<string, string> _classMethodAccessors = new();
-
     // Interfaces this module declares, keyed by the name their declaration wrote, so an
     // interface's base list is reachable when a later one inherits from it
     private readonly Dictionary<string, AstNode.InterfaceDecl> _interfaceDecls = new();
@@ -2061,7 +2060,6 @@ public sealed class IrLowering
                 inheritedName
             );
 
-        _interfaceDecls[n.InterfaceName] = n;
 
         return new IrNode.InterfaceDecl(
             n.InterfaceName,
