@@ -217,7 +217,7 @@ public class GenericEmitterTests
         var cs = Compile(
             "(module test)\n"
                 + "(define-record (Box ^a ^b) :where (^a struct) [v : ^b])\n"
-                + "(define (main) : Int (Box/v (Box 7)))"
+                + "(define (main) : Int (Box-v (Box 7)))"
         );
         Assert.DoesNotContain("Box<object,", cs);
         Assert.Contains("new Box<int, int>(V: 7)", cs);

@@ -479,6 +479,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         string? outputType = null;
         bool? warnUnusedParams = null;
         bool? warnUnloopedRecursion = null;
+        bool? warnDeprecatedAccessorSyntax = null;
 
         for (var i = 1; i < section.Items.Count; i++)
         {
@@ -558,6 +559,23 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                     }
 
                     break;
+                case "warn-deprecated-accessor-syntax":
+                    var warnAccStr = ExpectStringField(
+                        field,
+                        "warn-deprecated-accessor-syntax"
+                    );
+                    if (warnAccStr is not null)
+                    {
+                        if (warnAccStr is "true" or "false")
+                            warnDeprecatedAccessorSyntax = warnAccStr == "true";
+                        else
+                            diagnostics.Warning(
+                                "warn-deprecated-accessor-syntax must be \"true\" or \"false\"",
+                                field.Span
+                            );
+                    }
+
+                    break;
                 default:
                     diagnostics.Warning(
                         $"Unknown main build field: '{keyword.Text}'",
@@ -575,7 +593,8 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             sdk,
             outputType,
             warnUnusedParams,
-            warnUnloopedRecursion
+            warnUnloopedRecursion,
+            warnDeprecatedAccessorSyntax
         );
     }
 

@@ -23,11 +23,11 @@ public sealed class StdlibErrorGenerator
             && _ctx.Imports.Contains(StdlibImport.Option);
     }
 
-    // (match (Error/inner <chain>) [None 0] [(Some _) 1])
+    // (match (Error-inner <chain>) [None 0] [(Some _) 1])
     public string CauseDepthToInt(Scope scope, int depth)
     {
         var chain = BuildErrorChain(scope, depth);
-        return $"(match (Error/inner {chain}) [None 0] [(Some _) 1])";
+        return $"(match (Error-inner {chain}) [None 0] [(Some _) 1])";
     }
 
     // 60% bare `(make-error "msg")`, 40% chained via direct Error ctor with a

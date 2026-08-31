@@ -1151,7 +1151,7 @@ public class EndToEndTests
 (define-class Point
   [x : Float]
   [y : Float])
-(define (get-x [p : Point]) : Float (Point/x p))";
+(define (get-x [p : Point]) : Float (Point-x p))";
         var cs = Compile(source);
         Assert.Contains("public sealed class Point", cs);
         Assert.Contains("p.X", cs);
@@ -1165,7 +1165,7 @@ public class EndToEndTests
 (define-class Counter
   [value : Int]
   (define (next) : Int (+ value 1)))
-(define (get-next [c : Counter]) : Int (Counter/next c))";
+(define (get-next [c : Counter]) : Int (Counter-next c))";
         var cs = Compile(source);
         Assert.Contains("public sealed class Counter", cs);
         Assert.Contains("c.Next()", cs);
@@ -1467,7 +1467,7 @@ public class EndToEndTests
   (constructor [a0 : Int]
     (set! f0 a0))
   (define (get) : Int f0))
-(define (compute) : Int (FCls_0/get (new FCls_0 42)))";
+(define (compute) : Int (FCls_0-get (new FCls_0 42)))";
         var cs = Compile(source);
         Assert.Contains("new FCls_0(42)", cs);
         Assert.DoesNotContain("F0:", cs);
@@ -1574,7 +1574,7 @@ public class EndToEndTests
 (define (roundtrip) : String
   (let ([json (json-serialize (W ""gadget"" 7))])
     (let ([w (json-deserialize json)])
-      (W/name w))))";
+      (W-name w))))";
         var compilation = new Compilation(
             new CompilerOptions
             {
@@ -1614,7 +1614,7 @@ public class EndToEndTests
 (define (roundtrip) : String
   (let ([json (json-serialize (W ""gadget"" 7))])
     (let ([w : W (json-deserialize json)])
-      (W/name w))))";
+      (W-name w))))";
         var compilation = new Compilation(
             new CompilerOptions
             {
@@ -1646,7 +1646,7 @@ public class EndToEndTests
   (constructor [a0 : Int]
     (set! f0 a0))
   (define (get) : Int f0))
-(define (compute) : Int (FCls_0/get (new FCls_0 42)))";
+(define (compute) : Int (FCls_0-get (new FCls_0 42)))";
 
         var compilation = new Compilation(
             new CompilerOptions
@@ -1928,7 +1928,7 @@ public class EndToEndTests
   (let ([obj (object : Base
     (constructor (super (g 7)))
     (define (M [p : Int]) : Int p))])
-    (Base/f0 obj)))
+    (Base-f0 obj)))
 
 (define (compute) : Int
   (run (lambda ([n : Int]) (+ n 35))))";
@@ -1991,7 +1991,7 @@ public class EndToEndTests
   ((lambda ([m : Int])
     (let ([b (object : Box
               (constructor (super (f m))))])
-      (Box/v b)))
+      (Box-v b)))
    7))
 
 (define (compute) : Int
@@ -2050,7 +2050,7 @@ public class EndToEndTests
 (define (f0 [a : Int] [b : Int]) : Int (+ a b))
 
 (define (compute) : Int
-  (FCls_0/f0 (object : FCls_0
+  (FCls_0-f0 (object : FCls_0
     (constructor (super (f0 1 2)))
     (define (M0_0) : Int 7))))";
 
@@ -2241,7 +2241,7 @@ public class EndToEndTests
     (super a0)
     (set! d a0))
   (define (get) : Int d))
-(define (compute) : Int (Derived/get (new Derived 7)))";
+(define (compute) : Int (Derived-get (new Derived 7)))";
         var cs = Compile(source);
         Assert.Contains("new Derived(7)", cs);
         Assert.DoesNotContain("D:", cs);
@@ -2822,7 +2822,7 @@ public class EndToEndTests
                 @"(module test)
 (import geom)
 (define (compute) : Int
-  (Point/x (make-point 7 9)))";
+  (Point-x (make-point 7 9)))";
 
             var compilation = new Compilation(
                 new CompilerOptions
@@ -3244,7 +3244,7 @@ public class EndToEndTests
             var fieldSource =
                 $@"(module test)
 (import {moduleName})
-(define (compute) : Int (- (R/b (R 10)) (r/a (r 7))))";
+(define (compute) : Int (- (R-b (R 10)) (r-a (r 7))))";
             var csResult = (CompilationResult.CSharpOutputResult)
                 new Compilation(
                     new CompilerOptions
@@ -3300,7 +3300,7 @@ public class EndToEndTests
             var source =
                 $@"(module test)
 (import {moduleName})
-(define (compute) : Int (r/a (r 7)))";
+(define (compute) : Int (r-a (r 7)))";
             var result = new Compilation(
                 new CompilerOptions
                 {
@@ -3998,7 +3998,7 @@ public class EndToEndTests
 (define-class Counter
   [value : Int]
   (define (next) : Int (+ value 1)))
-(define (get-next [c : Counter]) : Int (Counter/next c))";
+(define (get-next [c : Counter]) : Int (Counter-next c))";
 
         var compilation = new Compilation(
             new CompilerOptions
@@ -4594,7 +4594,7 @@ public class EndToEndTests
     (define (get) : Int (helper v))))
 
 (define (compute [v : Int]) : Int
-  (IBox/get (make-box v)))";
+  (IBox-get (make-box v)))";
 
         var compilation = new Compilation(
             new CompilerOptions
@@ -4858,7 +4858,7 @@ public class EndToEndTests
     (set! value (with-handlers ([System.Exception x] 1) 42))))
 
 (define (compute) : Int
-  (Box/value (new Box)))";
+  (Box-value (new Box)))";
 
         var compilation = new Compilation(
             new CompilerOptions
@@ -4905,7 +4905,7 @@ public class EndToEndTests
       (with-handlers ([System.Exception x] 7)
         (raise (new System.Exception ""boom"")))))
     (define (Age) : Int 0))])
-    (Animal/age a)))";
+    (Animal-age a)))";
 
         var compilation = new Compilation(
             new CompilerOptions
@@ -4951,7 +4951,7 @@ public class EndToEndTests
     ((lambda ([dummy : Int]) value) 0)))
 
 (define (compute) : Int
-  (Counter/get-via-lambda (new Counter 42) 0))";
+  (Counter-get-via-lambda (new Counter 42) 0))";
 
         var compilation = new Compilation(
             new CompilerOptions
@@ -4996,7 +4996,7 @@ public class EndToEndTests
     (((lambda ([x : Int]) (lambda ([y : Int]) (+ value (+ x y)))) 3) 4)))
 
 (define (compute) : Int
-  (Counter/nested (new Counter 10) 0))";
+  (Counter-nested (new Counter 10) 0))";
 
         var compilation = new Compilation(
             new CompilerOptions
@@ -5040,7 +5040,7 @@ public class EndToEndTests
       ((lambda ([x : Int]) value) 0))))
 
 (define (compute) : Int
-  (Counter/shadowed (new Counter 1) 0))";
+  (Counter-shadowed (new Counter 1) 0))";
 
         var compilation = new Compilation(
             new CompilerOptions
@@ -5084,7 +5084,7 @@ public class EndToEndTests
       value)))
 
 (define (compute) : Int
-  (Counter/write-via-lambda (new Counter 0) 7))";
+  (Counter-write-via-lambda (new Counter 0) 7))";
 
         var compilation = new Compilation(
             new CompilerOptions
@@ -5322,7 +5322,7 @@ public class EndToEndTests
 (import stdlib/result)
 (define-record (FRec ^a) [val : ^a])
 (define (compute) : Int
-  (FRec/val (with (FRec 0) [val (let ([x : (Result Int String) (Ok 42)])
+  (FRec-val (with (FRec 0) [val (let ([x : (Result Int String) (Ok 42)])
                                    (match x [(Ok v) v] [(Err _) 0]))])))";
 
         var cs = Compile(source);
@@ -5345,7 +5345,7 @@ public class EndToEndTests
 (import stdlib/result)
 (define-record (FRec ^a) [val : ^a])
 (define (compute) : Int
-  (FRec/val (with (FRec 0) [val (let ([x : (Result Int String) (Ok 42)])
+  (FRec-val (with (FRec 0) [val (let ([x : (Result Int String) (Ok 42)])
                                    (match x [(Ok v) v] [(Err _) 0]))])))";
 
         var compilation = new Compilation(
@@ -5570,7 +5570,7 @@ public class EndToEndTests
       (let ([x54 (object : FCls_0
         (constructor (super (let ([x55 x51]) x55) 41))
         (define (M0_0 [p0 : Int]) : Int p0))])
-        (FCls_0/f0 x54))]
+        (FCls_0-f0 x54))]
     [None 0]))";
 
         var compilation = new Compilation(
@@ -6973,8 +6973,8 @@ public class EndToEndTests
   (define (incr) : Int (begin (set! count (+ count 1)) count)))
 (define (compute) : Int
   (let ([c (new Counter)])
-    (let ([_ (<= 1 (Counter/incr c) 100)])
-      (Counter/count c))))";
+    (let ([_ (<= 1 (Counter-incr c) 100)])
+      (Counter-count c))))";
         var compilation = new Compilation(
             new CompilerOptions
             {
@@ -7659,6 +7659,46 @@ public class EndToEndTests
         Assert.Equal(3, CompileCSharpAndRunInt(source));
     }
 
+    // ---- Deprecated `Type/member` accessor syntax (ZS0006) ----
+
+    [Fact]
+    public void DeprecatedAccessor_RunsIdenticallyOnBothBackends()
+    {
+        // The old spelling is rewritten during inference, so both backends see the same IR.
+        var legacy =
+            @"(module test)
+(define-record Point [x : Int] [y : Int])
+(define-struct s-v [a : Int])
+(define (compute) : Int (+ (Point/x (Point 3 4)) (s-v/a (s-v 7))))";
+        Assert.Equal(10, CompileIlAndRunInt(legacy));
+        Assert.Equal(10, CompileCSharpAndRunInt(legacy));
+    }
+
+    [Fact]
+    public void DeprecatedAccessor_EmitsSameCSharpAsModernSpelling()
+    {
+        const string preamble =
+            @"(module test)
+(define-record Point [x : Int] [y : Int])
+(define (compute) : Int ";
+        var modern = Compile(preamble + "(Point-x (Point 3 4)))");
+        var legacy = Compile(preamble + "(Point/x (Point 3 4)))");
+        Assert.Equal(modern, legacy);
+    }
+
+    [Fact]
+    public void DeprecatedAccessor_OnClassMethod_RunsCorrectly()
+    {
+        var source =
+            @"(module test)
+(define-class Counter
+  [count : Int]
+  (define (Bump) : Int (+ count 1)))
+(define (compute) : Int (+ (Counter/count (Counter 9)) (Counter/Bump (Counter 9))))";
+        Assert.Equal(19, CompileIlAndRunInt(source));
+        Assert.Equal(19, CompileCSharpAndRunInt(source));
+    }
+
     // ---- Type-name collision disambiguation (EmitNameResolver) ----
 
     [Fact]
@@ -7670,7 +7710,7 @@ public class EndToEndTests
             @"(module test)
 (define-record r [a : Int])
 (define-record R [b : Int])
-(define (compute) : Int (- (R/b (R 10)) (r/a (r 7))))";
+(define (compute) : Int (- (R-b (R 10)) (r-a (r 7))))";
         Assert.Equal(3, CompileIlAndRunInt(source));
         Assert.Equal(3, CompileCSharpAndRunInt(source));
     }
@@ -7682,7 +7722,7 @@ public class EndToEndTests
             @"(module test)
 (define-record r [a : Int])
 (define-record R [b : Int])
-(define (compute) : Int (- (R/b (R 10)) (r/a (r 7))))";
+(define (compute) : Int (- (R-b (R 10)) (r-a (r 7))))";
         var cs = Compile(source);
         Assert.Contains("record R(", cs); // first claimant keeps the base name
         Assert.Contains("R_type", cs); // collider disambiguated
@@ -7713,7 +7753,7 @@ public class EndToEndTests
             @"(module test)
 (define-record counter [n : Int])
 (define (Counter) : Int 7)
-(define (compute) : Int (- (counter/n (counter 10)) (Counter)))";
+(define (compute) : Int (- (counter-n (counter 10)) (Counter)))";
         Assert.Equal(3, CompileIlAndRunInt(source));
         Assert.Equal(3, CompileCSharpAndRunInt(source));
     }
@@ -7727,7 +7767,7 @@ public class EndToEndTests
             @"(module test)
 (define-struct s-v [a : Int])
 (define-record SV [b : Int])
-(define (compute) : Int (- (SV/b (SV 10)) (s-v/a (s-v 7))))";
+(define (compute) : Int (- (SV-b (SV 10)) (s-v-a (s-v 7))))";
         Assert.Equal(3, CompileIlAndRunInt(source));
         Assert.Equal(3, CompileCSharpAndRunInt(source));
     }
@@ -7739,7 +7779,7 @@ public class EndToEndTests
         var source =
             @"(module test)
 (define-record Widget [v : Int])
-(define (compute) : Int (Widget/v (Widget 3)))";
+(define (compute) : Int (Widget-v (Widget 3)))";
         var cs = Compile(source);
         Assert.DoesNotContain("_type", cs);
         Assert.Equal(3, CompileIlAndRunInt(source));
@@ -8239,10 +8279,10 @@ public class EndToEndTests
         + MultiExprAcc
         + @"
 (define (run [a : Acc]) : Int
-  (Acc/bump a 1)
-  (Acc/bump a 2)
-  (Acc/bump a 3)
-  (Acc/get a))
+  (Acc-bump a 1)
+  (Acc-bump a 2)
+  (Acc-bump a 3)
+  (Acc-get a))
 (define (Compute) : Int (run (new Acc 0)))";
 
     [Fact]
@@ -8260,7 +8300,7 @@ public class EndToEndTests
         + @"
 (define (Compute) : Int
   (let ([a (new Acc 0)])
-    (let ([f (lambda () : Int (Acc/bump a 1) (Acc/bump a 2) (Acc/bump a 3) (Acc/get a))])
+    (let ([f (lambda () : Int (Acc-bump a 1) (Acc-bump a 2) (Acc-bump a 3) (Acc-get a))])
       (f))))";
 
     [Fact]
@@ -8281,10 +8321,10 @@ public class EndToEndTests
         + @"
 (define ga (new Acc 0))
 (define-async (Compute) : (Task Int)
-  (Acc/bump ga 1)
-  (Acc/bump ga 2)
-  (Acc/bump ga 3)
-  (Acc/get ga))";
+  (Acc-bump ga 1)
+  (Acc-bump ga 2)
+  (Acc-bump ga 3)
+  (Acc-get ga))";
 
     [Fact]
     public void AsyncMultiExprBody_RunsEveryStatementInOrder_Il() =>

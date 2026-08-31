@@ -69,7 +69,12 @@ public sealed record MainBuildConfig(
     // (warn-unlooped-recursion "false") disables ZS0005 warnings about self-recursion that
     // is not compiled as a loop; null means "not specified" (compiler default: on). The
     // CLI's --no-warn-unlooped-recursion wins over this.
-    bool? WarnUnloopedRecursion = null
+    bool? WarnUnloopedRecursion = null,
+    // (warn-deprecated-accessor-syntax "false") disables ZS0006 warnings about member
+    // accessors written with the deprecated `Type/member` spelling; null means "not
+    // specified" (compiler default: on). The CLI's --no-warn-deprecated-accessor-syntax
+    // wins over this.
+    bool? WarnDeprecatedAccessorSyntax = null
 );
 
 public sealed record TestBuildConfig(

@@ -4,6 +4,7 @@ using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Builtins;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
+using ZScheme.Compiler.Syntax;
 using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Ir;
@@ -13,8 +14,12 @@ using static ClrImportKind;
 public sealed class IrLowering
 {
     private static readonly ILogger _log = Log.ForContext<IrLowering>();
-    private readonly HashSet<string> _classFieldAccessors = new();
-    private readonly HashSet<string> _classMethodAccessors = new();
+    // Accessor binding name (e.g. "HttpResponse-status-code") -> member name
+    // ("status-code"). A map rather than a set + split: the type half of an accessor name
+    // can itself contain the '-' separator (a record named `s-v` yields `s-v-a`), so the
+    // member name cannot be recovered from the string.
+    private readonly Dictionary<string, string> _classFieldAccessors = new();
+    private readonly Dictionary<string, string> _classMethodAccessors = new();
 
     private readonly Dictionary<
         string,
@@ -289,7 +294,7 @@ public sealed class IrLowering
     {
         _recordCtors[recordName] = fieldNames;
         foreach (var fieldName in fieldNames)
-            _classFieldAccessors.Add($"{recordName}/{fieldName}");
+            _classFieldAccessors[AccessorNaming.Accessor(recordName, fieldName)] = fieldName;
     }
 
     /// <summary>
@@ -819,24 +824,22 @@ public sealed class IrLowering
         // in stdlib (see packages/stdlib/src/{vector,list,hash,mutable/{vector,list,hash}}.zs).
         // They are ordinary stdlib functions and lower through the normal call path.
 
-        // Check for class/interface slash-syntax accessor (ClassName/field or ClassName/method)
-        if (n.Function is AstNode.Name slashName && n.Args.Count >= 1)
+        // Check for a member accessor (TypeName-field or TypeName-method). A deprecated
+        // `TypeName/member` spelling was rewritten by the type inferer, which leaves the
+        // modern name on ResolvedAccessorName, so only modern names are looked up here.
+        if (n.Function is AstNode.Name accessorName && n.Args.Count >= 1)
         {
-            if (_classFieldAccessors.Contains(slashName.Value))
-            {
-                var slashIdx = slashName.Value.IndexOf('/');
-                var fieldName = slashName.Value[(slashIdx + 1)..];
+            var lookupName = accessorName.ResolvedAccessorName ?? accessorName.Value;
+
+            if (_classFieldAccessors.TryGetValue(lookupName, out var fieldName))
                 return new IrNode.MethodCall(Lower(n.Args[0]), fieldName, [], true, false)
                 {
                     Type = n.ResolvedType ?? ZType.Unit,
                     Span = n.Span,
                 };
-            }
 
-            if (_classMethodAccessors.Contains(slashName.Value))
+            if (_classMethodAccessors.TryGetValue(lookupName, out var methodName))
             {
-                var slashIdx = slashName.Value.IndexOf('/');
-                var methodName = slashName.Value[(slashIdx + 1)..];
                 var restArgs = n.Args.Skip(1).Select(Lower).ToList();
                 return new IrNode.MethodCall(Lower(n.Args[0]), methodName, restArgs, false, false)
                 {
@@ -1350,7 +1353,7 @@ public sealed class IrLowering
             .ToList();
         _recordCtors[n.RecordName] = n.Fields.Select(f => f.Name).ToList();
         foreach (var f in n.Fields)
-            _classFieldAccessors.Add($"{n.RecordName}/{f.Name}");
+            _classFieldAccessors[AccessorNaming.Accessor(n.RecordName, f.Name)] = f.Name;
         if (n.IsValueType)
             _valueTypeRecords.Add(n.RecordName);
         var record = new IrNode.RecordDecl(
@@ -1920,11 +1923,11 @@ public sealed class IrLowering
         if (n.Constructor is null)
             _recordCtors[n.ClassName] = n.Fields.Select(f => f.Name).ToList();
 
-        // Register slash-syntax accessors for field/method lowering
+        // Register member accessors for field/method lowering
         foreach (var f in n.Fields)
-            _classFieldAccessors.Add($"{n.ClassName}/{f.Name}");
+            _classFieldAccessors[AccessorNaming.Accessor(n.ClassName, f.Name)] = f.Name;
         foreach (var m in n.Methods)
-            _classMethodAccessors.Add($"{n.ClassName}/{m.Name}");
+            _classMethodAccessors[AccessorNaming.Accessor(n.ClassName, m.Name)] = m.Name;
 
         // Lower explicit constructor if present
         IrConstructor? irCtor = null;
@@ -1976,9 +1979,9 @@ public sealed class IrLowering
             })
             .ToList();
 
-        // Register slash-syntax accessors for method lowering
+        // Register member accessors for method lowering
         foreach (var m in n.Methods)
-            _classMethodAccessors.Add($"{n.InterfaceName}/{m.Name}");
+            _classMethodAccessors[AccessorNaming.Accessor(n.InterfaceName, m.Name)] = m.Name;
 
         return new IrNode.InterfaceDecl(
             n.InterfaceName,
