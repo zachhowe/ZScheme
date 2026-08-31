@@ -26,7 +26,7 @@ public sealed class PreludeModuleDetectionTests
     ///     declares would be in scope no matter which prelude this compilation injects.</summary>
     private const string ShadowSource = """
         (module shadow)
-        (export StringBuilder StringBuilder/n)
+        (export StringBuilder StringBuilder-n)
         (define-record StringBuilder [n : Int])
         """;
 

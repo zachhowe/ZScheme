@@ -58,6 +58,9 @@ internal static class BuildCommand
                 case "--no-warn-unlooped-recursion":
                     overrides.WarnUnloopedRecursion = false;
                     break;
+                case "--no-warn-deprecated-accessor-syntax":
+                    overrides.WarnDeprecatedAccessorSyntax = false;
+                    break;
             }
 
         Log.Debug(

@@ -783,6 +783,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 // (warn-unlooped-recursion "false") has to reach the sub-compilation to mean
                 // anything.
                 WarnUnloopedRecursion = options.WarnUnloopedRecursion,
+                WarnDeprecatedAccessorSyntax = options.WarnDeprecatedAccessorSyntax,
             };
             var compilation = new Compilation(subOptions);
 

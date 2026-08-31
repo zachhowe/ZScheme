@@ -50,4 +50,17 @@ public static class DiagnosticCodes
     ///     </para>
     /// </summary>
     public const string NonLoopedSelfRecursion = "ZS0005";
+
+    /// <summary>
+    ///     A member accessor written with the deprecated <c>Type/member</c> spelling instead
+    ///     of <c>Type-member</c>. Data: <c>[0]</c> = the name as written, <c>[1]</c> = the
+    ///     modern replacement; the span covers the accessor atom, so the LSP quick fix is a
+    ///     straight replacement with <c>[1]</c>.
+    ///     <para>
+    ///         The old spelling still resolves — see <c>Syntax/AccessorNaming.cs</c> — but is
+    ///         slated for removal. Silence the warning for a whole compilation with
+    ///         <c>CompilerOptions.WarnDeprecatedAccessorSyntax</c>.
+    ///     </para>
+    /// </summary>
+    public const string DeprecatedAccessorSyntax = "ZS0006";
 }

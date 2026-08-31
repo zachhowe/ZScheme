@@ -3,6 +3,7 @@ using Serilog;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
+using ZScheme.Compiler.Syntax;
 
 namespace ZScheme.Compiler.Types;
 
@@ -87,6 +88,14 @@ public sealed class TypeInferer
     ///     their bare name.
     /// </summary>
     public string? CurrentModuleName { get; set; }
+
+    /// <summary>
+    ///     Whether resolving a deprecated <c>Type/member</c> accessor spelling emits
+    ///     <c>ZS0006</c>. Defaults to on; the pipeline sets it from
+    ///     <c>CompilerOptions.WarnDeprecatedAccessorSyntax</c>. The old spelling keeps
+    ///     resolving either way — this only silences the warning.
+    /// </summary>
+    public bool WarnDeprecatedAccessorSyntax { get; set; } = true;
 
     /// <summary>
     ///     Out-param metadata detected during type inference, keyed by import alias.
@@ -308,6 +317,11 @@ public sealed class TypeInferer
                 return Assign(node, FreshVar());
             }
 
+            // Last resort: the deprecated `Type/member` accessor spelling. Rewrite it to
+            // `Type-member` and retry, so old sources keep compiling for one release.
+            if (TryResolveLegacyAccessor(node, env) is { } legacyType)
+                return Assign(node, legacyType);
+
             Diagnostics.Error(
                 $"Undefined variable: '{node.Value}'",
                 node.Span,
@@ -320,6 +334,75 @@ public sealed class TypeInferer
 
         var instantiated = Instantiate(type);
         return Assign(node, instantiated);
+    }
+
+    /// <summary>
+    ///     Resolves <paramref name="node" /> when it uses the deprecated <c>Type/member</c>
+    ///     accessor spelling: rewrites it to <c>Type-member</c>, records the modern name on
+    ///     the node for later passes, and warns. Returns the instantiated accessor type, or
+    ///     <c>null</c> when the name is not a stale accessor and the caller should fall
+    ///     through to its ordinary "undefined" error.
+    /// </summary>
+    private ZType? TryResolveLegacyAccessor(AstNode.Name node, TypeEnv env)
+    {
+        if (AccessorNaming.TryModernizeLegacyName(node.Value) is not { } modernName)
+            return null;
+
+        // Accept a plain binding or a single-candidate overload (an accessor imported from
+        // another module arrives as the latter).
+        var candidateType = env.Lookup(modernName);
+        var overloadCandidate = null as OverloadCandidate;
+        if (candidateType is null)
+        {
+            var overloads = env.LookupOverloads(modernName);
+            if (overloads is null || overloads.Candidates.Count != 1)
+                return null;
+
+            overloadCandidate = overloads.Candidates[0];
+            candidateType = overloadCandidate.Type;
+        }
+
+        // Only a genuine accessor qualifies: a function whose first parameter is the very
+        // type that names it. Without this gate an undefined `foo/bar` would be silently
+        // redirected to an unrelated `foo-bar` function.
+        var typeName = node.Value[..node.Value.LastIndexOf(AccessorNaming.LegacySeparator)];
+        if (!IsAccessorOf(candidateType, typeName))
+            return null;
+
+        node.ResolvedAccessorName = modernName;
+        if (overloadCandidate is not null)
+            node.ResolvedQualifiedName = overloadCandidate.QualifiedName;
+
+        if (WarnDeprecatedAccessorSyntax)
+            Diagnostics.Warning(
+                $"'{node.Value}' uses the deprecated '/' accessor syntax. Write "
+                    + $"'{modernName}' instead; the '/' form will be removed in a future "
+                    + "release",
+                node.Span,
+                DiagnosticCodes.DeprecatedAccessorSyntax,
+                [node.Value, modernName]
+            );
+
+        return Instantiate(candidateType);
+    }
+
+    /// <summary>
+    ///     Whether <paramref name="type" /> is a member accessor for the type named
+    ///     <paramref name="typeName" /> — a function taking that type as its first parameter.
+    /// </summary>
+    private static bool IsAccessorOf(ZType type, string typeName)
+    {
+        while (type is ZType.ZForAllType forall)
+            type = forall.Body;
+
+        if (type is not ZType.ZFuncType { Params.Count: > 0 } func)
+            return false;
+
+        var receiver = func.Params[0];
+        while (receiver is ZType.ZForAllType receiverForall)
+            receiver = receiverForall.Body;
+
+        return receiver is ZType.ZNamedType named && named.Name == typeName;
     }
 
     private ZType InferLet(AstNode.Let node, TypeEnv env)
@@ -1209,7 +1292,7 @@ public sealed class TypeInferer
             var accessorType = new ZType.ZFuncType([recordType], fieldTypes[i]);
             var genAccessor =
                 node.TypeParams.Count > 0 ? Generalize(accessorType, env) : accessorType;
-            env.Define($"{node.RecordName}/{node.Fields[i].Name}", genAccessor);
+            env.Define(AccessorNaming.Accessor(node.RecordName, node.Fields[i].Name), genAccessor);
         }
 
         return Assign(node, ZType.Unit);
@@ -1334,7 +1417,7 @@ public sealed class TypeInferer
 
         foreach (var (fieldName, valueExpr) in node.Updates)
         {
-            var accessorKey = $"{named.Name}/{fieldName}";
+            var accessorKey = AccessorNaming.Accessor(named.Name, fieldName);
             var accessorType = env.Lookup(accessorKey);
             if (accessorType is null)
             {
@@ -1582,13 +1665,13 @@ public sealed class TypeInferer
         var generalizedCtor = node.TypeParams.Count > 0 ? Generalize(ctorType, env) : ctorType;
         env.Define(node.ClassName, generalizedCtor);
 
-        // Field accessors: ClassName/fieldName : ClassType -> FieldType
+        // Field accessors: ClassName-fieldName : ClassType -> FieldType
         for (var i = 0; i < node.Fields.Count; i++)
         {
             var accessorType = new ZType.ZFuncType([classType], fieldTypes[i]);
             var genAccessor =
                 node.TypeParams.Count > 0 ? Generalize(accessorType, env) : accessorType;
-            env.Define($"{node.ClassName}/{node.Fields[i].Name}", genAccessor);
+            env.Define(AccessorNaming.Accessor(node.ClassName, node.Fields[i].Name), genAccessor);
         }
 
         // Also register inherited field accessors under subclass name
@@ -1597,10 +1680,10 @@ public sealed class TypeInferer
             var accessorType = new ZType.ZFuncType([classType], fType);
             var genAccessor =
                 node.TypeParams.Count > 0 ? Generalize(accessorType, env) : accessorType;
-            env.Define($"{node.ClassName}/{fName}", genAccessor);
+            env.Define(AccessorNaming.Accessor(node.ClassName, fName), genAccessor);
         }
 
-        // Method accessors: ClassName/methodName : (ClassType, ParamTypes...) -> RetType
+        // Method accessors: ClassName-methodName : (ClassType, ParamTypes...) -> RetType
         var methodInfos =
             new List<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)>();
 
@@ -1717,7 +1800,7 @@ public sealed class TypeInferer
 
             var retType = returnAnnotation ?? externalReturnType;
 
-            // Register slash-syntax accessor: ClassName/methodName : (ClassType, ParamTypes...) -> RetType
+            // Register member accessor: ClassName-methodName : (ClassType, ParamTypes...) -> RetType
             var allParams = new List<ZType> { classType };
             allParams.AddRange(paramTypes);
             var methodAccessorType = new ZType.ZFuncType(allParams, retType);
@@ -1725,7 +1808,7 @@ public sealed class TypeInferer
                 node.TypeParams.Count > 0
                     ? Generalize(methodAccessorType, env)
                     : methodAccessorType;
-            env.Define($"{node.ClassName}/{method.Name}", genMethodAccessor);
+            env.Define(AccessorNaming.Accessor(node.ClassName, method.Name), genMethodAccessor);
 
             methodInfos.Add((method.Name, paramTypes, retType));
         }
@@ -1854,7 +1937,7 @@ public sealed class TypeInferer
 
         var ifaceType = new ZType.ZNamedType(node.InterfaceName, typeArgs);
 
-        // Method accessors: InterfaceName/methodName : (InterfaceType, ParamTypes...) -> RetType
+        // Method accessors: InterfaceName-methodName : (InterfaceType, ParamTypes...) -> RetType
         foreach (var method in node.Methods)
         {
             var paramTypes = new List<ZType>();
@@ -1873,7 +1956,7 @@ public sealed class TypeInferer
                 node.TypeParams.Count > 0
                     ? Generalize(methodAccessorType, env)
                     : methodAccessorType;
-            env.Define($"{node.InterfaceName}/{method.Name}", genMethodAccessor);
+            env.Define(AccessorNaming.Accessor(node.InterfaceName, method.Name), genMethodAccessor);
         }
 
         return Assign(node, ZType.Unit);

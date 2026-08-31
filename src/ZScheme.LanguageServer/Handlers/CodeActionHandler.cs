@@ -73,6 +73,9 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
                 case DiagnosticCodes.RedundantTypeQualifier:
                     AddSimplifyNameAction(actions, request, diagnostic);
                     break;
+                case DiagnosticCodes.DeprecatedAccessorSyntax:
+                    AddModernizeAccessorAction(actions, request, diagnostic);
+                    break;
             }
         }
 
@@ -156,6 +159,28 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
                 request,
                 diagnostic,
                 new TextEdit { Range = diagnostic.Range, NewText = "" }
+            )
+        );
+    }
+
+    // ZS0006 carries [0] = the name as written, [1] = the modern spelling; the diagnostic
+    // spans exactly the accessor atom, so the fix is a straight replacement.
+    private static void AddModernizeAccessorAction(
+        List<CommandOrCodeAction> actions,
+        CodeActionParams request,
+        Diagnostic diagnostic
+    )
+    {
+        var data = ReadData(diagnostic.Data);
+        if (data.Count < 2)
+            return;
+
+        actions.Add(
+            MakeQuickFix(
+                $"Replace '{data[0]}' with '{data[1]}'",
+                request,
+                diagnostic,
+                new TextEdit { Range = diagnostic.Range, NewText = data[1] }
             )
         );
     }

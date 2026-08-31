@@ -26,7 +26,7 @@
 
 ;; Chained with expressions — inner first, outer second.
 (define (birthday-and-rename [p : Person] [new-name : String]) : Person
-  (with (with p [age (+ (Person/age p) 1)])
+  (with (with p [age (+ (Person-age p) 1)])
         [name new-name]))
 
 ;; Returns a fresh Point at the origin, leaving the input untouched.

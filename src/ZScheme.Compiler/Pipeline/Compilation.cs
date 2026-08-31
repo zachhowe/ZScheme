@@ -903,6 +903,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                             ?.ModuleName
                         : null
                 ),
+            WarnDeprecatedAccessorSyntax = _options.WarnDeprecatedAccessorSyntax,
         };
 
         // Imported ZScheme type names, so the canonicalizer leaves them at their short spelling.

@@ -4983,7 +4983,7 @@ public class CSharpEmitterTests
             (import stdlib/list)
             (define-struct R [f0 : Int])
             (define (compute) : Int
-              (R/f0 (R (length (list)))))
+              (R-f0 (R (length (list)))))
             """;
         var cs = Compile(source);
         Assert.DoesNotContain("System.Array.Empty<object>()", cs);
