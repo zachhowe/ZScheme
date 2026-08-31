@@ -956,7 +956,7 @@ public class TypeInfererTests
         var type = InferLastForm(
             @"
 (define-record Greeter [prefix : String])
-(let ([g : Greeter (Greeter ""hi"")]) (Greeter/prefix g))"
+(let ([g : Greeter (Greeter ""hi"")]) (Greeter-prefix g))"
         );
         Assert.Equal(ZType.String, type);
     }
@@ -970,7 +970,7 @@ public class TypeInfererTests
             @"
 (define (id x) x)
 (define-record Greeter [prefix : String])
-(let ([g : Greeter (id (Greeter ""hi""))]) (Greeter/prefix g))"
+(let ([g : Greeter (id (Greeter ""hi""))]) (Greeter-prefix g))"
         );
         Assert.Equal(ZType.String, type);
     }
@@ -1020,8 +1020,8 @@ public class TypeInfererTests
         var (_, env, diag) = InferProgram("(define-struct Point [x : Int] [y : Int])");
         Assert.False(diag.HasErrors);
         Assert.NotNull(env.Lookup("Point"));
-        Assert.NotNull(env.Lookup("Point/x"));
-        Assert.NotNull(env.Lookup("Point/y"));
+        Assert.NotNull(env.Lookup("Point-x"));
+        Assert.NotNull(env.Lookup("Point-y"));
     }
 
     [Fact]
@@ -1111,9 +1111,9 @@ public class TypeInfererTests
         var (program, env, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
 
-        var doubleType = env.Lookup("MathHelper/Double");
+        var doubleType = env.Lookup("MathHelper-Double");
         Assert.NotNull(doubleType);
-        var quadType = env.Lookup("MathHelper/Quadruple");
+        var quadType = env.Lookup("MathHelper-Quadruple");
         Assert.NotNull(quadType);
     }
 
@@ -1128,7 +1128,7 @@ public class TypeInfererTests
         var (program, env, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
 
-        var countdownType = env.Lookup("Counter/Countdown");
+        var countdownType = env.Lookup("Counter-Countdown");
         Assert.NotNull(countdownType);
     }
 
@@ -1143,9 +1143,9 @@ public class TypeInfererTests
         var (program, env, diag) = InferProgram(source);
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
 
-        var helperType = env.Lookup("Worker/Helper");
+        var helperType = env.Lookup("Worker-Helper");
         Assert.NotNull(helperType);
-        var doWorkType = env.Lookup("Worker/DoWork");
+        var doWorkType = env.Lookup("Worker-DoWork");
         Assert.NotNull(doWorkType);
         var ft = Assert.IsType<ZType.ZFuncType>(doWorkType);
         var retType = Assert.IsType<ZType.ZNamedType>(ft.Return);

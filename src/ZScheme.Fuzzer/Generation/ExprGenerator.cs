@@ -585,7 +585,7 @@ public sealed class ExprGenerator
         var fieldIdx = _ctx.Rng.Next(r.Fields.Count);
         var fieldName = r.Fields[fieldIdx].Name;
 
-        return $"({r.Name}/{fieldName} ({r.Name} {string.Join(" ", fieldArgs)}))";
+        return $"({r.Name}-{fieldName} ({r.Name} {string.Join(" ", fieldArgs)}))";
     }
 
     private string GenIntLeaf(Scope scope)

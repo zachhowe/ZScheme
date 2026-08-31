@@ -24,13 +24,13 @@ public class TransitiveTypeMetadataTests
         (import stdlib/mutable/hash)
         (import-clr
           [task-delay System.Threading.Tasks.Task/Delay : (Int -> System.Threading.Tasks.Task)])
-        (export Box Box/n open-first)
+        (export Box Box-n open-first)
 
         (define-record Box [n : Int])
 
         (define-async (open-first [h : (Mutable-Hash String Box)]) : (Task Int)
           (match (hash-ref h "a")
-            [(Some b) (begin (await (task-delay 1)) (Box/n b))]
+            [(Some b) (begin (await (task-delay 1)) (Box-n b))]
             [None 0]))
         """;
 

@@ -158,6 +158,11 @@ public static class ManifestSerializer
                 $"      (warn-unlooped-recursion \"{(warnRecursion ? "true" : "false")}\")"
             );
 
+        if (main.WarnDeprecatedAccessorSyntax is { } warnAccessor)
+            sb.AppendLine(
+                $"      (warn-deprecated-accessor-syntax \"{(warnAccessor ? "true" : "false")}\")"
+            );
+
         foreach (var refPath in main.RefPaths)
             sb.AppendLine($"      (ref \"{refPath}\")");
 
@@ -204,6 +209,7 @@ public static class ManifestSerializer
                 || main.OutputType is not null
                 || main.WarnUnusedParameters is not null
                 || main.WarnUnloopedRecursion is not null
+                || main.WarnDeprecatedAccessorSyntax is not null
                 || main.RefPaths.Count > 0
             );
     }

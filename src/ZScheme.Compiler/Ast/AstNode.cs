@@ -42,6 +42,14 @@ public abstract record AstNode(SourceSpan Span)
         ///     (last-write-wins) bare-name lookup.
         /// </summary>
         public string? ResolvedQualifiedName { get; set; }
+
+        /// <summary>
+        ///     Populated by the type inferer when <see cref="Value" /> used the deprecated
+        ///     <c>Type/member</c> accessor spelling and resolved to the modern
+        ///     <c>Type-member</c> binding. Later passes consult this in preference to
+        ///     <see cref="Value" /> so only the modern spelling reaches IR lowering.
+        /// </summary>
+        public string? ResolvedAccessorName { get; set; }
     }
 
     // (let [x expr] body) or (let [x : Type expr] body)

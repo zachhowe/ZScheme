@@ -14,7 +14,7 @@ public class ModuleAliasDuplicationTests
 {
     private const string PkgSource = """
         (module mypkg)
-        (export Box Box/v make-box)
+        (export Box Box-v make-box)
         (define-record Box [v : Int])
         (define (make-box [n : Int]) : Box (Box n))
         """;
@@ -30,7 +30,7 @@ public class ModuleAliasDuplicationTests
         (module main)
         (import mypkg)
         (import mid)
-        (define (unwrap-box) : Int (Box/v (make-box 42)))
+        (define (unwrap-box) : Int (Box-v (make-box 42)))
         """;
 
     private static string RepoRoot()

@@ -26,9 +26,9 @@
 (define (make-point [x : Int] [y : Int]) : Point
   (new Point x y))
 
-;; Field access via slash syntax.
+;; Field access: the accessor is `TypeName-field`.
 (define (manhattan [p : Point]) : Int
-  (+ (Point/x p) (Point/y p)))
+  (+ (Point-x p) (Point-y p)))
 
 ;; (with ...) returns a fresh struct value; the original is unchanged
 ;; because structs have value semantics.
@@ -47,5 +47,5 @@
 (define (main [_args : (Mutable-Vector String)]) : Int
   (let* ([p (make-point 3 4)]
          [moved (shift-x p 10)])
-    (+ (- (Point/x p) 3)
-       (- (Point/x moved) 10))))
+    (+ (- (Point-x p) 3)
+       (- (Point-x moved) 10))))

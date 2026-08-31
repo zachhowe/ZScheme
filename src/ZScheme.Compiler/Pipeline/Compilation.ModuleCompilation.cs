@@ -200,6 +200,7 @@ public sealed partial class Compilation
             )
             {
                 CurrentModuleName = moduleName,
+                WarnDeprecatedAccessorSyntax = _options.WarnDeprecatedAccessorSyntax,
             };
             foreach (var mod in transModules)
                 inferer.RegisterDeclaredTypeNames(ImportedTypeNames(mod), mod.Name);
@@ -403,10 +404,12 @@ public sealed partial class Compilation
                 if (exportedNames.Contains(recordName))
                     exportedRecordCtors[recordName] = fieldNames;
 
-            // Auto-export record field accessors (RecordName/fieldName) when the record is exported
+            // Auto-export record field accessors (RecordName-fieldName) when the record is exported
             foreach (var (recordName, fieldNames) in exportedRecordCtors)
             foreach (
-                var accessorName in fieldNames.Select(fieldName => $"{recordName}/{fieldName}")
+                var accessorName in fieldNames.Select(fieldName =>
+                    AccessorNaming.Accessor(recordName, fieldName)
+                )
             )
             {
                 exportedNames.Add(accessorName);
