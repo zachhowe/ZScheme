@@ -109,7 +109,6 @@ In development since 2026-08-13.
     name never contains `/` but very much can contain `-` (a struct named `s-v` yields
     `s-v-a`), so `IrLowering` now carries the member name alongside the accessor name instead
     of splitting at the first separator.
-
 - **Type names and case patterns no longer depend on capitalization.** The compiler now uses
   the declaration and pattern context to distinguish type names from constructors, so a type
   can be named with any casing without changing how its cases are resolved. Short CLR type
