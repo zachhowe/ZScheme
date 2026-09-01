@@ -21,6 +21,10 @@ public sealed class IrLowering
     private readonly Dictionary<string, string> _classFieldAccessors = new();
     private readonly Dictionary<string, string> _classMethodAccessors = new();
 
+    // Interfaces this module declares, keyed by the name their declaration wrote, so an
+    // interface's base list is reachable when a later one inherits from it
+    private readonly Dictionary<string, AstNode.InterfaceDecl> _interfaceDecls = new();
+
     private readonly Dictionary<
         string,
         (
@@ -2003,6 +2007,31 @@ public sealed class IrLowering
         return [];
     }
 
+    // The names of every method an interface inherits, walking its base list transitively.
+    // Mirrors TypeInferer.InheritedInterfaceMethods, which decides the accessors that exist.
+    private List<string> InheritedInterfaceMethodNames(IReadOnlyList<string> baseInterfaceNames)
+    {
+        var result = new List<string>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Queue<string>(baseInterfaceNames);
+
+        while (pending.Count > 0)
+        {
+            var name = pending.Dequeue();
+            if (!visited.Add(name))
+                continue;
+            if (!_interfaceDecls.TryGetValue(name, out var decl))
+                continue;
+
+            foreach (var m in decl.Methods)
+                result.Add(m.Name);
+            foreach (var baseName in decl.BaseInterfaceNames)
+                pending.Enqueue(baseName);
+        }
+
+        return result;
+    }
+
     private IrNode LowerInterfaceDecl(AstNode.InterfaceDecl n)
     {
         var methods = n
@@ -2019,9 +2048,20 @@ public sealed class IrLowering
             })
             .ToList();
 
-        // Register member accessors for method lowering
+        // Register member accessors for method lowering. An interface's inherited methods are
+        // members of it too — type inference gives `IDerived-Go` an accessor when `IDerived`
+        // inherits `Go` — so they need an entry under this interface's name as well, or the call
+        // falls through to the ordinary function path and no such function exists.
         foreach (var m in n.Methods)
             _classMethodAccessors[AccessorNaming.Accessor(n.InterfaceName, m.Name)] = m.Name;
+
+        foreach (var inheritedName in InheritedInterfaceMethodNames(n.BaseInterfaceNames))
+            _classMethodAccessors.TryAdd(
+                AccessorNaming.Accessor(n.InterfaceName, inheritedName),
+                inheritedName
+            );
+
+        _interfaceDecls[n.InterfaceName] = n;
 
         return new IrNode.InterfaceDecl(
             n.InterfaceName,

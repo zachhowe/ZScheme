@@ -42,6 +42,10 @@ public sealed class TypeInferer
     // Track imported class interface info for cross-module subtyping
     private readonly Dictionary<string, IReadOnlyList<string>> _importedClassInterfaces = new();
 
+    // Track interface metadata, so an interface's base list is available to both the accessors an
+    // interface inherits and the subtype walk in Unifier.IsZSchemeSubtype
+    private readonly Dictionary<string, InterfaceInfo> _interfaceInfos = new();
+
     // Track out-param metadata for CLR imports (keyed by alias)
     private readonly Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> _outParamsByAlias =
         new();
@@ -79,7 +83,7 @@ public sealed class TypeInferer
             Substitution,
             diagnostics,
             assemblySearchPaths,
-            LookupClassInterfaces,
+            LookupSupertypes,
             clrNamespaces,
             name => _canonicalizer.Canonical(name, 0),
             UserDeclaredTypeOrigin
@@ -152,27 +156,38 @@ public sealed class TypeInferer
     }
 
     /// <summary>
-    ///     Lookup function for the Unifier to check interface relationships
-    ///     of ZScheme-defined classes that aren't yet compiled to assemblies.
+    ///     Lookup function for the Unifier to check subtype relationships among ZScheme-defined
+    ///     types that aren't yet compiled to assemblies. Answers with one type's <em>direct</em>
+    ///     supertypes — a class's interfaces plus its base class, or an interface's base
+    ///     interfaces — and the Unifier walks the result transitively, so every name it hands
+    ///     back must be one this can be asked about again.
     /// </summary>
-    private IReadOnlyList<string>? LookupClassInterfaces(string className)
+    private IReadOnlyList<string>? LookupSupertypes(string typeName)
     {
-        if (_classInfos.TryGetValue(className, out var info))
-            return info.InterfaceNames;
-        if (_importedClassInterfaces.TryGetValue(className, out var interfaces))
-            return interfaces;
-        // Try short name (strip namespace prefix) — class names are stored without namespace
-        var dotIdx = className.LastIndexOf('.');
-        if (dotIdx >= 0)
+        return Direct(typeName) ?? ShortNameFallback();
+
+        IReadOnlyList<string>? Direct(string name)
         {
-            var shortName = className[(dotIdx + 1)..];
-            if (_classInfos.TryGetValue(shortName, out var info2))
-                return info2.InterfaceNames;
-            if (_importedClassInterfaces.TryGetValue(shortName, out var interfaces2))
-                return interfaces2;
+            // A base class is a supertype in its own right, and the link the walk needs to reach
+            // the interfaces a base class declares. The imported map already carries it (see
+            // Compilation.ModuleCompilation), but ClassInfo keeps it apart from the interfaces.
+            if (_classInfos.TryGetValue(name, out var info))
+                return info.BaseClassName is { } baseName
+                    ? [.. info.InterfaceNames, baseName]
+                    : info.InterfaceNames;
+            if (_interfaceInfos.TryGetValue(name, out var ifaceInfo))
+                return ifaceInfo.BaseInterfaceNames;
+            if (_importedClassInterfaces.TryGetValue(name, out var interfaces))
+                return interfaces;
+            return null;
         }
 
-        return null;
+        // Try short name (strip namespace prefix) — declared names are stored without namespace
+        IReadOnlyList<string>? ShortNameFallback()
+        {
+            var dotIdx = typeName.LastIndexOf('.');
+            return dotIdx >= 0 ? Direct(typeName[(dotIdx + 1)..]) : null;
+        }
     }
 
     /// <summary>
@@ -2017,8 +2032,33 @@ public sealed class TypeInferer
 
         var ifaceType = new ZType.ZNamedType(node.InterfaceName, typeArgs);
 
-        // Method accessors: InterfaceName-methodName : (InterfaceType, ParamTypes...) -> RetType
+        // Canonicalized for the same reason a class's interface list is: the base may be written
+        // short here and fully qualified at the use site (or the reverse), and
+        // Unifier.IsZSchemeSubtype walks this list by name.
+        var baseInterfaceNames = _canonicalizer.CanonicalizeNames(node.BaseInterfaceNames).ToList();
+
+        // Method accessors: InterfaceName-methodName : (InterfaceType, ParamTypes...) -> RetType.
+        // An inherited method is a member of this interface too, so it gets an accessor under
+        // *this* name as well — `IDerived-Go` on an `IDerived` is legal, and the CLR interface
+        // both backends emit really does carry `Go`. A method this interface redeclares wins, so
+        // the base's signature never overwrites the override's.
+        var declaredMethodNames = new HashSet<string>(
+            node.Methods.Select(m => m.Name),
+            StringComparer.Ordinal
+        );
+
         foreach (var method in node.Methods)
+            DefineMethodAccessor(method);
+
+        foreach (var inherited in InheritedInterfaceMethods(baseInterfaceNames))
+            if (declaredMethodNames.Add(inherited.Name))
+                DefineMethodAccessor(inherited);
+
+        _interfaceInfos[node.InterfaceName] = new InterfaceInfo(baseInterfaceNames, node.Methods);
+
+        return Assign(node, ZType.Unit);
+
+        void DefineMethodAccessor(InterfaceMethodSignature method)
         {
             var paramTypes = new List<ZType>();
             foreach (var param in method.Params)
@@ -2038,8 +2078,48 @@ public sealed class TypeInferer
                     : methodAccessorType;
             env.Define(AccessorNaming.Accessor(node.InterfaceName, method.Name), genMethodAccessor);
         }
+    }
 
-        return Assign(node, ZType.Unit);
+    /// <summary>
+    ///     Every method an interface inherits, walking its base list transitively. Signatures come
+    ///     back unresolved — the caller resolves each annotation in the *inheriting* interface's
+    ///     scope, exactly as it does for a method written out there.
+    /// </summary>
+    private List<InterfaceMethodSignature> InheritedInterfaceMethods(
+        IReadOnlyList<string> baseInterfaceNames
+    )
+    {
+        var result = new List<InterfaceMethodSignature>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Queue<string>(baseInterfaceNames);
+
+        while (pending.Count > 0)
+        {
+            var name = pending.Dequeue();
+            if (!visited.Add(name))
+                continue;
+            if (!TryGetInterfaceInfo(name, out var info))
+                continue;
+
+            result.AddRange(info!.Methods);
+            foreach (var baseName in info.BaseInterfaceNames)
+                pending.Enqueue(baseName);
+        }
+
+        return result;
+    }
+
+    // Interfaces are keyed by the name their declaration wrote, which carries no namespace until
+    // it is emitted; a use site may still spell one qualified. Mirrors LookupSupertypes.
+    private bool TryGetInterfaceInfo(string interfaceName, out InterfaceInfo? info)
+    {
+        if (_interfaceInfos.TryGetValue(interfaceName, out info))
+            return true;
+        var dotIdx = interfaceName.LastIndexOf('.');
+        if (dotIdx >= 0 && _interfaceInfos.TryGetValue(interfaceName[(dotIdx + 1)..], out info))
+            return true;
+        info = null;
+        return false;
     }
 
     private ZType InferClrNew(AstNode.ClrNew node, TypeEnv env)
@@ -2572,7 +2652,7 @@ public sealed class TypeInferer
     }
 
     // Looks up a class declared in the current compilation by qualified or short name, mirroring
-    // LookupClassInterfaces's namespace-stripping fallback (class names are stored without a
+    // LookupSupertypes's namespace-stripping fallback (class names are stored without a
     // namespace prefix, but codegen-facing qualified names like "ZSchemeFuzzed.FCls_0" carry one).
     private bool TryGetLocalClassInfo(string typeName, out ClassInfo? info)
     {
@@ -3076,5 +3156,10 @@ public sealed class TypeInferer
         IReadOnlyList<(string Name, ZType Type)> Fields,
         IReadOnlyList<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)> Methods,
         ZType ConstructorType
+    );
+
+    private sealed record InterfaceInfo(
+        IReadOnlyList<string> BaseInterfaceNames,
+        IReadOnlyList<InterfaceMethodSignature> Methods
     );
 }

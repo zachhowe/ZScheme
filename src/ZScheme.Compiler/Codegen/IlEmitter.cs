@@ -1693,6 +1693,46 @@ public sealed partial class IlEmitter(
     }
 
     /// <summary>
+    ///     The instance method <paramref name="methodName" /> as callable on
+    ///     <paramref name="typeDef" />: its own if it declares one, else the one it inherits,
+    ///     found by walking its base interfaces and base class. An inherited method is a member
+    ///     of the inheriting type too — type inference and IR lowering both give an interface an
+    ///     accessor for what it inherits — so a call may name a type that only inherits the
+    ///     method, and the returned definition lives on whichever type actually declares it.
+    /// </summary>
+    private static MethodDefinition? FindInstanceMethodIncludingBases(
+        TypeDefinition typeDef,
+        string methodName,
+        int argCount,
+        HashSet<TypeDefinition>? visited = null
+    )
+    {
+        visited ??= [];
+        if (!visited.Add(typeDef))
+            return null;
+
+        var own = typeDef.Methods.FirstOrDefault(m =>
+            !m.IsConstructor && !m.IsStatic && m.Name == methodName && m.Parameters.Count == argCount
+        );
+        if (own is not null)
+            return own;
+
+        // Only definitions are walked: a base that is a mere reference belongs to a CLR type or a
+        // precompiled module, and both are reachable by ordinary reflection further down.
+        foreach (var impl in typeDef.Interfaces)
+            if (
+                impl.Interface is TypeDefinition baseIface
+                && FindInstanceMethodIncludingBases(baseIface, methodName, argCount, visited)
+                    is { } fromIface
+            )
+                return fromIface;
+
+        return typeDef.BaseType is TypeDefinition baseClass
+            ? FindInstanceMethodIncludingBases(baseClass, methodName, argCount, visited)
+            : null;
+    }
+
+    /// <summary>
     ///     Every method name an implementer of <paramref name="ifaceName" /> has to mark as an
     ///     interface implementation — the interface's own methods plus, transitively, every method
     ///     it inherits. Inherited ones are not optional: leave one a plain instance method and the

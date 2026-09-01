@@ -759,8 +759,10 @@ At load time, `CompileLoadModules` reads the metadata and produces a
   bodies — and `AllIrDefinitions` is `null`; the compiled code lives in the DLL, not
   as IR. The metadata also supplies `ExportedNames`, `ExportedTypes`,
   `ExportedClrImports`, `ExportedMacros`, union/record constructor info, and
-  class→interface maps so type inference and exhaustiveness checking work across the
-  boundary (the Stage 4.6 validator reads imported unions out of these
+  declared-supertype maps (a class's interfaces and base class, an interface's base
+  interfaces — the subtype walk in `Unifier.IsZSchemeSubtype` follows them
+  transitively, so every inheriting interface is a key of its own) so type inference
+  and exhaustiveness checking work across the boundary (the Stage 4.6 validator reads imported unions out of these
   `ExportedIrDefinitions` type decls).
 - `PrecompiledAssemblyPath` points at the DLL.
 - `BuildNamespace` records the .NET namespace the module's generated class lives
