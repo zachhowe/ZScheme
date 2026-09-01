@@ -18,7 +18,19 @@ namespace ZScheme.Compiler.Codegen;
 
 public sealed partial class IlEmitter
 {
+    /// <summary>
+    ///     Emits the assembly. The probe stays subscribed for the whole call because reflection
+    ///     over a precompiled assembly is lazy: a reference to a sibling package assembly is not
+    ///     resolved when the file loads, but when a member signature naming one of its types is
+    ///     first touched, which happens throughout emission.
+    /// </summary>
     public byte[]? Emit(IrNode node)
+    {
+        using var probe = PrecompiledAssemblyProbe.For(precompiledAssemblyPaths);
+        return EmitCore(node);
+    }
+
+    private byte[]? EmitCore(IrNode node)
     {
         // IL requires stack depth 0 at try-block entry. Hoist any with-handlers nested inside
         // compound expressions (binops, calls, etc.) up into let bindings so each try starts

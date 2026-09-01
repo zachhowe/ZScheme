@@ -61,6 +61,12 @@ public sealed partial class IlEmitter(
 
     private readonly Dictionary<string, MethodDefinition> _methods = new();
     private readonly Dictionary<string, IMethodDescriptor> _precompiledMethods = new();
+
+    // Simple name of the precompiled assembly that registered each key, while one is being
+    // loaded. Only meaningful for registrations made from LoadPrecompiledAssembly.
+    private readonly Dictionary<string, string> _precompiledOwners = new(StringComparer.Ordinal);
+    private string? _precompiledOwner;
+
     private readonly Dictionary<string, MethodInfo> _precompiledReflectionMethods = new();
     private readonly Dictionary<string, IFieldDescriptor> _staticFields = new();
 
@@ -312,6 +318,96 @@ public sealed partial class IlEmitter(
         }
     }
 
+    /// <summary>
+    ///     Reads an assembly's exported types, degrading to whatever loaded when some of them
+    ///     name types from an assembly that could not be found. A package assembly references
+    ///     its dependency packages, which live in sibling cache directories that
+    ///     <see cref="Assembly.LoadFrom" /> does not probe — see
+    ///     <see cref="PrecompiledAssemblyProbe" />, which is what normally makes them resolvable.
+    /// </summary>
+    private Type[] SafeExportedTypes(Assembly asm, string path)
+    {
+        try
+        {
+            return asm.GetExportedTypes();
+        }
+        catch (ReflectionTypeLoadException ex)
+        {
+            diagnostics.Warning(
+                $"Precompiled assembly '{path}': {ex.Types.Count(t => t is null)} type(s) could not "
+                    + $"be loaded, so references to them will not resolve. {FirstLoaderMessage(ex)}",
+                SourceSpan.None
+            );
+            return [.. ex.Types.OfType<Type>()];
+        }
+    }
+
+    /// <summary>
+    ///     Runs a member query over a precompiled type, reporting rather than throwing when a
+    ///     member signature names a type from an assembly that cannot be resolved. Without this
+    ///     the failure escapes as an unhandled <see cref="FileNotFoundException" /> from the
+    ///     reflection call, with no indication of which assembly was missing.
+    /// </summary>
+    private T[] SafeMembers<T>(Func<T[]> query, string what, Type type, string path)
+    {
+        try
+        {
+            return query();
+        }
+        catch (Exception ex)
+            when (ex is FileNotFoundException
+                or FileLoadException
+                or TypeLoadException
+                or ReflectionTypeLoadException
+            )
+        {
+            diagnostics.Warning(
+                $"Precompiled assembly '{path}': cannot read the {what} of "
+                    + $"'{type.FullName}' — {ex.Message}",
+                SourceSpan.None
+            );
+            return [];
+        }
+    }
+
+    private static string FirstLoaderMessage(ReflectionTypeLoadException ex)
+    {
+        return ex.LoaderExceptions.OfType<Exception>().FirstOrDefault()?.Message ?? ex.Message;
+    }
+
+    /// <summary>
+    ///     Records which precompiled assembly owns a registry key and reports a conflict when a
+    ///     second one claims it. The registries below are keyed by bare or simple name, so two
+    ///     package assemblies that each carry a copy of the same module — what building a
+    ///     dependency into every consumer produces — would otherwise rebind each other's members
+    ///     silently, with the winner decided by load order. First claim wins, so the outcome is at
+    ///     least deterministic. Same-assembly overwrites are left alone: the bare-name overwrite
+    ///     across a module class's overloads is deliberate.
+    /// </summary>
+    private bool ClaimPrecompiled(string registry, string key)
+    {
+        if (_precompiledOwner is not { } owner)
+            return true;
+
+        var ownerKey = $"{registry}\0{key}";
+        if (!_precompiledOwners.TryGetValue(ownerKey, out var existing))
+        {
+            _precompiledOwners[ownerKey] = owner;
+            return true;
+        }
+
+        if (existing == owner)
+            return true;
+
+        diagnostics.Warning(
+            $"Precompiled assemblies '{existing}' and '{owner}' both define {registry} '{key}'. "
+                + $"Using the one from '{existing}'. This means a dependency package was compiled "
+                + "into more than one of them, so their copies are distinct types.",
+            SourceSpan.None
+        );
+        return false;
+    }
+
     private void LoadPrecompiledAssembly(string path)
     {
         Log.Debug("IlEmitter: loading precompiled assembly {Path}", path);
@@ -329,51 +425,83 @@ public sealed partial class IlEmitter(
             return;
         }
 
+        var exportedTypes = SafeExportedTypes(asm, path);
         Log.Debug(
             "IlEmitter: precompiled assembly loaded, {TypeCount} exported types",
-            asm.GetExportedTypes().Length
+            exportedTypes.Length
         );
 
+        // Every registration below is keyed by bare or simple name, so a second package
+        // assembly declaring the same module class would silently rebind the first's members.
+        // Recording who registered each key turns that into a diagnostic — see ClaimPrecompiled.
+        var previousOwner = _precompiledOwner;
+        _precompiledOwner = asm.GetName().Name ?? Path.GetFileNameWithoutExtension(path);
+        try
+        {
+            RegisterPrecompiledTypes(exportedTypes, path);
+        }
+        finally
+        {
+            _precompiledOwner = previousOwner;
+        }
+    }
+
+    private void RegisterPrecompiledTypes(IReadOnlyList<Type> exportedTypes, string path)
+    {
         var abstractBases = new Dictionary<Type, string>();
-        foreach (var type in asm.GetExportedTypes())
+        foreach (var type in exportedTypes)
         {
             if (type is { IsAbstract: true, IsSealed: true }) // static class (module class)
             {
-                foreach (
-                    var method in type.GetMethods(
-                        BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly
-                    )
-                )
+                var methods = SafeMembers(
+                    () =>
+                        type.GetMethods(
+                            BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly
+                        ),
+                    "static methods",
+                    type,
+                    path
+                );
+                foreach (var method in methods)
                 {
                     var imported = _module.DefaultImporter.ImportMethod(method);
-                    _precompiledMethods[method.Name] = imported;
-                    _precompiledReflectionMethods[method.Name] = method;
                     // Qualified key for overload-resolved call sites that need to
-                    // route past the bare-name last-write-wins overwrite.
+                    // route past the bare-name last-write-wins overwrite. The bare-name
+                    // overwrite is deliberate *within* one assembly; ClaimPrecompiled only
+                    // rejects a second assembly reusing the same name.
                     var qualified = $"{type.Name}.{method.Name}";
-                    _precompiledMethods[qualified] = imported;
-                    _precompiledReflectionMethods[qualified] = method;
+                    if (ClaimPrecompiled("method", method.Name))
+                    {
+                        _precompiledMethods[method.Name] = imported;
+                        _precompiledReflectionMethods[method.Name] = method;
+                    }
+
+                    if (ClaimPrecompiled("method", qualified))
+                    {
+                        _precompiledMethods[qualified] = imported;
+                        _precompiledReflectionMethods[qualified] = method;
+                    }
                 }
 
-                foreach (
-                    var field in type.GetFields(
-                        BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly
-                    )
-                )
-                    _staticFields[field.Name] = _module.DefaultImporter.ImportField(field);
+                var fields = SafeMembers(
+                    () =>
+                        type.GetFields(
+                            BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly
+                        ),
+                    "static fields",
+                    type,
+                    path
+                );
+                foreach (var field in fields)
+                    if (ClaimPrecompiled("field", field.Name))
+                        _staticFields[field.Name] = _module.DefaultImporter.ImportField(field);
 
                 RegisterNestedTypes(type, abstractBases);
-                var methodCount = type.GetMethods(
-                    BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly
-                ).Length;
-                var fieldCount = type.GetFields(
-                    BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly
-                ).Length;
                 Log.Debug(
                     "IlEmitter: precompiled module class {TypeName}: {MethodCount} methods, {FieldCount} fields",
                     type.Name,
-                    methodCount,
-                    fieldCount
+                    methods.Length,
+                    fields.Length
                 );
             }
 
@@ -393,6 +521,8 @@ public sealed partial class IlEmitter(
                 var strippedNestedName = StripBacktickArity(nested.Name);
                 var caseKey = $"{strippedTypeName}.{strippedNestedName}";
                 var importedNested = ImportTypeWithGenericArity(nested);
+                if (!ClaimPrecompiled("union case", caseKey))
+                    continue;
                 _unionCaseTypes[caseKey] = importedNested;
                 RegisterUserType(strippedNestedName, importedNested, reflectionType: nested);
 
@@ -446,7 +576,7 @@ public sealed partial class IlEmitter(
                 );
         }
 
-        foreach (var type in asm.GetExportedTypes())
+        foreach (var type in exportedTypes)
             if (
                 type is { IsSealed: true, IsAbstract: false, IsNested: false, BaseType: not null }
                 && abstractBases.TryGetValue(
@@ -1798,6 +1928,9 @@ public sealed partial class IlEmitter(
         Type? reflectionType = null
     )
     {
+        if (!ClaimPrecompiled("type", name))
+            return;
+
         _userTypes[name] = typeRef;
         // The bool flag distinguishes ELEMENT_TYPE_VALUETYPE (struct) from ELEMENT_TYPE_CLASS
         // in the type signature. Mismatch here causes TypeLoadException at runtime.
