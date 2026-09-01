@@ -156,18 +156,21 @@ public static class PackageAutoInstaller
                 return null;
             }
 
-            // Store in cache. A store that could not publish this build throws rather than
-            // leaving the previous one cached under the same version, and TryLoad below would
-            // happily hand that stale entry back as if it were what was just compiled.
+            // Store in cache, and take the entry the store hands back rather than looking the
+            // package up again: that lookup is a lookup like any other, and a peer's commit
+            // landing in it had this report "package not found" for a package it had just
+            // compiled and cached. A store that could not publish throws rather than leaving
+            // some other build cached under this version and passing for one that did.
             //
             // A peer that published its own build of this version first is not that: this
             // compile asked the cache for the version, missed, and built it only to fill the
             // miss, so a peer's entry for it is what a hit would have handed back. Every test
             // assembly `dotnet test` runs side by side auto-installs the same packages at once,
             // and all but one of them lose that race.
+            PrecompiledPackage? stored;
             try
             {
-                cacheManager.Store(
+                stored = cacheManager.Store(
                     manifest.Name,
                     manifest.Version,
                     result.AssemblyBytes,
@@ -183,13 +186,23 @@ public static class PackageAutoInstaller
                 return null;
             }
 
+            if (stored is null)
+            {
+                diagnostics.Error(
+                    $"Cached {manifest.Name} v{manifest.Version}, but the cache entry could not "
+                        + "be read back.",
+                    SourceSpan.None
+                );
+                return null;
+            }
+
             Log.Information(
                 "PackageAutoInstaller: cached {PackageName}@{Version}",
                 manifest.Name,
                 manifest.Version
             );
 
-            return cacheManager.TryLoad(manifest.Name, manifest.Version);
+            return stored;
         }
     }
 
