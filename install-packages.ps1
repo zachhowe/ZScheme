@@ -2,7 +2,9 @@
 param(
     # Must match the configuration the caller built. `dotnet run --no-build` defaults to Debug, so
     # a Release-only build -- which is exactly what publish.ps1 does on a fresh checkout -- would
-    # otherwise look for a zs that was never built.
+    # otherwise look for a zs that was never built. Validated because an empty value is not an
+    # error `dotnet run` reports: it just probes bin/<nothing>/net10.0 and says the file is missing.
+    [ValidateNotNullOrEmpty()]
     [string]$Configuration = "Debug",
     [switch]$Debug,
     [switch]$AllowOldPowerShellVersionsAndRiskFailingScripts

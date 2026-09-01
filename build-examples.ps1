@@ -72,7 +72,7 @@ try {
     dotnet build "$RepoRoot/ZScheme.slnx" --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw "Solution build failed" }
 
-    $installArgs = if ($Debug) { @('-Debug') } else { @() }
+    $installArgs = [string[]]@(); if ($Debug) { $installArgs += '-Debug' }
     & "$RepoRoot/install-packages.ps1" @installArgs
     if ($LASTEXITCODE -ne 0) { throw "Installing packages failed" }
 
