@@ -1,5 +1,9 @@
 #!/usr/bin/env pwsh
 param(
+    # Must match the configuration the caller built. `dotnet run --no-build` defaults to Debug, so
+    # a Release-only build -- which is exactly what publish.ps1 does on a fresh checkout -- would
+    # otherwise look for a zs that was never built.
+    [string]$Configuration = "Debug",
     [switch]$Debug,
     [switch]$AllowOldPowerShellVersionsAndRiskFailingScripts
 )
@@ -19,7 +23,7 @@ $DebugArgs = if ($Debug) { @('--debug') } else { @() }
 # Discovered and topologically sorted so each package installs after its local dependencies.
 foreach ($pkg in Get-ZsPackages -PackagesRoot (Join-Path $RepoRoot 'packages')) {
     Write-Host "=== Installing $($pkg.Name) ==="
-    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
+    dotnet run --no-build --configuration $Configuration --project "$RepoRoot/src/ZScheme.Cli" -- `
         install -m $pkg.Manifest @DebugArgs
     if ($LASTEXITCODE -ne 0) { throw "Installing $($pkg.Name) failed" }
 }

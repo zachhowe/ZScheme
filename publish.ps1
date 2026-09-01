@@ -70,7 +70,7 @@ if (Test-Path $pkgCacheScratch) {
 $previousCacheDir = $env:ZSCHEME_CACHE_DIR
 $env:ZSCHEME_CACHE_DIR = $pkgCacheScratch
 try {
-    & "$RepoRoot/install-packages.ps1"
+    & "$RepoRoot/install-packages.ps1" -Configuration $Configuration
     if ($LASTEXITCODE -ne 0) { throw "Building the package cache failed" }
 } finally {
     if ($null -eq $previousCacheDir) {
