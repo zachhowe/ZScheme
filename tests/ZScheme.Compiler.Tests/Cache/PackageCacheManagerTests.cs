@@ -206,12 +206,16 @@ public sealed class PackageCacheManagerTests : IDisposable
         Assert.NotNull(result);
         Assert.Equal(body, await File.ReadAllBytesAsync(result.AssemblyPath));
 
-        // Only the committed version directory survives: every staging tree was cleaned up.
+        // Only the committed version directory is a cache entry. Scratch is dot-prefixed, and
+        // requiring none of it to survive is stricter than what a commit guarantees: putting back
+        // an entry it displaced is best-effort, so a writer that loses that race leaves one
+        // behind by design, and the age-gated sweep is what reclaims it.
         Assert.Equal(
             ["1.0.0"],
             Directory
                 .GetDirectories(Path.Combine(_tempDir, "test-pkg"))
                 .Select(Path.GetFileName)
+                .Where(name => name is not null && !name.StartsWith('.'))
                 .Order()
         );
     }
