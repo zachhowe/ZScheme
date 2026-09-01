@@ -3,6 +3,26 @@ using ZScheme.Compiler.Modules;
 
 namespace ZScheme.Compiler.Cache;
 
+/// <summary>What a caller of <see cref="PackageCacheManager.Store" /> needs to be true of the
+///     cache once the store returns.</summary>
+public enum StoreRequirement
+{
+    /// <summary>
+    ///     The entry at the version directory must be the build that was handed to Store.
+    ///     <c>zs install</c> publishes a build a developer just asked it to publish, so an entry
+    ///     some other writer put there instead is not what was asked for, however well formed.
+    /// </summary>
+    ThisBuild,
+
+    /// <summary>
+    ///     Any complete entry for the same package and version will do. The auto-installer
+    ///     compiled the package only because its own lookup missed; a peer's entry for that
+    ///     version is exactly what a hit would have handed back, and taking it is what every
+    ///     other compile on the machine did.
+    /// </summary>
+    AnyBuildOfThisVersion,
+}
+
 public sealed class PackageCacheManager(string? cacheRoot = null)
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<PackageCacheManager>();
@@ -88,7 +108,8 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
         byte[] assemblyBytes,
         IReadOnlyDictionary<string, CompiledModule> modules,
         string? importPrefix = null,
-        string? defaultModule = null
+        string? defaultModule = null,
+        StoreRequirement requirement = StoreRequirement.ThisBuild
     )
     {
         var packageDir = GetPackageDir(packageName, version);
@@ -121,22 +142,14 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
 
             // A commit that did not publish this build must not pass for one that did. The
             // version directory is a name, not a content hash: whatever is left there when the
-            // rename cannot happen is the *previous* build, so reporting success would have
-            // `zs install` print "cached at ..." over a package that is still the old one, and
-            // every later compile would link that. Writing straight into packageDir used to fail
-            // loudly here for the same reason -- "the process cannot access the file ... because
-            // it is being used by another process" -- and it should still.
+            // rename cannot happen is some other build, so reporting success would have
+            // `zs install` print "cached at ..." over a package that is not the one it just
+            // compiled, and every later compile would link that. Writing straight into packageDir
+            // used to fail loudly here for the same reason -- "the process cannot access the file
+            // ... because it is being used by another process" -- and it should still.
             var commit = AtomicDirectory.Commit(staging, packageDir);
-            if (commit is CommitResult.Blocked)
-                throw new IOException(
-                    $"Could not replace the cached {packageName} v{version} at {packageDir}: "
-                        + $"another process is most likely holding {packageName}.dll open. "
-                        + "The previous build is still what is cached."
-                );
-            if (commit is CommitResult.Failed)
-                throw new IOException(
-                    $"Could not cache {packageName} v{version} at {packageDir}."
-                );
+            if (PublishFailure(commit, requirement, packageName, version, packageDir) is { } why)
+                throw new IOException(why);
 
             Log.Debug(
                 "PackageCache: stored {PackageName}@{Version} ({ByteCount} bytes, {ModuleCount} modules) at {Path}",
@@ -152,6 +165,44 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
             AtomicDirectory.TryDelete(staging);
         }
     }
+
+    /// <summary>
+    ///     Why a commit's outcome cannot pass for a store of this build, or null when it can.
+    /// </summary>
+    /// <remarks>
+    ///     Which outcomes are good enough is the caller's to say, and the two callers differ --
+    ///     see <see cref="StoreRequirement" />. Kept apart from <see cref="Store" /> because the
+    ///     races that produce anything but <see cref="CommitResult.Committed" /> cannot be staged
+    ///     from a test, so this is where the decision itself is checked.
+    /// </remarks>
+    internal static string? PublishFailure(
+        CommitResult commit,
+        StoreRequirement requirement,
+        string packageName,
+        string version,
+        string packageDir
+    ) =>
+        commit switch
+        {
+            CommitResult.Committed => null,
+
+            // A peer published its own build under this name and version, and nothing says the
+            // two writers built the same thing. A caller that needs a build of this version has
+            // what it came for; one publishing the build it was handed has not, and used to be
+            // told it had -- the one outcome Store failed to check, which put `zs install` back
+            // to reporting success over a package it did not cache.
+            CommitResult.PeerWon when requirement is StoreRequirement.AnyBuildOfThisVersion => null,
+            CommitResult.PeerWon =>
+                $"Another process published {packageName} v{version} at {packageDir} first; "
+                + "that build is what is cached, not this one.",
+
+            CommitResult.Blocked =>
+                $"Could not replace the cached {packageName} v{version} at {packageDir}: "
+                + $"another process is most likely holding {packageName}.dll open. "
+                + "The previous build is still what is cached.",
+
+            _ => $"Could not cache {packageName} v{version} at {packageDir}.",
+        };
 
     public PrecompiledPackage? TryLoadLatest(string packageName)
     {

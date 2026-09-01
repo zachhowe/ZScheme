@@ -255,6 +255,11 @@ public sealed class PackageCacheManagerTests : IDisposable
     ///     CI, where every test assembly auto-installs the same packages. Writing in place made the
     ///     writers collide outright ("the process cannot access the file … because it is being used
     ///     by another process"); each now assembles its own copy and renames it in.
+    ///     <para>
+    ///         All but one of them lose that race, which is a store of this build only for the
+    ///         caller this models: an auto-install fills a lookup that missed, so a peer's entry
+    ///         for the version is what a hit would have handed back.
+    ///     </para>
     /// </summary>
     [Fact]
     public async Task ConcurrentStoresOfOneVersionAllSucceed()
@@ -272,7 +277,13 @@ public sealed class PackageCacheManagerTests : IDisposable
                     await start.Task;
                     // A separate manager per writer: in production these are separate processes,
                     // so nothing in-process is serializing them.
-                    new PackageCacheManager(_tempDir).Store("test-pkg", "1.0.0", body, modules);
+                    new PackageCacheManager(_tempDir).Store(
+                        "test-pkg",
+                        "1.0.0",
+                        body,
+                        modules,
+                        requirement: StoreRequirement.AnyBuildOfThisVersion
+                    );
                 })
             )
             .ToList();
@@ -296,6 +307,54 @@ public sealed class PackageCacheManagerTests : IDisposable
                 .Where(name => name is not null && !name.StartsWith('.'))
                 .Order()
         );
+    }
+
+    /// <summary>
+    ///     Regression: <see cref="CommitResult.PeerWon" /> — a peer publishing its own build under
+    ///     this name and version — was the one outcome a store did not check. The version
+    ///     directory is a name, not a content hash, so nothing says the two writers built the
+    ///     same thing: a developer's <c>zs install</c> of an edited package could lose the race to
+    ///     a compile auto-installing the pristine one at the same version, print "cached at …",
+    ///     exit 0, and leave every later compile linking the other build. What the outcome is
+    ///     worth depends on what the caller was after, which is why it is judged here and not in
+    ///     AtomicDirectory.
+    /// </summary>
+    [Fact]
+    public void PublishFailureJudgesACommitByWhatTheCallerNeeded()
+    {
+        var packageDir = Path.Combine(_tempDir, "test-pkg", "1.0.0");
+
+        (CommitResult Commit, StoreRequirement Requirement, bool Stored)[] cases =
+        [
+            // The staged build is the entry: whatever the caller was after, it has it.
+            (CommitResult.Committed, StoreRequirement.ThisBuild, true),
+            (CommitResult.Committed, StoreRequirement.AnyBuildOfThisVersion, true),
+            // A peer's entry is a build of this version and nothing more — what an auto-install
+            // came for, and not what `zs install` was asked to publish.
+            (CommitResult.PeerWon, StoreRequirement.ThisBuild, false),
+            (CommitResult.PeerWon, StoreRequirement.AnyBuildOfThisVersion, true),
+            // Nothing published, and what the version directory holds predates the call.
+            (CommitResult.Blocked, StoreRequirement.ThisBuild, false),
+            (CommitResult.Blocked, StoreRequirement.AnyBuildOfThisVersion, false),
+            (CommitResult.Failed, StoreRequirement.ThisBuild, false),
+            (CommitResult.Failed, StoreRequirement.AnyBuildOfThisVersion, false),
+        ];
+
+        foreach (var (commit, requirement, stored) in cases)
+        {
+            var failure = PackageCacheManager.PublishFailure(
+                commit,
+                requirement,
+                "test-pkg",
+                "1.0.0",
+                packageDir
+            );
+
+            Assert.True(
+                stored == (failure is null),
+                $"{commit} for a caller needing {requirement}: {failure ?? "reported as stored"}"
+            );
+        }
     }
 
     /// <summary>
