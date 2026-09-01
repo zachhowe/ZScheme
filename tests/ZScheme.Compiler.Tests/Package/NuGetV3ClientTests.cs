@@ -147,4 +147,139 @@ public class NuGetV3ClientTests : IDisposable
         );
         Assert.False(File.Exists(dest));
     }
+
+    private const string NupkgUrl = "https://fake.test/flat/my.pkg/1.0.0/my.pkg.1.0.0.nupkg";
+
+    /// <summary>
+    ///     Body of a nupkg, distinctive enough that a truncated copy fails the comparison.
+    /// </summary>
+    private static byte[] NupkgBody() =>
+        [.. Enumerable.Range(0, 32 * 1024).Select(i => (byte)(i % 251))];
+
+    /// <summary>No-logic fake content: reports arrival, waits to be released, then writes.
+    ///     Holding every downloader inside its copy at once is what makes the overlap the
+    ///     race needs deterministic.</summary>
+    private sealed class GatedContent(byte[] body, Action onArrival, Task release) : HttpContent
+    {
+        protected override async Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context
+        )
+        {
+            onArrival();
+            await release;
+            await stream.WriteAsync(body);
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = body.Length;
+            return true;
+        }
+    }
+
+    /// <summary>No-logic fake content: writes a prefix, then fails the transfer.</summary>
+    private sealed class TornContent(byte[] body) : HttpContent
+    {
+        protected override async Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context
+        )
+        {
+            await stream.WriteAsync(body.AsMemory(0, body.Length / 2));
+            throw new IOException("connection reset mid-transfer");
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = body.Length;
+            return true;
+        }
+    }
+
+    /// <summary>
+    ///     Regression: the nupkg cache is shared by every compile running on the machine — the
+    ///     test assemblies <c>dotnet test</c> runs side by side, several <c>zs build</c>s. Copying
+    ///     the response straight into the destination made concurrent downloaders collide ("the
+    ///     process cannot access the file … because it is being used by another process") and let
+    ///     a reader open the half-written archive that <c>File.Exists</c> had already counted as a
+    ///     cache hit. Each download now lands by rename.
+    /// </summary>
+    [Fact]
+    public async Task ConcurrentDownloadsOfOnePackageAllLandOneCompleteFile()
+    {
+        const int downloaders = 8;
+        var body = NupkgBody();
+        var dest = Path.Combine(_tempDir, "shared", "my.pkg.1.0.0.nupkg");
+
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allArrived = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        var arrived = 0;
+        void OnArrival()
+        {
+            if (Interlocked.Increment(ref arrived) == downloaders)
+                allArrived.SetResult();
+        }
+
+        var clients = new List<NuGetV3Client>();
+        var downloads = new List<Task>();
+        for (var i = 0; i < downloaders; i++)
+        {
+            var handler = NewHandler();
+            handler.Responses[NupkgUrl] = () =>
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new GatedContent(body, OnArrival, release.Task),
+                };
+            var client = NewClient(handler);
+            clients.Add(client);
+            downloads.Add(Task.Run(() => client.DownloadNupkgAsync("My.Pkg", "1.0.0", dest)));
+        }
+
+        try
+        {
+            // Release once every downloader is inside its copy, each holding its own staging
+            // file -- or as soon as one has finished early, which under the old direct-write
+            // meant it had already failed. Waiting only on the full count would hang there
+            // instead of reporting the collision below.
+            await Task.WhenAny(allArrived.Task, Task.WhenAny(downloads));
+            release.SetResult();
+            await Task.WhenAll(downloads);
+
+            Assert.Equal(body, await File.ReadAllBytesAsync(dest));
+
+            // Only the finished archive: every staging file was cleaned up after landing.
+            Assert.Equal([dest], Directory.GetFiles(Path.GetDirectoryName(dest)!));
+        }
+        finally
+        {
+            foreach (var client in clients)
+                client.Dispose();
+        }
+    }
+
+    /// <summary>
+    ///     A transfer that dies partway leaves nothing in the cache. Writing directly to the
+    ///     destination left the truncated prefix there, and every later compile took it for a
+    ///     cache hit.
+    /// </summary>
+    [Fact]
+    public async Task DownloadFailingMidTransferLeavesNoCacheEntry()
+    {
+        var handler = NewHandler();
+        handler.Responses[NupkgUrl] = () =>
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new TornContent(NupkgBody()) };
+        using var client = NewClient(handler);
+        var dest = Path.Combine(_tempDir, "torn", "my.pkg.1.0.0.nupkg");
+
+        var failure = await Record.ExceptionAsync(() =>
+            client.DownloadNupkgAsync("My.Pkg", "1.0.0", dest)
+        );
+
+        Assert.NotNull(failure);
+        Assert.False(File.Exists(dest));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(dest)!));
+    }
 }

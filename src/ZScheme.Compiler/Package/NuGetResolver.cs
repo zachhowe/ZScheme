@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using Serilog;
+using ZScheme.Compiler.Cache;
 using ZScheme.Compiler.Diagnostics;
 using ZScheme.Compiler.Package.NuGet;
 using ZScheme.Toolchain;
@@ -41,52 +42,66 @@ public sealed class NuGetResolver(DiagnosticBag diagnostics)
         }
 
         Log.Debug("NuGetResolver: cache miss, resolving packages from NuGet");
-        Directory.CreateDirectory(outputDir);
 
-        var sw = Stopwatch.StartNew();
-        using var client = new NuGetV3Client();
-        var graph = new NuGetDependencyGraph(client, PackageCacheRoot, diagnostics);
+        // Fill a private staging tree and rename it into place (see AtomicDirectory). Extracting
+        // straight into outputDir let a concurrent compile's cache-hit check above find the first
+        // DLL of a set still being written and compile against a half-populated reference set.
+        var staging = AtomicDirectory.StagingPathFor(cacheDir);
+        var stagingBin = Path.Combine(staging, "bin");
+        Directory.CreateDirectory(stagingBin);
 
-        var resolved = graph.ResolveAsync(packages).GetAwaiter().GetResult();
-        Log.Debug(
-            "NuGetResolver: dependency resolution completed in {ElapsedMs}ms, {PackageCount} packages resolved",
-            sw.ElapsedMilliseconds,
-            resolved.Count
-        );
-        if (diagnostics.HasErrors)
-            return null;
-
-        var spanLookup = packages.ToDictionary(
-            p => p.PackageId,
-            p => p.Span,
-            StringComparer.OrdinalIgnoreCase
-        );
-
-        foreach (var pkg in resolved)
+        try
         {
-            var dlls = NupkgExtractor.ExtractDlls(pkg.NupkgPath, outputDir);
+            var sw = Stopwatch.StartNew();
+            using var client = new NuGetV3Client();
+            var graph = new NuGetDependencyGraph(client, PackageCacheRoot, diagnostics);
+
+            var resolved = graph.ResolveAsync(packages).GetAwaiter().GetResult();
             Log.Debug(
-                "NuGetResolver: extracted {DllCount} DLLs from {PackageId} {Version}",
-                dlls.Count,
-                pkg.Id,
-                pkg.Version
+                "NuGetResolver: dependency resolution completed in {ElapsedMs}ms, {PackageCount} packages resolved",
+                sw.ElapsedMilliseconds,
+                resolved.Count
             );
-            if (dlls.Count == 0)
-                diagnostics.Warning(
-                    $"No compatible DLLs found in {pkg.Id} {pkg.Version}",
-                    spanLookup.GetValueOrDefault(pkg.Id)
+            if (diagnostics.HasErrors)
+                return null;
+
+            var spanLookup = packages.ToDictionary(
+                p => p.PackageId,
+                p => p.Span,
+                StringComparer.OrdinalIgnoreCase
+            );
+
+            foreach (var pkg in resolved)
+            {
+                var dlls = NupkgExtractor.ExtractDlls(pkg.NupkgPath, stagingBin);
+                Log.Debug(
+                    "NuGetResolver: extracted {DllCount} DLLs from {PackageId} {Version}",
+                    dlls.Count,
+                    pkg.Id,
+                    pkg.Version
                 );
-        }
+                if (dlls.Count == 0)
+                    diagnostics.Warning(
+                        $"No compatible DLLs found in {pkg.Id} {pkg.Version}",
+                        spanLookup.GetValueOrDefault(pkg.Id)
+                    );
+            }
 
-        var totalDlls = Directory.GetFiles(outputDir, "*.dll").Length;
-        if (totalDlls == 0)
+            var totalDlls = Directory.GetFiles(stagingBin, "*.dll").Length;
+            if (totalDlls == 0)
+            {
+                diagnostics.Error("No DLLs resolved from NuGet packages", packages[0].Span);
+                return null;
+            }
+
+            AtomicDirectory.Commit(staging, cacheDir);
+            Log.Debug("NuGetResolver: {DllCount} total DLLs in {OutputDir}", totalDlls, outputDir);
+            return outputDir;
+        }
+        finally
         {
-            diagnostics.Error("No DLLs resolved from NuGet packages", packages[0].Span);
-            return null;
+            AtomicDirectory.TryDelete(staging);
         }
-
-        Log.Debug("NuGetResolver: {DllCount} total DLLs in {OutputDir}", totalDlls, outputDir);
-        return outputDir;
     }
 
     private static string ComputeCacheKey(IReadOnlyList<NuGetDependency> packages)

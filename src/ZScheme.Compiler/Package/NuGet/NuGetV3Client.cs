@@ -91,7 +91,39 @@ internal sealed class NuGetV3Client : INuGetV3Client
         if (dir is not null)
             Directory.CreateDirectory(dir);
 
-        await using var fileStream = File.Create(destinationPath);
-        await response.Content.CopyToAsync(fileStream);
+        // Land the nupkg in one step. The cache is shared by every compile running on the
+        // machine -- the test assemblies `dotnet test` runs side by side, several `zs build`s --
+        // and copying straight into destinationPath let one process open the file another was
+        // still filling ("used by another process"), or handed a reader the half-written archive
+        // that File.Exists had already counted as a cache hit.
+        var staging = $"{destinationPath}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await using (var fileStream = File.Create(staging))
+            {
+                await response.Content.CopyToAsync(fileStream);
+            }
+
+            File.Move(staging, destinationPath, overwrite: false);
+        }
+        catch (IOException) when (File.Exists(destinationPath))
+        {
+            // Someone else landed the same package first; their copy is as good as ours.
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(staging);
+            }
+            catch (IOException)
+            {
+                // Best-effort cleanup of our own scratch file.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best-effort cleanup of our own scratch file.
+            }
+        }
     }
 }
