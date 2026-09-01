@@ -43,6 +43,13 @@ public sealed class IrLowering
         IReadOnlyList<ClrInterop.OutParamInfo>
     > _outParamsByAlias;
     private readonly Dictionary<string, List<string>> _recordCtors = new();
+
+    // Every class's synthesized-constructor field list, base fields first — the same order both
+    // emitters lay out when they synthesize `Derived(baseFields…, ownFields…) : base(baseFields…)`
+    // and the same one TypeInferer builds the constructor's type from. Recorded for every class,
+    // including one with an explicit constructor (which is deliberately kept out of _recordCtors),
+    // so a derived class still picks up such a base's fields.
+    private readonly Dictionary<string, List<string>> _classCtorFields = new();
     private readonly TypeAliasRegistry _typeAliases;
     private readonly Dictionary<string, string> _unionCtors = new();
 
@@ -1035,6 +1042,14 @@ public sealed class IrLowering
             && _recordCtors.TryGetValue(rName.Value, out var fieldNames)
         )
         {
+            // Zip truncates to the shorter side, so a disagreement here would drop arguments and
+            // build a half-initialized object rather than fail. Say so instead.
+            if (fieldNames.Count != n.Args.Count)
+                _diagnostics.Error(
+                    $"Constructor '{rName.Value}' expects {fieldNames.Count} argument(s), got {n.Args.Count}",
+                    n.Span
+                );
+
             var fields = fieldNames.Zip(n.Args, (name, arg) => (name, Lower(arg))).ToList();
             return new IrNode.RecordNew(rName.Value, fields)
             {
@@ -1920,8 +1935,15 @@ public sealed class IrLowering
         // field names as named arguments, but an explicit ctor's parameter names
         // are user-chosen and need not match the field names. Route those through
         // ClrNew instead, which uses positional arguments.
+        // Inherited fields come first, matching the emitted constructor. Without them the
+        // argument list below is zipped against the own fields alone and Zip truncates, so
+        // every inherited argument is silently discarded.
+        var ctorFieldNames = new List<string>(InheritedCtorFieldNames(n.BaseClassName));
+        ctorFieldNames.AddRange(n.Fields.Select(f => f.Name));
+        _classCtorFields[n.ClassName] = ctorFieldNames;
+
         if (n.Constructor is null)
-            _recordCtors[n.ClassName] = n.Fields.Select(f => f.Name).ToList();
+            _recordCtors[n.ClassName] = ctorFieldNames;
 
         // Register member accessors for field/method lowering
         foreach (var f in n.Fields)
@@ -1961,6 +1983,24 @@ public sealed class IrLowering
             Type = ZType.Unit,
             Span = n.Span,
         };
+    }
+
+    /// <summary>
+    ///     The constructor field names a class inherits from <paramref name="baseClassName" />,
+    ///     base-most first. Each entry in <see cref="_classCtorFields" /> already holds its own
+    ///     class's full chain, so one lookup covers an arbitrarily deep hierarchy. Falls back to
+    ///     <see cref="_recordCtors" />, which carries the same chain and is the only one of the two
+    ///     that an imported module's classes are registered in.
+    /// </summary>
+    private IReadOnlyList<string> InheritedCtorFieldNames(string? baseClassName)
+    {
+        if (baseClassName is null)
+            return [];
+        if (_classCtorFields.TryGetValue(baseClassName, out var chain))
+            return chain;
+        if (_recordCtors.TryGetValue(baseClassName, out var imported))
+            return imported;
+        return [];
     }
 
     private IrNode LowerInterfaceDecl(AstNode.InterfaceDecl n)
