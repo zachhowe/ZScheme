@@ -74,6 +74,15 @@ public sealed class NuGetResolver(DiagnosticBag diagnostics)
             foreach (var pkg in resolved)
             {
                 var dlls = NupkgExtractor.ExtractDlls(pkg.NupkgPath, stagingBin);
+
+                // Say the fill is still alive. The sweep ages a staging tree off the tree's own
+                // timestamp, and this one is stamped when bin is created and never again --
+                // every extraction writes inside staging/bin, which leaves the root alone. A
+                // cold resolve of a large graph over a slow link can outlast StagingMaxAge, and
+                // a resolve starting beside it would then delete the tree this one is filling,
+                // leaving the GetFiles below throwing DirectoryNotFoundException.
+                AtomicDirectory.Touch(staging);
+
                 Log.Debug(
                     "NuGetResolver: extracted {DllCount} DLLs from {PackageId} {Version}",
                     dlls.Count,
