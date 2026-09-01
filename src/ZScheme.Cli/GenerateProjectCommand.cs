@@ -732,11 +732,13 @@ internal sealed record PackageEmissionContext(
         var transitiveRefPaths = new List<string>(closure.RefPaths);
 
         // Note: no precompiled ZScheme package assemblies are fed to these compilations, so
-        // every ZScheme dependency is emitted as C# alongside the package's own modules. A
-        // cached .dll is IL produced by the other backend, and C# cannot consume its public
-        // signatures — see issues/il-package-assemblies-reference-system-private-corelib.md,
-        // which also records why the two obvious workarounds do not work. Compiling from
-        // source also makes the generated tree self-contained and readable end to end.
+        // every ZScheme dependency is emitted as C# alongside the package's own modules, which
+        // keeps the generated tree self-contained and readable end to end. That is now the only
+        // reason. It was originally forced: the IL backend scoped every corelib import to
+        // System.Private.CoreLib, so csc failed with CS0012 on every public signature of a
+        // cached .dll. CorLibFacadeMap resolves the owning reference assembly per type since
+        // e1a4a68, and the transpiled examples already reference a cached zscheme-stdlib.dll —
+        // so referencing dependency assemblies is a live option rather than a blocked one.
 
         // Resolve NuGet packages (main-only first, then combined for tests).
         // Transitive ref paths from dep manifests flow into the search path so the
