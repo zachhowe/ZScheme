@@ -54,9 +54,16 @@ public static class MetadataSerializer
         {
             var depsArray = new JsonArray();
             foreach (var dep in dependencies)
-                depsArray.Add(
-                    new JsonObject { ["name"] = dep.Name, ["version"] = dep.Version }
-                );
+            {
+                var depObj = new JsonObject
+                {
+                    ["name"] = dep.Name,
+                    ["version"] = dep.Version,
+                };
+                if (dep.Fingerprint is not null)
+                    depObj["fingerprint"] = dep.Fingerprint;
+                depsArray.Add(depObj);
+            }
             root["dependencies"] = depsArray;
         }
 
@@ -107,7 +114,13 @@ public static class MetadataSerializer
                     && depObj["name"]?.GetValue<string>() is { } depName
                     && depObj["version"]?.GetValue<string>() is { } depVersion
                 )
-                    dependencies.Add(new PrecompiledPackageDependency(depName, depVersion));
+                    dependencies.Add(
+                        new PrecompiledPackageDependency(
+                            depName,
+                            depVersion,
+                            depObj["fingerprint"]?.GetValue<string>()
+                        )
+                    );
 
         var modules = new Dictionary<string, CompiledModule>();
         foreach (var (name, moduleNode) in modulesNode)

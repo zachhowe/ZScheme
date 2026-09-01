@@ -137,10 +137,19 @@ public static class PackageDependencyResolver
         string manifestDir
     )
     {
+        return ResolveDependencyIdentities(manifest.Dependencies.ZScheme, manifestDir);
+    }
+
+    /// <inheritdoc cref="ResolveDependencyIdentities(PackageManifest, string)" />
+    public static IReadOnlyList<PrecompiledPackageDependency> ResolveDependencyIdentities(
+        IReadOnlyList<ZSchemeDependency> dependencies,
+        string manifestDir
+    )
+    {
         var identities = new List<PrecompiledPackageDependency>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var dep in manifest.Dependencies.ZScheme)
+        foreach (var dep in dependencies)
         {
             if (dep.Source is not ZSchemeDependencySource.Local local)
                 continue;
@@ -149,7 +158,13 @@ public static class PackageDependencyResolver
             if (TryResolvePackage(depDir) is not { Name.Length: > 0 } resolved)
                 continue;
             if (seen.Add(resolved.Name))
-                identities.Add(new PrecompiledPackageDependency(resolved.Name, resolved.Version));
+                identities.Add(
+                    new PrecompiledPackageDependency(
+                        resolved.Name,
+                        resolved.Version,
+                        PackageFingerprint.Compute(resolved.PackageDir, resolved.SourceDir)
+                    )
+                );
         }
 
         return identities;
