@@ -22,16 +22,65 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
             assemblyPath
         );
 
-        if (!File.Exists(assemblyPath) || !File.Exists(metadataPath))
+        // No directory for the package name at all: there is no entry and no commit under way
+        // either — publishing one renames the version directory, never its parent — so the
+        // retries below would only sleep on a lookup that has already settled.
+        if (!Directory.Exists(Path.GetDirectoryName(packageDir)!))
         {
             Log.Debug("PackageCache: miss for {PackageName}@{Version}", packageName, version);
             return null;
         }
 
-        var json = File.ReadAllText(metadataPath);
-        Log.Debug("PackageCache: hit for {PackageName}@{Version}", packageName, version);
-        return MetadataSerializer.Deserialize(json, assemblyPath);
+        for (var attempt = 1; ; attempt++)
+        {
+            // Read the metadata rather than test for it and then read it. An entry is published
+            // by renaming it in over whatever was there (see AtomicDirectory), so the version
+            // directory is briefly absent while a peer swaps its copy in: File.Exists returning
+            // true said nothing about the read that followed, and that read threw
+            // FileNotFoundException on an entry that was never half-written — out through
+            // Compilation.TryLoadPrecompiledModules, where nothing catches it, killing a compile
+            // that had a perfectly good cache entry a moment later.
+            string? json;
+            try
+            {
+                json = File.ReadAllText(metadataPath);
+                if (!File.Exists(assemblyPath))
+                    json = null;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                json = null;
+            }
+
+            if (json is not null)
+            {
+                Log.Debug("PackageCache: hit for {PackageName}@{Version}", packageName, version);
+                return MetadataSerializer.Deserialize(json, assemblyPath);
+            }
+
+            if (attempt == MaxLoadAttempts)
+            {
+                Log.Debug("PackageCache: miss for {PackageName}@{Version}", packageName, version);
+                return null;
+            }
+
+            // Let the commit that is mid-swap land rather than calling its window a miss, which
+            // sends the caller off to recompile and re-store a package that is already cached.
+            Thread.Sleep(LoadBackoffMs * attempt);
+        }
     }
+
+    /// <summary>How many times a lookup that found nothing is retried before it counts as a miss.</summary>
+    /// <remarks>
+    ///     Every window in which the version directory is absent belongs to a peer that is
+    ///     mid-commit, and it is over in the time two renames take. Matches the budget
+    ///     <see cref="AtomicDirectory" /> gives a commit for the mirror-image reason: neither side
+    ///     of a swap settles anything from a single attempt.
+    /// </remarks>
+    private const int MaxLoadAttempts = 5;
+
+    /// <summary>Base of the linear backoff between lookup attempts, in milliseconds.</summary>
+    private const int LoadBackoffMs = 10;
 
     public void Store(
         string packageName,

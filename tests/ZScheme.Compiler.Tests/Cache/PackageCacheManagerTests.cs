@@ -197,6 +197,60 @@ public sealed class PackageCacheManagerTests : IDisposable
     }
 
     /// <summary>
+    ///     Regression: a lookup that lands inside a commit must come back as a hit, never as a
+    ///     miss and never as an exception. Publishing an entry renames it in over whatever was
+    ///     there, so the version directory is absent between the two renames — and <c>TryLoad</c>
+    ///     checked that both files existed and then read the metadata: in that window it reported
+    ///     a miss on an entry that is there, sending the caller off to recompile a cached package,
+    ///     or threw <see cref="FileNotFoundException" /> when the swap landed between the check
+    ///     and the read. Nothing between here and the compile catches that throw.
+    /// </summary>
+    [Fact]
+    public async Task TryLoadRidesOutACommitLandingUnderIt()
+    {
+        var modules = CreateTestModules();
+        _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules);
+
+        var packageDir = Path.Combine(_tempDir, "test-pkg", "1.0.0");
+        var metadataJson = await File.ReadAllTextAsync(
+            Path.Combine(packageDir, "test-pkg.metadata.json")
+        );
+
+        // A peer publishing the same entry over and over, which is what a shared cache looks like
+        // from a reader: nothing but the swaps. Calling Store in a loop instead would spend
+        // almost all of its time writing the assembly, and the window this is about would come
+        // round a handful of times in the whole test rather than continuously.
+        using var done = new CancellationTokenSource();
+        var republisher = Task.Run(() =>
+        {
+            while (!done.IsCancellationRequested)
+            {
+                var staging = AtomicDirectory.StagingPathFor(packageDir);
+                Directory.CreateDirectory(staging);
+                File.WriteAllBytes(Path.Combine(staging, "test-pkg.dll"), [0x4D, 0x5A]);
+                File.WriteAllText(
+                    Path.Combine(staging, "test-pkg.metadata.json"),
+                    metadataJson
+                );
+                AtomicDirectory.Commit(staging, packageDir);
+                AtomicDirectory.TryDelete(staging);
+            }
+        });
+
+        // A separate manager per lookup, as in production: nothing in-process serializes a reader
+        // against the republisher. An exception escaping either fails the test.
+        var hits = 0;
+        for (var i = 0; i < 2000; i++)
+            if (new PackageCacheManager(_tempDir).TryLoad("test-pkg", "1.0.0") is not null)
+                hits++;
+
+        await done.CancelAsync();
+        await republisher;
+
+        Assert.Equal(2000, hits);
+    }
+
+    /// <summary>
     ///     The same entry stored from several processes at once — the shape a cold cache takes on
     ///     CI, where every test assembly auto-installs the same packages. Writing in place made the
     ///     writers collide outright ("the process cannot access the file … because it is being used
