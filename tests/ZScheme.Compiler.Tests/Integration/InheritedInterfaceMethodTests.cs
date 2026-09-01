@@ -18,10 +18,12 @@ namespace ZScheme.Compiler.Tests.Integration;
 // interface set transitively, so the C# backend was always right — which made this a silent
 // backend divergence, and why every test here runs both backends and asserts they agree.
 //
-// The entry point is a zero-arg `compute` returning Int. Note the type checker cannot yet see an
-// interface's inherited members (`IDerived-Go` on an `IDerived` is an undefined variable), so the
-// sources below only ever call through spellings it accepts; that is orthogonal to the vtable
-// hole under test, since merely constructing the class is enough to trip it.
+// The entry point is a zero-arg `compute` returning Int.
+//
+// The second half of the file covers the type checker's side of the same shape: it too walked a
+// single declared edge, so an interface's inherited members were invisible (`IDerived-Go` on an
+// `IDerived` was an undefined variable) and every widening past one edge was a type mismatch —
+// on programs the CLR would have accepted, since the declarations were always emitted right.
 public class InheritedInterfaceMethodTests
 {
     // One inherited edge: the minimal shape. `Extra` is declared on `IDerived` and was always
@@ -97,6 +99,95 @@ public class InheritedInterfaceMethodTests
     [Fact]
     public void ClassImplementsMethodInheritedByANonFirstInterface() =>
         AssertBackendsAgree(SecondInterfacePosition, 142);
+
+    // ─── The type checker's half: subtyping and accessors past one declared edge ───
+
+    // The reduced repro. `Impl` declares `IDerived`, which inherits `IBase`, so passing an `Impl`
+    // where an `IBase` is wanted is legal — Unifier.IsZSchemeSubtype compared against the
+    // directly-declared list and stopped, reporting "Type mismatch: 'IBase' vs 'Impl'".
+    private const string ClassSatisfiesBaseInterface = """
+        (module test)
+        (define-interface IBase (Go [] : Int))
+        (define-interface IDerived : IBase (Extra [] : Int))
+        (define-class Impl : IDerived
+          (define (Go) : Int 2)
+          (define (Extra) : Int 40))
+        (define (via-base [t : IBase]) : Int (IBase-Go t))
+        (define (compute) : Int (+ (via-base (Impl)) (IDerived-Extra (Impl))))
+        """;
+
+    [Fact]
+    public void ClassIsASubtypeOfItsInterfacesBaseInterface() =>
+        AssertBackendsAgree(ClassSatisfiesBaseInterface, 42);
+
+    // An interface widened to one it inherits — no class involved, so the walk has to start from
+    // an interface as readily as from a class.
+    private const string InterfaceWidensToItsBase = """
+        (module test)
+        (define-interface IBase (Go [] : Int))
+        (define-interface IDerived : IBase (Extra [] : Int))
+        (define-class Impl : IDerived
+          (define (Go) : Int 2)
+          (define (Extra) : Int 40))
+        (define (via-base [t : IBase]) : Int (IBase-Go t))
+        (define (widen [d : IDerived]) : Int (+ (via-base d) (IDerived-Extra d)))
+        (define (compute) : Int (widen (Impl)))
+        """;
+
+    [Fact]
+    public void InterfaceIsASubtypeOfTheInterfaceItInherits() =>
+        AssertBackendsAgree(InterfaceWidensToItsBase, 42);
+
+    // An inherited method is a member of the inheriting interface too, so it gets an accessor
+    // under that name: `IDerived-Go` was "Undefined variable" because InferInterfaceDecl
+    // registered accessors for the declared methods only.
+    private const string InheritedMethodAccessor = """
+        (module test)
+        (define-interface IA (A [] : Int))
+        (define-interface IB : IA (B [] : Int))
+        (define-interface IC : IB (C [] : Int))
+        (define-class Impl : IC
+          (define (A) : Int 1)
+          (define (B) : Int 20)
+          (define (C) : Int 300))
+        (define (compute) : Int
+          (let ([i : IC (Impl)])
+            (+ (IC-A i) (+ (IC-B i) (IC-C i)))))
+        """;
+
+    [Fact]
+    public void AccessorExistsForAMethodAnInterfaceInheritsTransitively() =>
+        AssertBackendsAgree(InheritedMethodAccessor, 321);
+
+    // A method an interface redeclares keeps its own signature: the base's must not overwrite the
+    // accessor already registered for it.
+    private const string RedeclaredMethod = """
+        (module test)
+        (define-interface IBase (Go [] : Int))
+        (define-interface IDerived : IBase (Go [] : Int))
+        (define-class Impl : IDerived (define (Go) : Int 42))
+        (define (compute) : Int (IDerived-Go (Impl)))
+        """;
+
+    [Fact]
+    public void RedeclaringAnInheritedMethodKeepsOneAccessor() =>
+        AssertBackendsAgree(RedeclaredMethod, 42);
+
+    // A subclass has its base class's interfaces, which is the case the walk reaches through the
+    // base *class* edge rather than a base interface. `#:open` + interface was the combination
+    // that could not be extended at all.
+    private const string SubclassInheritsInterfaces = """
+        (module test)
+        (define-interface IBase (Go [] : Int))
+        (define-class #:open Base : IBase (define (Go) : Int 42))
+        (define-class Sub : Base)
+        (define (via-base [t : IBase]) : Int (IBase-Go t))
+        (define (compute) : Int (via-base (Sub)))
+        """;
+
+    [Fact]
+    public void SubclassIsASubtypeOfItsBaseClassesInterfaces() =>
+        AssertBackendsAgree(SubclassInheritsInterfaces, 42);
 
     // ─── Dual-backend compile/run harness (mirrors Integration/TypeNameCasingTests) ───
 
