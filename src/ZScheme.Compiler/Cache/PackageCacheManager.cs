@@ -211,6 +211,16 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
                 $"Another process published {packageName} v{version} at {packageDir} first; "
                 + "that build is what is cached, not this one.",
 
+            // The entry that could not be displaced is a complete one for this package and
+            // version. A caller that only needs a build of that version is looking at what its
+            // own lookup would have hit had the peer published a moment earlier -- it compiled
+            // because that lookup missed, and the entry appeared while it was compiling. Failing
+            // the compile over a usable entry buys nothing, and on Windows the handle that
+            // blocks the rename is as often a scanner reading the .dll a peer just wrote as it
+            // is a process with the entry loaded.
+            CommitResult.Blocked
+                when requirement is StoreRequirement.AnyBuildOfThisVersion
+                    && HasEntry(packageName, packageDir) => null,
             CommitResult.Blocked =>
                 $"Could not replace the cached {packageName} v{version} at {packageDir}: "
                 + $"another process is most likely holding {packageName}.dll open. "
@@ -218,6 +228,11 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
 
             _ => $"Could not cache {packageName} v{version} at {packageDir}.",
         };
+
+    /// <summary>Whether the version directory holds an entry a lookup would hit: both files.</summary>
+    private static bool HasEntry(string packageName, string packageDir) =>
+        File.Exists(Path.Combine(packageDir, $"{packageName}.dll"))
+        && File.Exists(Path.Combine(packageDir, $"{packageName}.metadata.json"));
 
     public PrecompiledPackage? TryLoadLatest(string packageName)
     {
