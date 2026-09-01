@@ -35,7 +35,7 @@ public sealed class NuGetResolver(DiagnosticBag diagnostics)
             cacheKey
         );
 
-        if (Directory.Exists(outputDir) && Directory.GetFiles(outputDir, "*.dll").Length > 0)
+        if (HasResolvedDlls(outputDir))
         {
             Log.Debug("NuGetResolver: cache hit at {OutputDir}", outputDir);
             return outputDir;
@@ -94,7 +94,21 @@ public sealed class NuGetResolver(DiagnosticBag diagnostics)
                 return null;
             }
 
-            AtomicDirectory.Commit(staging, cacheDir);
+            // A commit that did not land can leave outputDir with nothing in it, and the finally
+            // below then drops the staging tree that held the only copy of these DLLs. Returning
+            // the path regardless sent the caller off to a directory that does not exist, with no
+            // diagnostic: the compile failed later on an unresolvable reference instead of on the
+            // NuGet resolution that actually went wrong.
+            var commit = AtomicDirectory.Commit(staging, cacheDir);
+            if (commit is not CommitResult.Committed && !HasResolvedDlls(outputDir))
+            {
+                diagnostics.Error(
+                    $"Could not publish the resolved NuGet packages to the cache at {cacheDir}",
+                    packages[0].Span
+                );
+                return null;
+            }
+
             Log.Debug("NuGetResolver: {DllCount} total DLLs in {OutputDir}", totalDlls, outputDir);
             return outputDir;
         }
@@ -102,6 +116,12 @@ public sealed class NuGetResolver(DiagnosticBag diagnostics)
         {
             AtomicDirectory.TryDelete(staging);
         }
+    }
+
+    /// <summary>Whether a cache entry's bin directory holds a usable reference set.</summary>
+    private static bool HasResolvedDlls(string outputDir)
+    {
+        return Directory.Exists(outputDir) && Directory.GetFiles(outputDir, "*.dll").Length > 0;
     }
 
     private static string ComputeCacheKey(IReadOnlyList<NuGetDependency> packages)
