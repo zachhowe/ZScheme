@@ -47,6 +47,14 @@ public sealed record TransitiveZSchemeClosure(
     ///     package cache — read it from here rather than guessing at a source dir's parent.
     /// </summary>
     public IReadOnlyList<string> PackageDirs { get; init; } = [];
+
+    /// <summary>
+    ///     Every reachable package, in the same BFS order, with the identity a caller needs to
+    ///     decide per dependency rather than for the closure as a whole — whether to reference a
+    ///     built assembly or compile the sources this closure also points at. A dependency
+    ///     directory with no usable manifest contributes a module search path but no entry here.
+    /// </summary>
+    public IReadOnlyList<ResolvedPackage> Packages { get; init; } = [];
 }
 
 public static class PackageDependencyResolver
@@ -194,6 +202,7 @@ public static class PackageDependencyResolver
         var nuget = new List<NuGetDependency>();
         var refPaths = new List<string>();
         var packageDirs = new List<string>();
+        var packages = new List<ResolvedPackage>();
 
         // BFS so direct deps are processed before transitive ones: first writer wins for a
         // shared prefix (TryAdd), letting a consumer shadow a transitive package's prefix.
@@ -227,6 +236,7 @@ public static class PackageDependencyResolver
 
             moduleSearchPaths.Add(resolved.SourceDir);
             packageDirs.Add(resolved.PackageDir);
+            packages.Add(resolved);
             packagePaths.TryAdd(resolved.Prefix, resolved.SourceDir);
             if (resolved.DefaultModule is { } defMod)
                 moduleAliases.TryAdd(resolved.Prefix, $"{resolved.Prefix}/{defMod}");
@@ -249,6 +259,7 @@ public static class PackageDependencyResolver
         )
         {
             PackageDirs = packageDirs,
+            Packages = packages,
         };
     }
 }

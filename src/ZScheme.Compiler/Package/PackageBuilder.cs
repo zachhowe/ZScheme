@@ -37,7 +37,13 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         // 2. Resolve the manifest's dependency closure, frameworks, NuGet packages, and
         //    ref paths. Shared with `test -m` and LibraryCompiler.CompileFromManifest so
         //    every entry point agrees on what a manifest means.
-        var inputs = PackageOptionsBuilder.Resolve(manifestDir, manifest, diagnostics);
+        var inputs = PackageOptionsBuilder.Resolve(
+            manifestDir,
+            manifest,
+            diagnostics,
+            preferPrecompiledDependencies: true,
+            cacheDirectory: cliOverrides?.CacheDirectory
+        );
         if (inputs is null)
             return null;
 
@@ -48,6 +54,7 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
 
         AddDistinct(options.AssemblySearchPaths, inputs.AssemblySearchPaths);
         AddDistinct(options.ModuleSearchPaths, inputs.ModuleSearchPaths);
+        AddDistinct(options.PrecompiledPackagePaths, inputs.PrecompiledPackagePaths);
         foreach (var (prefix, path) in inputs.PackagePaths)
             options.PackagePaths[prefix] = path;
         foreach (var (prefix, alias) in inputs.ModuleAliases)
