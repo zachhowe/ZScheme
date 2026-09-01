@@ -451,7 +451,7 @@ public sealed partial class Compilation
                 if (exportedNames.Contains(name))
                     exportedMacros[name] = macroDef;
 
-            // Collect class interface implementations for cross-module subtyping
+            // Collect declared supertypes for cross-module subtyping.
             // Note: the parser puts the first name after ':' in BaseClassName (position-based).
             // If it's not a known ZScheme class, it's actually an interface. Include both.
             var exportedClassInterfaces = new Dictionary<string, IReadOnlyList<string>>();
@@ -463,6 +463,14 @@ public sealed partial class Compilation
                 if (allInterfaces.Count > 0)
                     exportedClassInterfaces[classDecl.ClassName] = allInterfaces;
             }
+
+            // Interfaces go in the same map: the importing side walks it transitively (see
+            // Unifier.IsZSchemeSubtype), so an inheriting interface has to be a key too or the
+            // walk stops at the module boundary and a class loses every interface its own
+            // interface inherits.
+            foreach (var ifaceDecl in AllTopLevelForms(program).OfType<AstNode.InterfaceDecl>())
+                if (ifaceDecl.BaseInterfaceNames.Count > 0)
+                    exportedClassInterfaces[ifaceDecl.InterfaceName] = ifaceDecl.BaseInterfaceNames;
 
             Log.Debug(
                 "Module {ModuleName}: compiled in {ElapsedMs}ms ({ExportCount} exports, {TypeCount} types, {ClrImportCount} CLR imports, {MacroCount} macros)",

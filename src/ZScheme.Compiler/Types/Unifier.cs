@@ -16,7 +16,7 @@ public sealed class Unifier(
     Substitution subst,
     DiagnosticBag diagnostics,
     IReadOnlyList<string>? assemblySearchPaths = null,
-    Func<string, IReadOnlyList<string>?>? classInterfaceLookup = null,
+    Func<string, IReadOnlyList<string>?>? supertypeLookup = null,
     IReadOnlyList<string>? clrNamespaces = null,
     Func<string, string>? canonicalTypeName = null,
     Func<string, string?>? userDeclaredTypeOrigin = null
@@ -446,7 +446,7 @@ public sealed class Unifier(
     {
         // Check ZScheme-defined classes first (not yet compiled to assemblies,
         // so CLR reflection won't find them)
-        if (classInterfaceLookup is not null)
+        if (supertypeLookup is not null)
             if (IsZSchemeSubtype(nameA, nameB) || IsZSchemeSubtype(nameB, nameA))
                 return true;
 
@@ -544,24 +544,44 @@ public sealed class Unifier(
     }
 
     /// <summary>
-    ///     Check if className implements interfaceName by walking the ZScheme class hierarchy.
+    ///     Whether <paramref name="subName" /> is a ZScheme subtype of <paramref name="superName" />,
+    ///     walking the declared hierarchy transitively. The lookup answers with one type's direct
+    ///     supertypes only — a class's interfaces and its base class, an interface's base
+    ///     interfaces — so reaching anything past the first edge (a class used as one of its
+    ///     interface's base interfaces, a subclass used as an interface its base class declares,
+    ///     one interface widened to another) means walking the whole closure from here.
     /// </summary>
-    private bool IsZSchemeSubtype(string className, string interfaceName)
+    private bool IsZSchemeSubtype(string subName, string superName)
     {
-        var interfaces = classInterfaceLookup!(className);
-        if (interfaces is null)
-            return false;
-
         // Compare canonically: a class may declare `: ZWorld.GameServer.NPC.Behaviors.INpcBehavior`
         // while the use site says `INpcBehavior` (or the reverse). Both sides are CLR interface
         // names, so both canonicalize to the same full name.
-        var target = _canonical(interfaceName);
-        foreach (var declared in interfaces)
-            if (declared == interfaceName || _canonical(declared) == target)
-                return true;
+        var target = _canonical(superName);
 
-        // Walk base class chain
-        // classInterfaceLookup returns null for unknown classes, so this terminates
+        // Breadth-first over the supertype graph. The visited set is what terminates the walk: a
+        // cycle among the declarations is a diagnostic elsewhere, not a reason to hang here.
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Queue<string>();
+        pending.Enqueue(subName);
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Dequeue();
+            if (!visited.Add(current))
+                continue;
+
+            var supertypes = supertypeLookup!(current);
+            if (supertypes is null)
+                continue;
+
+            foreach (var declared in supertypes)
+            {
+                if (declared == superName || _canonical(declared) == target)
+                    return true;
+                pending.Enqueue(declared);
+            }
+        }
+
         return false;
     }
 
