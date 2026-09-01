@@ -127,6 +127,11 @@ directory is a toolchain on its own — links the result as `dev`, and makes it 
 ```scheme
 (define-record Point [x : Int] [y : Int])
 
+;; Each field defines a `TypeName-fieldName` accessor.
+(define (magnitude-squared [p : Point]) : Int
+  (+ (* (Point-x p) (Point-x p))
+     (* (Point-y p) (Point-y p))))
+
 (define-union Shape
   (Circle [radius : Int])
   (Rect [w : Int] [h : Int]))

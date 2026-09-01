@@ -1543,6 +1543,118 @@ public class AstBuilderTests
         Assert.Equal("Xunit.FactAttribute", cls.Methods[0].Attributes![0].Name);
     }
 
+    // --- Base class / interface runs are not gated on capitalisation ---
+    // A ZScheme type name is case-insensitive: `i-thing` names a type as much as `IThing` does,
+    // and the two are distinct types. The `: Base IFoo IBar` run used to stop at the first name
+    // that did not start with an upper-case letter, which silently dropped a hyphenated base and
+    // then reported it as a stray member. It now ends only at what cannot be a type name.
+
+    [Fact]
+    public void Class_HyphenatedBaseClass_IsRecorded()
+    {
+        var prog = Build("(define-class derived : base-thing (define (Go) : Int 1))");
+        var cls = Assert.IsType<AstNode.ClassDecl>(prog.TopLevelForms[0]);
+        Assert.Equal("base-thing", cls.BaseClassName);
+        Assert.Empty(cls.InterfaceNames);
+        Assert.Single(cls.Methods);
+    }
+
+    [Fact]
+    public void Class_HyphenatedBaseAndInterfaces_AreSplitInOrder()
+    {
+        var prog = Build("(define-class c : base-thing i-foo IBar (define (Go) : Int 1))");
+        var cls = Assert.IsType<AstNode.ClassDecl>(prog.TopLevelForms[0]);
+        Assert.Equal("base-thing", cls.BaseClassName);
+        Assert.Equal(["i-foo", "IBar"], cls.InterfaceNames);
+    }
+
+    [Fact]
+    public void Class_WhereClauseWithoutBase_IsNotReadAsABaseClass()
+    {
+        // `:where` reaches the builder as a bare `:` plus the symbol `where`, which is shaped
+        // exactly like `: BaseClass` once capitalisation stops delimiting the run.
+        var prog = Build("(define-class (holder ^a) :where (^a notnull) [v : ^a])");
+        var cls = Assert.IsType<AstNode.ClassDecl>(prog.TopLevelForms[0]);
+        Assert.Null(cls.BaseClassName);
+        Assert.Empty(cls.InterfaceNames);
+        Assert.Single(cls.Fields);
+        Assert.Equal(
+            GenericConstraintKind.NotNull,
+            cls.TypeParamConstraints!["^a"]
+        );
+    }
+
+    [Fact]
+    public void Class_WhereClauseAfterHyphenatedBase_KeepsBoth()
+    {
+        var prog = Build("(define-class (holder ^a) : base-thing :where (^a notnull) [v : ^a])");
+        var cls = Assert.IsType<AstNode.ClassDecl>(prog.TopLevelForms[0]);
+        Assert.Equal("base-thing", cls.BaseClassName);
+        Assert.Equal(
+            GenericConstraintKind.NotNull,
+            cls.TypeParamConstraints!["^a"]
+        );
+    }
+
+    [Fact]
+    public void Interface_HyphenatedBaseInterfaces_AreRecorded()
+    {
+        var prog = Build("(define-interface i-derived : i-base IOther (Go [] : Int))");
+        var iface = Assert.IsType<AstNode.InterfaceDecl>(prog.TopLevelForms[0]);
+        Assert.Equal(["i-base", "IOther"], iface.BaseInterfaceNames);
+        Assert.Single(iface.Methods);
+    }
+
+    [Fact]
+    public void Interface_WhereClauseWithoutBase_IsNotReadAsABaseInterface()
+    {
+        var prog = Build("(define-interface (i-holder ^a) :where (^a notnull) (Get [] : ^a))");
+        var iface = Assert.IsType<AstNode.InterfaceDecl>(prog.TopLevelForms[0]);
+        Assert.Empty(iface.BaseInterfaceNames);
+        Assert.Equal(
+            GenericConstraintKind.NotNull,
+            iface.TypeParamConstraints!["^a"]
+        );
+    }
+
+    [Fact]
+    public void Object_HyphenatedInterfaceName_IsRecorded()
+    {
+        var prog = Build("(define (f) : Int (object i-greeter (define (Greet) : Int 1)))");
+        var def = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
+        var obj = Assert.IsType<AstNode.ObjectExpr>(def.Body);
+        Assert.Equal(["i-greeter"], obj.InterfaceNames);
+        Assert.Single(obj.Methods);
+    }
+
+    [Fact]
+    public void Object_HyphenatedBaseAndGroupedInterfaces_AreRecorded()
+    {
+        var prog = Build(
+            "(define (f) : Int (object : base-thing (i-foo IBar) (define (Greet) : Int 1)))"
+        );
+        var def = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
+        var obj = Assert.IsType<AstNode.ObjectExpr>(def.Body);
+        Assert.Equal("base-thing", obj.BaseClassName);
+        Assert.Equal(["i-foo", "IBar"], obj.InterfaceNames);
+        Assert.Single(obj.Methods);
+    }
+
+    [Fact]
+    public void Object_MethodFormIsNotMistakenForAnInterfaceGroup()
+    {
+        // The grouped-interface list is told apart from a member form by its head, not by
+        // capitalisation — otherwise a lower-case interface group would be indistinguishable
+        // from `(define (M) …)`.
+        var prog = Build("(define (f) : Int (object : base-thing (define (Greet) : Int 1)))");
+        var def = Assert.IsType<AstNode.Define>(prog.TopLevelForms[0]);
+        var obj = Assert.IsType<AstNode.ObjectExpr>(def.Body);
+        Assert.Equal("base-thing", obj.BaseClassName);
+        Assert.Empty(obj.InterfaceNames);
+        Assert.Single(obj.Methods);
+        Assert.Equal("Greet", obj.Methods[0].Name);
+    }
+
     // --- Interface diagnostics ---
 
     [Fact]

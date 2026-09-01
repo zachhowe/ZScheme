@@ -4,6 +4,7 @@ using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Builtins;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
+using ZScheme.Compiler.Syntax;
 using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Ir;
@@ -13,8 +14,16 @@ using static ClrImportKind;
 public sealed class IrLowering
 {
     private static readonly ILogger _log = Log.ForContext<IrLowering>();
-    private readonly HashSet<string> _classFieldAccessors = new();
-    private readonly HashSet<string> _classMethodAccessors = new();
+    // Accessor binding name (e.g. "HttpResponse-status-code") -> member name
+    // ("status-code"). A map rather than a set + split: the type half of an accessor name
+    // can itself contain the '-' separator (a record named `s-v` yields `s-v-a`), so the
+    // member name cannot be recovered from the string.
+    private readonly Dictionary<string, string> _classFieldAccessors = new();
+    private readonly Dictionary<string, string> _classMethodAccessors = new();
+
+    // Interfaces this module declares, keyed by the name their declaration wrote, so an
+    // interface's base list is reachable when a later one inherits from it
+    private readonly Dictionary<string, AstNode.InterfaceDecl> _interfaceDecls = new();
 
     private readonly Dictionary<
         string,
@@ -38,6 +47,13 @@ public sealed class IrLowering
         IReadOnlyList<ClrInterop.OutParamInfo>
     > _outParamsByAlias;
     private readonly Dictionary<string, List<string>> _recordCtors = new();
+
+    // Every class's synthesized-constructor field list, base fields first — the same order both
+    // emitters lay out when they synthesize `Derived(baseFields…, ownFields…) : base(baseFields…)`
+    // and the same one TypeInferer builds the constructor's type from. Recorded for every class,
+    // including one with an explicit constructor (which is deliberately kept out of _recordCtors),
+    // so a derived class still picks up such a base's fields.
+    private readonly Dictionary<string, List<string>> _classCtorFields = new();
     private readonly TypeAliasRegistry _typeAliases;
     private readonly Dictionary<string, string> _unionCtors = new();
 
@@ -289,7 +305,7 @@ public sealed class IrLowering
     {
         _recordCtors[recordName] = fieldNames;
         foreach (var fieldName in fieldNames)
-            _classFieldAccessors.Add($"{recordName}/{fieldName}");
+            _classFieldAccessors[AccessorNaming.Accessor(recordName, fieldName)] = fieldName;
     }
 
     /// <summary>
@@ -819,24 +835,22 @@ public sealed class IrLowering
         // in stdlib (see packages/stdlib/src/{vector,list,hash,mutable/{vector,list,hash}}.zs).
         // They are ordinary stdlib functions and lower through the normal call path.
 
-        // Check for class/interface slash-syntax accessor (ClassName/field or ClassName/method)
-        if (n.Function is AstNode.Name slashName && n.Args.Count >= 1)
+        // Check for a member accessor (TypeName-field or TypeName-method). A deprecated
+        // `TypeName/member` spelling was rewritten by the type inferer, which leaves the
+        // modern name on ResolvedAccessorName, so only modern names are looked up here.
+        if (n.Function is AstNode.Name accessorName && n.Args.Count >= 1)
         {
-            if (_classFieldAccessors.Contains(slashName.Value))
-            {
-                var slashIdx = slashName.Value.IndexOf('/');
-                var fieldName = slashName.Value[(slashIdx + 1)..];
+            var lookupName = accessorName.ResolvedAccessorName ?? accessorName.Value;
+
+            if (_classFieldAccessors.TryGetValue(lookupName, out var fieldName))
                 return new IrNode.MethodCall(Lower(n.Args[0]), fieldName, [], true, false)
                 {
                     Type = n.ResolvedType ?? ZType.Unit,
                     Span = n.Span,
                 };
-            }
 
-            if (_classMethodAccessors.Contains(slashName.Value))
+            if (_classMethodAccessors.TryGetValue(lookupName, out var methodName))
             {
-                var slashIdx = slashName.Value.IndexOf('/');
-                var methodName = slashName.Value[(slashIdx + 1)..];
                 var restArgs = n.Args.Skip(1).Select(Lower).ToList();
                 return new IrNode.MethodCall(Lower(n.Args[0]), methodName, restArgs, false, false)
                 {
@@ -1032,6 +1046,14 @@ public sealed class IrLowering
             && _recordCtors.TryGetValue(rName.Value, out var fieldNames)
         )
         {
+            // Zip truncates to the shorter side, so a disagreement here would drop arguments and
+            // build a half-initialized object rather than fail. Say so instead.
+            if (fieldNames.Count != n.Args.Count)
+                _diagnostics.Error(
+                    $"Constructor '{rName.Value}' expects {fieldNames.Count} argument(s), got {n.Args.Count}",
+                    n.Span
+                );
+
             var fields = fieldNames.Zip(n.Args, (name, arg) => (name, Lower(arg))).ToList();
             return new IrNode.RecordNew(rName.Value, fields)
             {
@@ -1350,7 +1372,7 @@ public sealed class IrLowering
             .ToList();
         _recordCtors[n.RecordName] = n.Fields.Select(f => f.Name).ToList();
         foreach (var f in n.Fields)
-            _classFieldAccessors.Add($"{n.RecordName}/{f.Name}");
+            _classFieldAccessors[AccessorNaming.Accessor(n.RecordName, f.Name)] = f.Name;
         if (n.IsValueType)
             _valueTypeRecords.Add(n.RecordName);
         var record = new IrNode.RecordDecl(
@@ -1917,14 +1939,21 @@ public sealed class IrLowering
         // field names as named arguments, but an explicit ctor's parameter names
         // are user-chosen and need not match the field names. Route those through
         // ClrNew instead, which uses positional arguments.
-        if (n.Constructor is null)
-            _recordCtors[n.ClassName] = n.Fields.Select(f => f.Name).ToList();
+        // Inherited fields come first, matching the emitted constructor. Without them the
+        // argument list below is zipped against the own fields alone and Zip truncates, so
+        // every inherited argument is silently discarded.
+        var ctorFieldNames = new List<string>(InheritedCtorFieldNames(n.BaseClassName));
+        ctorFieldNames.AddRange(n.Fields.Select(f => f.Name));
+        _classCtorFields[n.ClassName] = ctorFieldNames;
 
-        // Register slash-syntax accessors for field/method lowering
+        if (n.Constructor is null)
+            _recordCtors[n.ClassName] = ctorFieldNames;
+
+        // Register member accessors for field/method lowering
         foreach (var f in n.Fields)
-            _classFieldAccessors.Add($"{n.ClassName}/{f.Name}");
+            _classFieldAccessors[AccessorNaming.Accessor(n.ClassName, f.Name)] = f.Name;
         foreach (var m in n.Methods)
-            _classMethodAccessors.Add($"{n.ClassName}/{m.Name}");
+            _classMethodAccessors[AccessorNaming.Accessor(n.ClassName, m.Name)] = m.Name;
 
         // Lower explicit constructor if present
         IrConstructor? irCtor = null;
@@ -1960,6 +1989,49 @@ public sealed class IrLowering
         };
     }
 
+    /// <summary>
+    ///     The constructor field names a class inherits from <paramref name="baseClassName" />,
+    ///     base-most first. Each entry in <see cref="_classCtorFields" /> already holds its own
+    ///     class's full chain, so one lookup covers an arbitrarily deep hierarchy. Falls back to
+    ///     <see cref="_recordCtors" />, which carries the same chain and is the only one of the two
+    ///     that an imported module's classes are registered in.
+    /// </summary>
+    private IReadOnlyList<string> InheritedCtorFieldNames(string? baseClassName)
+    {
+        if (baseClassName is null)
+            return [];
+        if (_classCtorFields.TryGetValue(baseClassName, out var chain))
+            return chain;
+        if (_recordCtors.TryGetValue(baseClassName, out var imported))
+            return imported;
+        return [];
+    }
+
+    // The names of every method an interface inherits, walking its base list transitively.
+    // Mirrors TypeInferer.InheritedInterfaceMethods, which decides the accessors that exist.
+    private List<string> InheritedInterfaceMethodNames(IReadOnlyList<string> baseInterfaceNames)
+    {
+        var result = new List<string>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Queue<string>(baseInterfaceNames);
+
+        while (pending.Count > 0)
+        {
+            var name = pending.Dequeue();
+            if (!visited.Add(name))
+                continue;
+            if (!_interfaceDecls.TryGetValue(name, out var decl))
+                continue;
+
+            foreach (var m in decl.Methods)
+                result.Add(m.Name);
+            foreach (var baseName in decl.BaseInterfaceNames)
+                pending.Enqueue(baseName);
+        }
+
+        return result;
+    }
+
     private IrNode LowerInterfaceDecl(AstNode.InterfaceDecl n)
     {
         var methods = n
@@ -1976,9 +2048,20 @@ public sealed class IrLowering
             })
             .ToList();
 
-        // Register slash-syntax accessors for method lowering
+        // Register member accessors for method lowering. An interface's inherited methods are
+        // members of it too — type inference gives `IDerived-Go` an accessor when `IDerived`
+        // inherits `Go` — so they need an entry under this interface's name as well, or the call
+        // falls through to the ordinary function path and no such function exists.
         foreach (var m in n.Methods)
-            _classMethodAccessors.Add($"{n.InterfaceName}/{m.Name}");
+            _classMethodAccessors[AccessorNaming.Accessor(n.InterfaceName, m.Name)] = m.Name;
+
+        foreach (var inheritedName in InheritedInterfaceMethodNames(n.BaseInterfaceNames))
+            _classMethodAccessors.TryAdd(
+                AccessorNaming.Accessor(n.InterfaceName, inheritedName),
+                inheritedName
+            );
+
+        _interfaceDecls[n.InterfaceName] = n;
 
         return new IrNode.InterfaceDecl(
             n.InterfaceName,

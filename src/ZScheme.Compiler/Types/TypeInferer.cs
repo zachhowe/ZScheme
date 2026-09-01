@@ -3,6 +3,7 @@ using Serilog;
 using ZScheme.Compiler.Ast;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
+using ZScheme.Compiler.Syntax;
 
 namespace ZScheme.Compiler.Types;
 
@@ -27,11 +28,23 @@ public sealed class TypeInferer
     // names the origin when a mismatch turns out to be that shadowing.
     private readonly Dictionary<string, string?> _declaredTypeNames = new(StringComparer.Ordinal);
 
+    // Nullary union case names visible here — this file's own plus every imported module's.
+    // AstBuilder parses a bare atom in pattern position as a variable binder unless it starts
+    // with an upper-case letter, so a lower-case or hyphenated nullary case (`red` in
+    // `(define-union color (red) (green))`) would bind rather than match, silently swallowing
+    // every later arm. Type names are case-insensitive in ZScheme (see EmitNameResolver), so
+    // membership here — not capitalisation — is what decides. See ResolveBareCasePatterns.
+    private readonly HashSet<string> _nullaryUnionCaseNames = new(StringComparer.Ordinal);
+
     // Track class metadata for inheritance resolution
     private readonly Dictionary<string, ClassInfo> _classInfos = new();
 
     // Track imported class interface info for cross-module subtyping
     private readonly Dictionary<string, IReadOnlyList<string>> _importedClassInterfaces = new();
+
+    // Track interface metadata, so an interface's base list is available to both the accessors an
+    // interface inherits and the subtype walk in Unifier.IsZSchemeSubtype
+    private readonly Dictionary<string, InterfaceInfo> _interfaceInfos = new();
 
     // Track out-param metadata for CLR imports (keyed by alias)
     private readonly Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> _outParamsByAlias =
@@ -70,7 +83,7 @@ public sealed class TypeInferer
             Substitution,
             diagnostics,
             assemblySearchPaths,
-            LookupClassInterfaces,
+            LookupSupertypes,
             clrNamespaces,
             name => _canonicalizer.Canonical(name, 0),
             UserDeclaredTypeOrigin
@@ -87,6 +100,14 @@ public sealed class TypeInferer
     ///     their bare name.
     /// </summary>
     public string? CurrentModuleName { get; set; }
+
+    /// <summary>
+    ///     Whether resolving a deprecated <c>Type/member</c> accessor spelling emits
+    ///     <c>ZS0006</c>. Defaults to on; the pipeline sets it from
+    ///     <c>CompilerOptions.WarnDeprecatedAccessorSyntax</c>. The old spelling keeps
+    ///     resolving either way — this only silences the warning.
+    /// </summary>
+    public bool WarnDeprecatedAccessorSyntax { get; set; } = true;
 
     /// <summary>
     ///     Out-param metadata detected during type inference, keyed by import alias.
@@ -135,27 +156,38 @@ public sealed class TypeInferer
     }
 
     /// <summary>
-    ///     Lookup function for the Unifier to check interface relationships
-    ///     of ZScheme-defined classes that aren't yet compiled to assemblies.
+    ///     Lookup function for the Unifier to check subtype relationships among ZScheme-defined
+    ///     types that aren't yet compiled to assemblies. Answers with one type's <em>direct</em>
+    ///     supertypes — a class's interfaces plus its base class, or an interface's base
+    ///     interfaces — and the Unifier walks the result transitively, so every name it hands
+    ///     back must be one this can be asked about again.
     /// </summary>
-    private IReadOnlyList<string>? LookupClassInterfaces(string className)
+    private IReadOnlyList<string>? LookupSupertypes(string typeName)
     {
-        if (_classInfos.TryGetValue(className, out var info))
-            return info.InterfaceNames;
-        if (_importedClassInterfaces.TryGetValue(className, out var interfaces))
-            return interfaces;
-        // Try short name (strip namespace prefix) — class names are stored without namespace
-        var dotIdx = className.LastIndexOf('.');
-        if (dotIdx >= 0)
+        return Direct(typeName) ?? ShortNameFallback();
+
+        IReadOnlyList<string>? Direct(string name)
         {
-            var shortName = className[(dotIdx + 1)..];
-            if (_classInfos.TryGetValue(shortName, out var info2))
-                return info2.InterfaceNames;
-            if (_importedClassInterfaces.TryGetValue(shortName, out var interfaces2))
-                return interfaces2;
+            // A base class is a supertype in its own right, and the link the walk needs to reach
+            // the interfaces a base class declares. The imported map already carries it (see
+            // Compilation.ModuleCompilation), but ClassInfo keeps it apart from the interfaces.
+            if (_classInfos.TryGetValue(name, out var info))
+                return info.BaseClassName is { } baseName
+                    ? [.. info.InterfaceNames, baseName]
+                    : info.InterfaceNames;
+            if (_interfaceInfos.TryGetValue(name, out var ifaceInfo))
+                return ifaceInfo.BaseInterfaceNames;
+            if (_importedClassInterfaces.TryGetValue(name, out var interfaces))
+                return interfaces;
+            return null;
         }
 
-        return null;
+        // Try short name (strip namespace prefix) — declared names are stored without namespace
+        IReadOnlyList<string>? ShortNameFallback()
+        {
+            var dotIdx = typeName.LastIndexOf('.');
+            return dotIdx >= 0 ? Direct(typeName[(dotIdx + 1)..]) : null;
+        }
     }
 
     /// <summary>
@@ -174,6 +206,18 @@ public sealed class TypeInferer
     {
         foreach (var name in names)
             _declaredTypeNames[name] = declaringModule;
+    }
+
+    /// <summary>
+    ///     Registers the nullary union case names an imported module declares, so a bare atom
+    ///     naming one is matched as a constructor rather than bound as a variable. This file's
+    ///     own cases are collected by <see cref="InferProgram" />; the pipeline supplies the
+    ///     imported ones because they arrive as IR, which this layer does not read.
+    /// </summary>
+    public void RegisterNullaryUnionCaseNames(IEnumerable<string> names)
+    {
+        foreach (var name in names)
+            _nullaryUnionCaseNames.Add(name);
     }
 
     private bool IsDeclaredTypeName(string name)
@@ -308,6 +352,11 @@ public sealed class TypeInferer
                 return Assign(node, FreshVar());
             }
 
+            // Last resort: the deprecated `Type/member` accessor spelling. Rewrite it to
+            // `Type-member` and retry, so old sources keep compiling for one release.
+            if (TryResolveLegacyAccessor(node, env) is { } legacyType)
+                return Assign(node, legacyType);
+
             Diagnostics.Error(
                 $"Undefined variable: '{node.Value}'",
                 node.Span,
@@ -320,6 +369,75 @@ public sealed class TypeInferer
 
         var instantiated = Instantiate(type);
         return Assign(node, instantiated);
+    }
+
+    /// <summary>
+    ///     Resolves <paramref name="node" /> when it uses the deprecated <c>Type/member</c>
+    ///     accessor spelling: rewrites it to <c>Type-member</c>, records the modern name on
+    ///     the node for later passes, and warns. Returns the instantiated accessor type, or
+    ///     <c>null</c> when the name is not a stale accessor and the caller should fall
+    ///     through to its ordinary "undefined" error.
+    /// </summary>
+    private ZType? TryResolveLegacyAccessor(AstNode.Name node, TypeEnv env)
+    {
+        if (AccessorNaming.TryModernizeLegacyName(node.Value) is not { } modernName)
+            return null;
+
+        // Accept a plain binding or a single-candidate overload (an accessor imported from
+        // another module arrives as the latter).
+        var candidateType = env.Lookup(modernName);
+        var overloadCandidate = null as OverloadCandidate;
+        if (candidateType is null)
+        {
+            var overloads = env.LookupOverloads(modernName);
+            if (overloads is null || overloads.Candidates.Count != 1)
+                return null;
+
+            overloadCandidate = overloads.Candidates[0];
+            candidateType = overloadCandidate.Type;
+        }
+
+        // Only a genuine accessor qualifies: a function whose first parameter is the very
+        // type that names it. Without this gate an undefined `foo/bar` would be silently
+        // redirected to an unrelated `foo-bar` function.
+        var typeName = node.Value[..node.Value.LastIndexOf(AccessorNaming.LegacySeparator)];
+        if (!IsAccessorOf(candidateType, typeName))
+            return null;
+
+        node.ResolvedAccessorName = modernName;
+        if (overloadCandidate is not null)
+            node.ResolvedQualifiedName = overloadCandidate.QualifiedName;
+
+        if (WarnDeprecatedAccessorSyntax)
+            Diagnostics.Warning(
+                $"'{node.Value}' uses the deprecated '/' accessor syntax. Write "
+                    + $"'{modernName}' instead; the '/' form will be removed in a future "
+                    + "release",
+                node.Span,
+                DiagnosticCodes.DeprecatedAccessorSyntax,
+                [node.Value, modernName]
+            );
+
+        return Instantiate(candidateType);
+    }
+
+    /// <summary>
+    ///     Whether <paramref name="type" /> is a member accessor for the type named
+    ///     <paramref name="typeName" /> — a function taking that type as its first parameter.
+    /// </summary>
+    private static bool IsAccessorOf(ZType type, string typeName)
+    {
+        while (type is ZType.ZForAllType forall)
+            type = forall.Body;
+
+        if (type is not ZType.ZFuncType { Params.Count: > 0 } func)
+            return false;
+
+        var receiver = func.Params[0];
+        while (receiver is ZType.ZForAllType receiverForall)
+            receiver = receiverForall.Body;
+
+        return receiver is ZType.ZNamedType named && named.Name == typeName;
     }
 
     private ZType InferLet(AstNode.Let node, TypeEnv env)
@@ -874,6 +992,7 @@ public sealed class TypeInferer
         // recognized as a ZScheme type by the canonicalizer, or a namespace hint could promote
         // its name to an unrelated CLR type that happens to share the simple name.
         RegisterDeclaredTypeNames(DeclaredTypeNames(node));
+        RegisterNullaryUnionCaseNames(NullaryUnionCaseNames(node));
 
         // Then every function signature, before any body: a define's body may call a sibling
         // declared later in the file, which is what makes top-level mutual recursion work.
@@ -953,6 +1072,17 @@ public sealed class TypeInferer
         {
             return nameSpan.Length > 0 ? nameSpan : span;
         }
+    }
+
+    /// <summary>The zero-field case names of every union this file declares — the local half of
+    ///     <see cref="_nullaryUnionCaseNames" />.</summary>
+    private static IEnumerable<string> NullaryUnionCaseNames(AstNode.Program program)
+    {
+        foreach (var form in Forms(program.TopLevelForms))
+            if (form is AstNode.UnionDecl ud)
+                foreach (var unionCase in ud.Cases)
+                    if (unionCase.Fields.Count == 0)
+                        yield return unionCase.Name;
     }
 
     private static IEnumerable<string> DeclaredTypeNames(AstNode.Program program)
@@ -1049,6 +1179,7 @@ public sealed class TypeInferer
 
         foreach (var arm in node.Arms)
         {
+            arm.Pattern = ResolveBareCasePatterns(arm.Pattern);
             var armEnv = env.CreateChild();
             InferPattern(arm.Pattern, scrutType, armEnv);
             var bodyType = Infer(arm.Body, armEnv);
@@ -1056,6 +1187,53 @@ public sealed class TypeInferer
         }
 
         return Assign(node, Substitution.Apply(resultType));
+    }
+
+    /// <summary>
+    ///     Rewrites a bare atom pattern that names a nullary union case into the constructor
+    ///     pattern it was meant to be, at every depth. Upper-case atoms already parse as
+    ///     constructors (<c>AstBuilder.ParsePattern</c>); this extends the same reading to the
+    ///     lower-case and hyphenated case names that spelling rule cannot see, so
+    ///     <c>(match c [red 3] [green 4])</c> over <c>(define-union color (red) (green))</c>
+    ///     matches two cases instead of binding <c>red</c> and dropping the second arm.
+    ///     Purely structural, and run before the arm is inferred, so exhaustiveness checking,
+    ///     IR lowering and both emitters see a constructor pattern like any other.
+    /// </summary>
+    private Pattern ResolveBareCasePatterns(Pattern pattern)
+    {
+        switch (pattern)
+        {
+            case Pattern.Variable v when _nullaryUnionCaseNames.Contains(v.Name):
+                return new Pattern.Constructor(v.Name, [], v.Span);
+            case Pattern.Constructor c:
+            {
+                var fields = Rewrite(c.Fields);
+                return fields is null ? c : new Pattern.Constructor(c.Name, fields, c.Span);
+            }
+            case Pattern.Tuple t:
+            {
+                var elements = Rewrite(t.Elements);
+                return elements is null ? t : new Pattern.Tuple(elements, t.Span);
+            }
+            default:
+                return pattern;
+        }
+
+        // Null when nothing changed, so an untouched pattern keeps its identity.
+        List<Pattern>? Rewrite(IReadOnlyList<Pattern> children)
+        {
+            List<Pattern>? rewritten = null;
+            for (var i = 0; i < children.Count; i++)
+            {
+                var child = ResolveBareCasePatterns(children[i]);
+                if (ReferenceEquals(child, children[i]))
+                    continue;
+                rewritten ??= [.. children];
+                rewritten[i] = child;
+            }
+
+            return rewritten;
+        }
     }
 
     private void InferPattern(Pattern pattern, ZType expected, TypeEnv env)
@@ -1209,7 +1387,7 @@ public sealed class TypeInferer
             var accessorType = new ZType.ZFuncType([recordType], fieldTypes[i]);
             var genAccessor =
                 node.TypeParams.Count > 0 ? Generalize(accessorType, env) : accessorType;
-            env.Define($"{node.RecordName}/{node.Fields[i].Name}", genAccessor);
+            env.Define(AccessorNaming.Accessor(node.RecordName, node.Fields[i].Name), genAccessor);
         }
 
         return Assign(node, ZType.Unit);
@@ -1334,7 +1512,7 @@ public sealed class TypeInferer
 
         foreach (var (fieldName, valueExpr) in node.Updates)
         {
-            var accessorKey = $"{named.Name}/{fieldName}";
+            var accessorKey = AccessorNaming.Accessor(named.Name, fieldName);
             var accessorType = env.Lookup(accessorKey);
             if (accessorType is null)
             {
@@ -1582,13 +1760,13 @@ public sealed class TypeInferer
         var generalizedCtor = node.TypeParams.Count > 0 ? Generalize(ctorType, env) : ctorType;
         env.Define(node.ClassName, generalizedCtor);
 
-        // Field accessors: ClassName/fieldName : ClassType -> FieldType
+        // Field accessors: ClassName-fieldName : ClassType -> FieldType
         for (var i = 0; i < node.Fields.Count; i++)
         {
             var accessorType = new ZType.ZFuncType([classType], fieldTypes[i]);
             var genAccessor =
                 node.TypeParams.Count > 0 ? Generalize(accessorType, env) : accessorType;
-            env.Define($"{node.ClassName}/{node.Fields[i].Name}", genAccessor);
+            env.Define(AccessorNaming.Accessor(node.ClassName, node.Fields[i].Name), genAccessor);
         }
 
         // Also register inherited field accessors under subclass name
@@ -1597,10 +1775,10 @@ public sealed class TypeInferer
             var accessorType = new ZType.ZFuncType([classType], fType);
             var genAccessor =
                 node.TypeParams.Count > 0 ? Generalize(accessorType, env) : accessorType;
-            env.Define($"{node.ClassName}/{fName}", genAccessor);
+            env.Define(AccessorNaming.Accessor(node.ClassName, fName), genAccessor);
         }
 
-        // Method accessors: ClassName/methodName : (ClassType, ParamTypes...) -> RetType
+        // Method accessors: ClassName-methodName : (ClassType, ParamTypes...) -> RetType
         var methodInfos =
             new List<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)>();
 
@@ -1717,7 +1895,7 @@ public sealed class TypeInferer
 
             var retType = returnAnnotation ?? externalReturnType;
 
-            // Register slash-syntax accessor: ClassName/methodName : (ClassType, ParamTypes...) -> RetType
+            // Register member accessor: ClassName-methodName : (ClassType, ParamTypes...) -> RetType
             var allParams = new List<ZType> { classType };
             allParams.AddRange(paramTypes);
             var methodAccessorType = new ZType.ZFuncType(allParams, retType);
@@ -1725,7 +1903,7 @@ public sealed class TypeInferer
                 node.TypeParams.Count > 0
                     ? Generalize(methodAccessorType, env)
                     : methodAccessorType;
-            env.Define($"{node.ClassName}/{method.Name}", genMethodAccessor);
+            env.Define(AccessorNaming.Accessor(node.ClassName, method.Name), genMethodAccessor);
 
             methodInfos.Add((method.Name, paramTypes, retType));
         }
@@ -1854,8 +2032,33 @@ public sealed class TypeInferer
 
         var ifaceType = new ZType.ZNamedType(node.InterfaceName, typeArgs);
 
-        // Method accessors: InterfaceName/methodName : (InterfaceType, ParamTypes...) -> RetType
+        // Canonicalized for the same reason a class's interface list is: the base may be written
+        // short here and fully qualified at the use site (or the reverse), and
+        // Unifier.IsZSchemeSubtype walks this list by name.
+        var baseInterfaceNames = _canonicalizer.CanonicalizeNames(node.BaseInterfaceNames).ToList();
+
+        // Method accessors: InterfaceName-methodName : (InterfaceType, ParamTypes...) -> RetType.
+        // An inherited method is a member of this interface too, so it gets an accessor under
+        // *this* name as well — `IDerived-Go` on an `IDerived` is legal, and the CLR interface
+        // both backends emit really does carry `Go`. A method this interface redeclares wins, so
+        // the base's signature never overwrites the override's.
+        var declaredMethodNames = new HashSet<string>(
+            node.Methods.Select(m => m.Name),
+            StringComparer.Ordinal
+        );
+
         foreach (var method in node.Methods)
+            DefineMethodAccessor(method);
+
+        foreach (var inherited in InheritedInterfaceMethods(baseInterfaceNames))
+            if (declaredMethodNames.Add(inherited.Name))
+                DefineMethodAccessor(inherited);
+
+        _interfaceInfos[node.InterfaceName] = new InterfaceInfo(baseInterfaceNames, node.Methods);
+
+        return Assign(node, ZType.Unit);
+
+        void DefineMethodAccessor(InterfaceMethodSignature method)
         {
             var paramTypes = new List<ZType>();
             foreach (var param in method.Params)
@@ -1873,10 +2076,50 @@ public sealed class TypeInferer
                 node.TypeParams.Count > 0
                     ? Generalize(methodAccessorType, env)
                     : methodAccessorType;
-            env.Define($"{node.InterfaceName}/{method.Name}", genMethodAccessor);
+            env.Define(AccessorNaming.Accessor(node.InterfaceName, method.Name), genMethodAccessor);
+        }
+    }
+
+    /// <summary>
+    ///     Every method an interface inherits, walking its base list transitively. Signatures come
+    ///     back unresolved — the caller resolves each annotation in the *inheriting* interface's
+    ///     scope, exactly as it does for a method written out there.
+    /// </summary>
+    private List<InterfaceMethodSignature> InheritedInterfaceMethods(
+        IReadOnlyList<string> baseInterfaceNames
+    )
+    {
+        var result = new List<InterfaceMethodSignature>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Queue<string>(baseInterfaceNames);
+
+        while (pending.Count > 0)
+        {
+            var name = pending.Dequeue();
+            if (!visited.Add(name))
+                continue;
+            if (!TryGetInterfaceInfo(name, out var info))
+                continue;
+
+            result.AddRange(info!.Methods);
+            foreach (var baseName in info.BaseInterfaceNames)
+                pending.Enqueue(baseName);
         }
 
-        return Assign(node, ZType.Unit);
+        return result;
+    }
+
+    // Interfaces are keyed by the name their declaration wrote, which carries no namespace until
+    // it is emitted; a use site may still spell one qualified. Mirrors LookupSupertypes.
+    private bool TryGetInterfaceInfo(string interfaceName, out InterfaceInfo? info)
+    {
+        if (_interfaceInfos.TryGetValue(interfaceName, out info))
+            return true;
+        var dotIdx = interfaceName.LastIndexOf('.');
+        if (dotIdx >= 0 && _interfaceInfos.TryGetValue(interfaceName[(dotIdx + 1)..], out info))
+            return true;
+        info = null;
+        return false;
     }
 
     private ZType InferClrNew(AstNode.ClrNew node, TypeEnv env)
@@ -2409,7 +2652,7 @@ public sealed class TypeInferer
     }
 
     // Looks up a class declared in the current compilation by qualified or short name, mirroring
-    // LookupClassInterfaces's namespace-stripping fallback (class names are stored without a
+    // LookupSupertypes's namespace-stripping fallback (class names are stored without a
     // namespace prefix, but codegen-facing qualified names like "ZSchemeFuzzed.FCls_0" carry one).
     private bool TryGetLocalClassInfo(string typeName, out ClassInfo? info)
     {
@@ -2913,5 +3156,10 @@ public sealed class TypeInferer
         IReadOnlyList<(string Name, ZType Type)> Fields,
         IReadOnlyList<(string Name, IReadOnlyList<ZType> ParamTypes, ZType ReturnType)> Methods,
         ZType ConstructorType
+    );
+
+    private sealed record InterfaceInfo(
+        IReadOnlyList<string> BaseInterfaceNames,
+        IReadOnlyList<InterfaceMethodSignature> Methods
     );
 }

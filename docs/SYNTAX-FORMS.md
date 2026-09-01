@@ -3,6 +3,20 @@
 All built-in syntax forms recognized by the ZScheme compiler. These are special forms handled in
 `src/ZScheme.Compiler/Ast/AstBuilder.cs` — they cannot be redefined or shadowed.
 
+## Names
+
+Names are case-sensitive, and hyphenated and PascalCase spellings of one word are *different*
+names — for functions and for types alike. `HttpResponse` and `http-response` may both be
+declared in one module as two unrelated types, each with its own constructor and accessors
+(`(HttpResponse-status-code …)` and `(http-response-status-code …)`). They sanitize to the same
+.NET identifier, so the compiler gives the second one declared a distinct emitted name; that
+happens behind the scenes and never changes how either is written in ZScheme.
+
+Capitalisation is not part of any syntactic rule: a hyphenated or lower-case name may be a base
+class, an implemented interface, a type argument, or a union case wherever a PascalCase one may.
+The one place spelling still matters is a bare atom in `match` pattern position — see
+[`match`](#match--pattern-matching).
+
 ## Definitions
 
 ### `define` — Define a function or value
@@ -261,6 +275,13 @@ for exhaustiveness. Pattern types:
 - **Variable:** `x` — binds matched value
 - **Constructor:** `(Circle r)`, `(Some x)`, `None`
 
+A bare atom is the one place a name's spelling still carries meaning, because `None` and `x` are
+written identically. It is read as a constructor pattern when it starts with an upper-case letter
+*or* when it names a union case that takes no fields — so `(match c [red 1] [green 2])` matches
+the two cases of `(define-union color (red) (green))`, imported ones included. Any other bare
+atom binds a variable. Give a binder a name no nullary case in scope uses, or write `_` when the
+value is unused.
+
 ```scheme
 (match s
   [(Circle r) (* r r)]
@@ -370,6 +391,28 @@ Supports generic type parameters (prefixed with `^`) and `: where` constraints.
 ;; Usage: (Point 3 4)
 ```
 
+#### Field accessors
+
+Each field defines an accessor named `TypeName-fieldName`, taking the record as its only
+argument. The type name keeps the exact spelling it was declared with.
+
+```scheme
+(define-record HttpResponse [status-code : Int] [body : String])
+
+(define (ok? [r : HttpResponse]) : Bool
+  (= (HttpResponse-status-code r) 200))
+```
+
+> **Deprecated:** accessors used to be spelled `TypeName/fieldName`. That form still
+> resolves, but reports `ZS0006` and will be removed in a future release. Silence the warning
+> for one compilation with `--no-warn-deprecated-accessor-syntax`, or for a package with
+> `(build (main (warn-deprecated-accessor-syntax "false")))`. The language server offers a
+> quick fix that rewrites the name in place.
+>
+> Because the separator is now `-`, two different declarations can mint the same accessor —
+> `(define-record Foo-bar [baz])` and `(define-record Foo [bar-baz])` both produce
+> `Foo-bar-baz`, and the later declaration wins. Rename one of them if that happens.
+
 ### `define-struct` — Value type (.NET struct)
 
 ```scheme
@@ -378,7 +421,7 @@ Supports generic type parameters (prefixed with `^`) and `: where` constraints.
 ```
 
 Defines a .NET value type. Syntax and usage mirror `define-record` — constructor calls, field
-accessors (`Name/field`), `(new ...)`, and `with` copy-updates all work the same way —
+accessors (`Name-field`), `(new ...)`, and `with` copy-updates all work the same way —
 but the emitted type is a `readonly record struct` with value semantics (assignment and
 parameter passing copy the value). Supports generic type parameters and `: where`
 constraints.
@@ -500,6 +543,24 @@ Instance methods must be defined with `define` or `define-async`; the bare
   (define (Speak) : String
     (string-append name " the " breed)))
 ```
+
+#### Member accessors
+
+Like records, a class binds `TypeName-fieldName` for each field — including fields inherited
+from a base class — and `TypeName-MethodName` for each method, taking the instance as its
+first argument. Interfaces bind `InterfaceName-MethodName` the same way.
+
+```scheme
+(define-class Animal
+  [name : String]
+  (define (Speak) : String (string-append name " speaks")))
+
+(define (describe [a : Animal]) : String
+  (string-append (Animal-name a) ": " (Animal-Speak a)))
+```
+
+The deprecated `TypeName/member` spelling still resolves and reports `ZS0006` — see
+[`define-record`](#field-accessors).
 
 #### Field flags: `#:mutable` and `#:init`
 

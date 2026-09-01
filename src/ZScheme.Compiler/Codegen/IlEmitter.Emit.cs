@@ -3297,12 +3297,7 @@ public sealed partial class IlEmitter
         )
         {
             var sanitizedName = Sanitize(node.MethodName);
-            var mdef = userTd.Methods.FirstOrDefault(m =>
-                !m.IsConstructor
-                && !m.IsStatic
-                && m.Name == sanitizedName
-                && m.Parameters.Count == node.Args.Count
-            );
+            var mdef = FindInstanceMethodIncludingBases(userTd, sanitizedName, node.Args.Count);
             if (mdef is not null)
             {
                 // ResolveClrType returned object for this type (it isn't loaded yet), so the
@@ -3319,7 +3314,15 @@ public sealed partial class IlEmitter
                     EmitNode(arg, il, outerParams, locals, ctx);
 
                 IMethodDescriptor methodRef = mdef;
-                if (userTd.GenericParameters.Count > 0 && namedRecv.TypeArgs.Count > 0)
+                // Only when the method is the receiver type's own: a method found on a base
+                // carries that type's generic parameters, not the receiver's, so closing the
+                // receiver's instantiation over it would be a lie. Calling it on its declaring
+                // type is what the CLR wants there anyway.
+                if (
+                    mdef.DeclaringType == userTd
+                    && userTd.GenericParameters.Count > 0
+                    && namedRecv.TypeArgs.Count > 0
+                )
                 {
                     var typeArgs = namedRecv.TypeArgs.Select(ta => MapToClr(ta, ctx)).ToArray();
                     var closedSig = userTd.MakeGenericInstanceType(false, typeArgs);

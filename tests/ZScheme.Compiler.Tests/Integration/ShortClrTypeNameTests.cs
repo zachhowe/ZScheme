@@ -188,7 +188,7 @@ public class ShortClrTypeNameTests
             (define-record StringBuilder [tag : String])
 
             (define (compute) : String
-              (StringBuilder/tag (StringBuilder "mine")))
+              (StringBuilder-tag (StringBuilder "mine")))
             """;
         Assert.Equal("mine", InvokeString(CompileIl(source), "Compute"));
     }

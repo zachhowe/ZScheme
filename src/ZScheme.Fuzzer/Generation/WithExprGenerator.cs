@@ -1,6 +1,6 @@
 namespace ZScheme.Fuzzer.Generation;
 
-// Emits `(RecName/field (with (RecName v1 v2 ...) [fld new-val] ...))`, exercising
+// Emits `(RecName-field (with (RecName v1 v2 ...) [fld new-val] ...))`, exercising
 // the `RecordWith` IR path. Works unchanged on struct-declared records; the accessor
 // and `with` syntax are identical for both.
 //
@@ -41,7 +41,7 @@ public sealed class WithExprGenerator
 
         var recordExpr = $"({r.Name} {string.Join(" ", initialArgs)})";
         var withExpr = $"(with {recordExpr} {string.Join(" ", updateParts)})";
-        return $"({r.Name}/{readField} {withExpr})";
+        return $"({r.Name}-{readField} {withExpr})";
     }
 
     private void Shuffle<T>(List<T> list)

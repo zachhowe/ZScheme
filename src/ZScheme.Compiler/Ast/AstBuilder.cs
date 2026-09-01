@@ -129,6 +129,58 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         return node;
     }
 
+    /// <summary>
+    ///     Whether an atom in a <c>: Base IFoo IBar</c> run names a base class or interface.
+    ///     Type names are case-insensitive in ZScheme — <c>i-thing</c> is as much a type name
+    ///     as <c>IThing</c>, and the two are distinct types (see
+    ///     <see cref="ZScheme.Compiler.Ir.EmitNameResolver" />) — so the run is delimited by
+    ///     what cannot be a type name rather than by capitalisation: the bare <c>:</c> that
+    ///     opens a <c>:where</c> clause, and <c>#:</c>-prefixed flags. Members are bracket or
+    ///     paren forms, so they end the run on their own.
+    /// </summary>
+    private static bool IsBaseTypeNameAtom(SExpr expr)
+    {
+        return expr is SExpr.Atom { Text: var t }
+            && t.Length > 0
+            && t != ":"
+            && t[0] != ':'
+            && t[0] != '#';
+    }
+
+    /// <summary>
+    ///     Whether a <c>:</c> at <paramref name="i" /> opens a <c>:where</c> clause rather than
+    ///     a base/interface run. The lexer splits <c>:where</c> into a <c>:</c> atom plus the
+    ///     bare symbol <c>where</c>, which <see cref="IsBaseTypeNameAtom" /> would otherwise
+    ///     read as a base type name.
+    /// </summary>
+    private static bool IsWhereClauseColon(IReadOnlyList<SExpr> items, int i)
+    {
+        return i + 1 < items.Count && items[i + 1] is SExpr.Atom { Text: "where" };
+    }
+
+    /// <summary>Member forms that can head a paren list inside an <c>object</c> or
+    ///     <c>define-class</c> body. A grouped-interface list is told apart from one of these by
+    ///     its head, not by capitalisation, so a lower-case or hyphenated interface name is
+    ///     accepted in the group.</summary>
+    private static readonly HashSet<string> MemberFormHeads =
+    [
+        "define",
+        "define-async",
+        "constructor",
+        "begin",
+        "let",
+        "@",
+    ];
+
+    /// <summary>Whether a paren list is a grouped interface list — <c>(IFoo i-bar)</c> — rather
+    ///     than a member form such as <c>(define (M) …)</c>.</summary>
+    private static bool IsInterfaceGroup(SExpr expr)
+    {
+        return expr is SExpr.SList { Items.Count: > 0 } group
+            && group.Items.All(IsBaseTypeNameAtom)
+            && !MemberFormHeads.Contains(((SExpr.Atom)group.Items[0]).Text);
+    }
+
     private static bool IsAttributeForm(SExpr expr)
     {
         return expr is SExpr.SList list
@@ -1867,26 +1919,16 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             // Parse base class + optional interface names (same pattern as BuildClass)
             var idx = 2;
             var allNames = new List<string>();
-            while (
-                idx < list.Items.Count
-                && list.Items[idx] is SExpr.Atom nameAtom
-                && nameAtom.Text != ":"
-                && char.IsUpper(nameAtom.Text[0])
-            )
+            while (idx < list.Items.Count && IsBaseTypeNameAtom(list.Items[idx]))
             {
-                allNames.Add(nameAtom.Text);
+                allNames.Add(((SExpr.Atom)list.Items[idx]).Text);
                 idx++;
             }
 
             // Support grouped interfaces: (object : BaseClass (IFoo IBar) ...)
-            // Only treat as interface group if ALL items are uppercase atoms (not a method definition)
-            if (
-                idx < list.Items.Count
-                && list.Items[idx] is SExpr.SList ifaceGroup
-                && ifaceGroup.Items.Count > 0
-                && ifaceGroup.Items.All(item => item is SExpr.Atom a && char.IsUpper(a.Text[0]))
-            )
+            if (idx < list.Items.Count && IsInterfaceGroup(list.Items[idx]))
             {
+                var ifaceGroup = (SExpr.SList)list.Items[idx];
                 foreach (var item in ifaceGroup.Items)
                     interfaceNames.Add(((SExpr.Atom)item).Text);
                 idx++;
@@ -2116,18 +2158,17 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             membersStart < list.Items.Count
             && list.Items[membersStart] is SExpr.Atom colonAtom
             && colonAtom.Text == ":"
+            && !IsWhereClauseColon(list.Items, membersStart)
         )
         {
             membersStart++;
             var allNames = new List<string>();
             while (
                 membersStart < list.Items.Count
-                && list.Items[membersStart] is SExpr.Atom nameAtom
-                && nameAtom.Text != ":"
-                && char.IsUpper(nameAtom.Text[0])
+                && IsBaseTypeNameAtom(list.Items[membersStart])
             )
             {
-                allNames.Add(nameAtom.Text);
+                allNames.Add(((SExpr.Atom)list.Items[membersStart]).Text);
                 membersStart++;
             }
 
@@ -2406,17 +2447,16 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             membersStart < list.Items.Count
             && list.Items[membersStart] is SExpr.Atom colonAtom
             && colonAtom.Text == ":"
+            && !IsWhereClauseColon(list.Items, membersStart)
         )
         {
             membersStart++;
             while (
                 membersStart < list.Items.Count
-                && list.Items[membersStart] is SExpr.Atom ifaceAtom
-                && ifaceAtom.Text != ":"
-                && char.IsUpper(ifaceAtom.Text[0])
+                && IsBaseTypeNameAtom(list.Items[membersStart])
             )
             {
-                baseInterfaceNames.Add(ifaceAtom.Text);
+                baseInterfaceNames.Add(((SExpr.Atom)list.Items[membersStart]).Text);
                 membersStart++;
             }
         }

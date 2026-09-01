@@ -267,9 +267,18 @@ operator signatures, injects bindings from imported modules
 overload sets for multimethod-style dispatch), runs inference, then runs a
 `Resolve` pass that applies the accumulated substitution to every node.
 
-`InferProgram` runs two pre-passes before inferring any form. `RegisterDeclaredTypeNames`
+`InferProgram` runs three pre-passes before inferring any form. `RegisterDeclaredTypeNames`
 comes first, so an annotation naming a type declared later in the file is not promoted to an
-unrelated CLR type sharing its simple name. `PreBindTopLevelSignatures` follows: it resolves
+unrelated CLR type sharing its simple name. `RegisterNullaryUnionCaseNames` follows, collecting
+this file's zero-field union case names (the pipeline adds every imported module's, which arrive
+as IR rather than AST); `InferMatch` uses them to rewrite a bare arm naming such a case into the
+constructor pattern it was meant to be. `AstBuilder` reads a bare atom in pattern position as a
+variable binder unless it starts with an upper-case letter, and type names are case-insensitive
+in ZScheme, so without this a lower-case or hyphenated case — `red` in
+`(define-union color (red) (green))` — would bind instead of match and silently swallow every
+later arm. The rewrite is purely structural and runs at every pattern depth, so exhaustiveness
+checking, IR lowering and both emitters see an ordinary constructor pattern.
+`PreBindTopLevelSignatures` comes last: it resolves
 every top-level `define` / `define-async` signature and registers it in the environment
 (single binding plus overload candidate) *before* any body is inferred, which is what makes a
 forward reference between sibling top-level functions — and so top-level mutual recursion —
@@ -750,8 +759,10 @@ At load time, `CompileLoadModules` reads the metadata and produces a
   bodies — and `AllIrDefinitions` is `null`; the compiled code lives in the DLL, not
   as IR. The metadata also supplies `ExportedNames`, `ExportedTypes`,
   `ExportedClrImports`, `ExportedMacros`, union/record constructor info, and
-  class→interface maps so type inference and exhaustiveness checking work across the
-  boundary (the Stage 4.6 validator reads imported unions out of these
+  declared-supertype maps (a class's interfaces and base class, an interface's base
+  interfaces — the subtype walk in `Unifier.IsZSchemeSubtype` follows them
+  transitively, so every inheriting interface is a key of its own) so type inference
+  and exhaustiveness checking work across the boundary (the Stage 4.6 validator reads imported unions out of these
   `ExportedIrDefinitions` type decls).
 - `PrecompiledAssemblyPath` points at the DLL.
 - `BuildNamespace` records the .NET namespace the module's generated class lives
