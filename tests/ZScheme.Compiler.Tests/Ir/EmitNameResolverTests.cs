@@ -190,6 +190,65 @@ public class EmitNameResolverTests
     }
 
     [Fact]
+    public void Resolve_HyphenatedAndPascalRecords_GetDistinctEmitNames()
+    {
+        // The everyday shape of the collision: two multi-word spellings of one concept.
+        // `http-response` and `HttpResponse` are separate types that both sanitize to
+        // `HttpResponse`, so the second declared has to move.
+        var seq = new IrNode.Seq([Record("http-response"), Record("HttpResponse")])
+        {
+            Type = ZType.Unit,
+        };
+
+        var result = EmitNameResolver.Resolve("TestModule", seq, []);
+        var defs = ((IrNode.Seq)result.CurrentIr).Nodes;
+
+        Assert.Null(((IrNode.RecordDecl)defs[0]).EmitName);
+        Assert.Equal("HttpResponse_type", ((IrNode.RecordDecl)defs[1]).EmitName);
+        Assert.Equal("HttpResponse_type", result.ModuleTypeRenames["TestModule"]["HttpResponse"]);
+    }
+
+    [Fact]
+    public void Resolve_ThreeCollidingTypes_TakeSuccessiveSuffixes()
+    {
+        // The suffix ladder keeps counting rather than reusing `_type` — three spellings of one
+        // sanitized name is the smallest case that tells the two apart.
+        var seq = new IrNode.Seq(
+            [Record("http-response"), Record("HttpResponse"), Record("Http-Response")]
+        )
+        {
+            Type = ZType.Unit,
+        };
+
+        var result = EmitNameResolver.Resolve("TestModule", seq, []);
+        var defs = ((IrNode.Seq)result.CurrentIr).Nodes;
+
+        Assert.Null(((IrNode.RecordDecl)defs[0]).EmitName);
+        Assert.Equal("HttpResponse_type", ((IrNode.RecordDecl)defs[1]).EmitName);
+        Assert.Equal("HttpResponse_type2", ((IrNode.RecordDecl)defs[2]).EmitName);
+    }
+
+    [Fact]
+    public void Resolve_CollidingClasses_RenamesLaterClaimant()
+    {
+        var seq = new IrNode.Seq(
+            [
+                new IrNode.ClassDecl("http-response", [], [], [], [], false, null, null),
+                new IrNode.ClassDecl("HttpResponse", [], [], [], [], false, null, null),
+            ]
+        )
+        {
+            Type = ZType.Unit,
+        };
+
+        var result = EmitNameResolver.Resolve("TestModule", seq, []);
+        var defs = ((IrNode.Seq)result.CurrentIr).Nodes;
+
+        Assert.Null(((IrNode.ClassDecl)defs[0]).EmitName);
+        Assert.Equal("HttpResponse_type", ((IrNode.ClassDecl)defs[1]).EmitName);
+    }
+
+    [Fact]
     public void Resolve_NoTypeCollision_LeavesTypeEmitNamesNull()
     {
         var seq = new IrNode.Seq([Record("widget")]) { Type = ZType.Unit };

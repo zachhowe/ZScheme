@@ -28,6 +28,14 @@ public sealed class TypeInferer
     // names the origin when a mismatch turns out to be that shadowing.
     private readonly Dictionary<string, string?> _declaredTypeNames = new(StringComparer.Ordinal);
 
+    // Nullary union case names visible here — this file's own plus every imported module's.
+    // AstBuilder parses a bare atom in pattern position as a variable binder unless it starts
+    // with an upper-case letter, so a lower-case or hyphenated nullary case (`red` in
+    // `(define-union color (red) (green))`) would bind rather than match, silently swallowing
+    // every later arm. Type names are case-insensitive in ZScheme (see EmitNameResolver), so
+    // membership here — not capitalisation — is what decides. See ResolveBareCasePatterns.
+    private readonly HashSet<string> _nullaryUnionCaseNames = new(StringComparer.Ordinal);
+
     // Track class metadata for inheritance resolution
     private readonly Dictionary<string, ClassInfo> _classInfos = new();
 
@@ -183,6 +191,18 @@ public sealed class TypeInferer
     {
         foreach (var name in names)
             _declaredTypeNames[name] = declaringModule;
+    }
+
+    /// <summary>
+    ///     Registers the nullary union case names an imported module declares, so a bare atom
+    ///     naming one is matched as a constructor rather than bound as a variable. This file's
+    ///     own cases are collected by <see cref="InferProgram" />; the pipeline supplies the
+    ///     imported ones because they arrive as IR, which this layer does not read.
+    /// </summary>
+    public void RegisterNullaryUnionCaseNames(IEnumerable<string> names)
+    {
+        foreach (var name in names)
+            _nullaryUnionCaseNames.Add(name);
     }
 
     private bool IsDeclaredTypeName(string name)
@@ -957,6 +977,7 @@ public sealed class TypeInferer
         // recognized as a ZScheme type by the canonicalizer, or a namespace hint could promote
         // its name to an unrelated CLR type that happens to share the simple name.
         RegisterDeclaredTypeNames(DeclaredTypeNames(node));
+        RegisterNullaryUnionCaseNames(NullaryUnionCaseNames(node));
 
         // Then every function signature, before any body: a define's body may call a sibling
         // declared later in the file, which is what makes top-level mutual recursion work.
@@ -1036,6 +1057,17 @@ public sealed class TypeInferer
         {
             return nameSpan.Length > 0 ? nameSpan : span;
         }
+    }
+
+    /// <summary>The zero-field case names of every union this file declares — the local half of
+    ///     <see cref="_nullaryUnionCaseNames" />.</summary>
+    private static IEnumerable<string> NullaryUnionCaseNames(AstNode.Program program)
+    {
+        foreach (var form in Forms(program.TopLevelForms))
+            if (form is AstNode.UnionDecl ud)
+                foreach (var unionCase in ud.Cases)
+                    if (unionCase.Fields.Count == 0)
+                        yield return unionCase.Name;
     }
 
     private static IEnumerable<string> DeclaredTypeNames(AstNode.Program program)
@@ -1132,6 +1164,7 @@ public sealed class TypeInferer
 
         foreach (var arm in node.Arms)
         {
+            arm.Pattern = ResolveBareCasePatterns(arm.Pattern);
             var armEnv = env.CreateChild();
             InferPattern(arm.Pattern, scrutType, armEnv);
             var bodyType = Infer(arm.Body, armEnv);
@@ -1139,6 +1172,53 @@ public sealed class TypeInferer
         }
 
         return Assign(node, Substitution.Apply(resultType));
+    }
+
+    /// <summary>
+    ///     Rewrites a bare atom pattern that names a nullary union case into the constructor
+    ///     pattern it was meant to be, at every depth. Upper-case atoms already parse as
+    ///     constructors (<c>AstBuilder.ParsePattern</c>); this extends the same reading to the
+    ///     lower-case and hyphenated case names that spelling rule cannot see, so
+    ///     <c>(match c [red 3] [green 4])</c> over <c>(define-union color (red) (green))</c>
+    ///     matches two cases instead of binding <c>red</c> and dropping the second arm.
+    ///     Purely structural, and run before the arm is inferred, so exhaustiveness checking,
+    ///     IR lowering and both emitters see a constructor pattern like any other.
+    /// </summary>
+    private Pattern ResolveBareCasePatterns(Pattern pattern)
+    {
+        switch (pattern)
+        {
+            case Pattern.Variable v when _nullaryUnionCaseNames.Contains(v.Name):
+                return new Pattern.Constructor(v.Name, [], v.Span);
+            case Pattern.Constructor c:
+            {
+                var fields = Rewrite(c.Fields);
+                return fields is null ? c : new Pattern.Constructor(c.Name, fields, c.Span);
+            }
+            case Pattern.Tuple t:
+            {
+                var elements = Rewrite(t.Elements);
+                return elements is null ? t : new Pattern.Tuple(elements, t.Span);
+            }
+            default:
+                return pattern;
+        }
+
+        // Null when nothing changed, so an untouched pattern keeps its identity.
+        List<Pattern>? Rewrite(IReadOnlyList<Pattern> children)
+        {
+            List<Pattern>? rewritten = null;
+            for (var i = 0; i < children.Count; i++)
+            {
+                var child = ResolveBareCasePatterns(children[i]);
+                if (ReferenceEquals(child, children[i]))
+                    continue;
+                rewritten ??= [.. children];
+                rewritten[i] = child;
+            }
+
+            return rewritten;
+        }
     }
 
     private void InferPattern(Pattern pattern, ZType expected, TypeEnv env)

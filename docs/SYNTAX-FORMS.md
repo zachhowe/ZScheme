@@ -3,6 +3,20 @@
 All built-in syntax forms recognized by the ZScheme compiler. These are special forms handled in
 `src/ZScheme.Compiler/Ast/AstBuilder.cs` — they cannot be redefined or shadowed.
 
+## Names
+
+Names are case-sensitive, and hyphenated and PascalCase spellings of one word are *different*
+names — for functions and for types alike. `HttpResponse` and `http-response` may both be
+declared in one module as two unrelated types, each with its own constructor and accessors
+(`(HttpResponse-status-code …)` and `(http-response-status-code …)`). They sanitize to the same
+.NET identifier, so the compiler gives the second one declared a distinct emitted name; that
+happens behind the scenes and never changes how either is written in ZScheme.
+
+Capitalisation is not part of any syntactic rule: a hyphenated or lower-case name may be a base
+class, an implemented interface, a type argument, or a union case wherever a PascalCase one may.
+The one place spelling still matters is a bare atom in `match` pattern position — see
+[`match`](#match--pattern-matching).
+
 ## Definitions
 
 ### `define` — Define a function or value
@@ -260,6 +274,13 @@ for exhaustiveness. Pattern types:
 - **Literal:** `0`, `1`, `"hello"`, `#t`, `#f`, `'symbol`
 - **Variable:** `x` — binds matched value
 - **Constructor:** `(Circle r)`, `(Some x)`, `None`
+
+A bare atom is the one place a name's spelling still carries meaning, because `None` and `x` are
+written identically. It is read as a constructor pattern when it starts with an upper-case letter
+*or* when it names a union case that takes no fields — so `(match c [red 1] [green 2])` matches
+the two cases of `(define-union color (red) (green))`, imported ones included. Any other bare
+atom binds a variable. Give a binder a name no nullary case in scope uses, or write `_` when the
+value is unused.
 
 ```scheme
 (match s

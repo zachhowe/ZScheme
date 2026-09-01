@@ -905,6 +905,15 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             if (mod.ExportedClassInterfaces is not null)
                 inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
 
+        // Imported nullary union case names, so a bare lower-case or hyphenated arm over an
+        // imported union reads as that case rather than binding a variable. Same source as the
+        // exhaustiveness check's union registry (stage 4.6).
+        inferer.RegisterNullaryUnionCaseNames(
+            NullaryUnionCaseNames(
+                compiledModules.SelectMany(m => m.ExportedIrDefinitions.OfType<IrNode.UnionDecl>())
+            )
+        );
+
         var classIfaceCount = compiledModules.Count(m =>
             m.ExportedClassInterfaces is { Count: > 0 }
         );
@@ -971,6 +980,19 @@ public sealed partial class Compilation(CompilerOptions? options = null)
                     yield return id.Name;
                     break;
             }
+    }
+
+    /// <summary>
+    ///     The zero-field case names of the given union declarations. Feeds
+    ///     <see cref="TypeInferer.RegisterNullaryUnionCaseNames" /> from both inference entry
+    ///     points (whole-program here, per-module in <c>Compilation.ModuleCompilation</c>).
+    /// </summary>
+    private static IEnumerable<string> NullaryUnionCaseNames(IEnumerable<IrNode.UnionDecl> unions)
+    {
+        foreach (var union in unions)
+            foreach (var unionCase in union.Cases)
+                if (unionCase.Fields.Count == 0)
+                    yield return unionCase.Name;
     }
 
     internal static IEnumerable<string> OwnClrNamespaces(AstNode.Program program)

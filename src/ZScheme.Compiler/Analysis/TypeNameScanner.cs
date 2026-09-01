@@ -242,8 +242,10 @@ public static class TypeNameScanner
         ///     Consumes <c>(define-class [#:open] Name|(Name ^a) [: Base IFoo IBar])</c> and the
         ///     <c>define-interface</c> equivalent, recording the base/interface run. Mirrors
         ///     <c>AstBuilder.BuildClass</c>/<c>BuildInterface</c>, including their stop condition:
-        ///     the run ends at the first item that is not an upper-case bare name. Returns the
-        ///     index of the first member.
+        ///     the run ends at the first item that is not a bare type name (capitalisation is not
+        ///     part of it — <c>i-thing</c> names a type as much as <c>IThing</c> does), and the
+        ///     <c>:</c> is a base/interface run only when it does not open a <c>:where</c>
+        ///     clause. Returns the index of the first member.
         /// </summary>
         private int ScanTypeDeclHeader(List<int> items)
         {
@@ -255,9 +257,11 @@ public static class TypeNameScanner
                 c++;
             if (c >= items.Count || _tokens[items[c]].Kind != TokenKind.Colon)
                 return c;
+            if (IsWhereKeyword(items, c))
+                return c;
 
             c++;
-            while (c < items.Count && IsUpperCaseName(items[c]))
+            while (c < items.Count && IsBaseTypeName(items[c]))
             {
                 Record(_tokens[items[c]], 0);
                 c++;
@@ -287,7 +291,7 @@ public static class TypeNameScanner
             }
 
             c++;
-            while (c < items.Count && IsUpperCaseName(items[c]))
+            while (c < items.Count && IsBaseTypeName(items[c]))
             {
                 Record(_tokens[items[c]], 0);
                 c++;
@@ -393,15 +397,29 @@ public static class TypeNameScanner
             TypeNames.Add(new TypeNameOccurrence(token, name, arity));
         }
 
-        /// <summary>Records <c>(IFoo IBar)</c> as an interface group, but only when every item
-        ///     is an upper-case bare name — otherwise it is a method definition
-        ///     (<c>AstBuilder.BuildObjectExpr</c> makes the same distinction).</summary>
+        /// <summary>Member forms that can head a paren list inside an <c>object</c> body —
+        ///     mirrors <c>AstBuilder.MemberFormHeads</c>.</summary>
+        private static readonly HashSet<string> MemberFormHeads =
+        [
+            "define",
+            "define-async",
+            "constructor",
+            "begin",
+            "let",
+            "@",
+        ];
+
+        /// <summary>Records <c>(IFoo i-bar)</c> as an interface group, but only when every item
+        ///     is a bare type name and the head is not a member form — otherwise it is a method
+        ///     definition (<c>AstBuilder.BuildObjectExpr</c> makes the same distinction).</summary>
         private bool RecordInterfaceGroup(int i)
         {
             if (!IsOpener(i))
                 return false;
             var (group, _) = Children(i);
-            if (group.Count == 0 || !group.All(IsUpperCaseName))
+            if (group.Count == 0 || !group.All(IsBaseTypeName))
+                return false;
+            if (MemberFormHeads.Contains(_tokens[group[0]].Text))
                 return false;
             foreach (var item in group)
                 Record(_tokens[item], 0);
@@ -480,11 +498,25 @@ public static class TypeNameScanner
                 && _tokens[i].Text[0] == c;
         }
 
-        private bool IsUpperCaseName(int i)
+        /// <summary>A bare symbol usable as a base class or interface name. Capitalisation is
+        ///     not part of the test; the <c>#:</c>-prefixed flags and <c>:</c>-prefixed keywords
+        ///     are what it excludes (mirrors <c>AstBuilder.IsBaseTypeNameAtom</c>).</summary>
+        private bool IsBaseTypeName(int i)
         {
             return _tokens[i].Kind == TokenKind.Symbol
                 && _tokens[i].Text.Length > 0
-                && char.IsUpper(_tokens[i].Text[0]);
+                && _tokens[i].Text[0] != '#'
+                && _tokens[i].Text[0] != ':';
+        }
+
+        /// <summary>Whether the <c>:</c> at <paramref name="c" /> opens a <c>:where</c> clause;
+        ///     the lexer splits <c>:where</c> into a colon plus the bare symbol
+        ///     <c>where</c>.</summary>
+        private bool IsWhereKeyword(List<int> items, int c)
+        {
+            return c + 1 < items.Count
+                && _tokens[items[c + 1]].Kind == TokenKind.Symbol
+                && _tokens[items[c + 1]].Text == "where";
         }
     }
 }
