@@ -1692,8 +1692,26 @@ public sealed partial class IlEmitter(
         return result;
     }
 
-    private void CollectInterfaceMethodNames(string ifaceName, HashSet<string> names)
+    /// <summary>
+    ///     Every method name an implementer of <paramref name="ifaceName" /> has to mark as an
+    ///     interface implementation — the interface's own methods plus, transitively, every method
+    ///     it inherits. Inherited ones are not optional: leave one a plain instance method and the
+    ///     CLR rejects the whole type on first touch with a <c>TypeLoadException</c>.
+    /// </summary>
+    private void CollectInterfaceMethodNames(string ifaceName, HashSet<string> names) =>
+        CollectInterfaceMethodNames(ifaceName, names, [], []);
+
+    /// <returns>Whether <paramref name="ifaceName" /> resolved to an interface at all.</returns>
+    private bool CollectInterfaceMethodNames(
+        string ifaceName,
+        HashSet<string> names,
+        HashSet<string> visitedNames,
+        HashSet<TypeDefinition> visitedDefs
+    )
     {
+        if (!visitedNames.Add(ifaceName))
+            return true;
+
         // Try CLR reflection first
         var clrType = _clrInterop.FindType(ifaceName);
         if (clrType is null)
@@ -1712,7 +1730,7 @@ public sealed partial class IlEmitter(
             foreach (var parentIface in clrType.GetInterfaces())
             foreach (var method in parentIface.GetMethods())
                 names.Add(method.Name);
-            return;
+            return true;
         }
 
         // Fall back to ZScheme-defined interfaces
@@ -1720,11 +1738,60 @@ public sealed partial class IlEmitter(
             !_userTypes.TryGetValue(ifaceName, out var userType)
             || userType is not TypeDefinition typeDef
         )
+            return false;
+
+        CollectInterfaceMethodNames(typeDef, names, visitedNames, visitedDefs);
+        return true;
+    }
+
+    // The ZScheme half of the walk above. Type.GetInterfaces() hands the CLR branch the whole
+    // transitive set for free; an interface this module is emitting has no loaded Type, so its
+    // base list has to be walked through the metadata DefineInterfaceType already wrote. Recurses
+    // on the TypeDefinition rather than its name because an emitted name can differ from the
+    // source name _userTypes is keyed by (EmitNameResolver renames on a collision).
+    private void CollectInterfaceMethodNames(
+        TypeDefinition typeDef,
+        HashSet<string> names,
+        HashSet<string> visitedNames,
+        HashSet<TypeDefinition> visitedDefs
+    )
+    {
+        if (!visitedDefs.Add(typeDef))
             return;
 
         foreach (var method in typeDef.Methods)
             if (method.Name is not null)
                 names.Add(method.Name.ToString());
+
+        foreach (var impl in typeDef.Interfaces)
+            switch (impl.Interface)
+            {
+                case TypeDefinition baseDef:
+                    CollectInterfaceMethodNames(baseDef, names, visitedNames, visitedDefs);
+                    break;
+                // A reference rather than a definition: a CLR interface, or one imported from a
+                // precompiled module. Both resolve by name through the entry point above. Prefer
+                // the qualified spelling so a same-named type in one of the ClrUsings can't be
+                // picked up instead, then fall back to the bare one, which is how _userTypes keys
+                // an interface an imported module defined.
+                case { Name: { } baseName } baseRef:
+                    if (
+                        baseRef.Namespace is not { Length: > 0 } baseNs
+                        || !CollectInterfaceMethodNames(
+                            baseNs + "." + baseName,
+                            names,
+                            visitedNames,
+                            visitedDefs
+                        )
+                    )
+                        CollectInterfaceMethodNames(
+                            baseName.ToString(),
+                            names,
+                            visitedNames,
+                            visitedDefs
+                        );
+                    break;
+            }
     }
 
     private void AddAsmInheritedFieldsToMap(
