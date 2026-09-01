@@ -1,4 +1,5 @@
 using Serilog;
+using ZScheme.Compiler.Cache;
 using ZScheme.Compiler.Diagnostics;
 
 namespace ZScheme.Compiler.Package;
@@ -18,7 +19,11 @@ public sealed record ResolvedPackage(
     IReadOnlyList<NuGetDependency> NuGet,
     IReadOnlyList<string> RefPaths,
     string PackageDir,
-    IReadOnlyList<ZSchemeDependency> ZSchemeDeps
+    IReadOnlyList<ZSchemeDependency> ZSchemeDeps,
+    // The manifest's own name and version — the identity the package cache is keyed by, which
+    // is not derivable from the dependency's directory name or its import prefix.
+    string Name = "",
+    string Version = ""
 );
 
 /// <summary>
@@ -110,8 +115,44 @@ public static class PackageDependencyResolver
             manifest.Dependencies.NuGet,
             refPaths,
             fullDir,
-            manifest.Dependencies.ZScheme
+            manifest.Dependencies.ZScheme,
+            manifest.Name,
+            manifest.Version
         );
+    }
+
+    /// <summary>
+    ///     The identity — cache key, not import prefix — of each ZScheme package
+    ///     <paramref name="manifest" /> depends on directly, for recording in the artifact this
+    ///     build produces. Direct deps are enough: a consumer that follows them recursively
+    ///     reaches the whole closure, because every artifact records its own.
+    ///     <para>
+    ///         Only a <c>:local</c> dependency resolves here, by reading the manifest it points
+    ///         at. A dependency named any other way is skipped rather than guessed at: the
+    ///         declaration carries a name but not the version the build actually resolved.
+    ///     </para>
+    /// </summary>
+    public static IReadOnlyList<PrecompiledPackageDependency> ResolveDependencyIdentities(
+        PackageManifest manifest,
+        string manifestDir
+    )
+    {
+        var identities = new List<PrecompiledPackageDependency>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dep in manifest.Dependencies.ZScheme)
+        {
+            if (dep.Source is not ZSchemeDependencySource.Local local)
+                continue;
+
+            var depDir = Path.GetFullPath(Path.Combine(manifestDir, local.Path));
+            if (TryResolvePackage(depDir) is not { Name.Length: > 0 } resolved)
+                continue;
+            if (seen.Add(resolved.Name))
+                identities.Add(new PrecompiledPackageDependency(resolved.Name, resolved.Version));
+        }
+
+        return identities;
     }
 
     /// <summary>

@@ -15,13 +15,23 @@ public static class MetadataSerializer
     //    types inferred by this one. See TypeNameCanonicalizer.
     private const int FormatVersion = 2;
 
+    /// <summary>
+    ///     <paramref name="dependencies" /> and <paramref name="inputFingerprint" /> are additive:
+    ///     they are written when supplied and simply absent otherwise, so no format bump is needed.
+    ///     A bump would be actively harmful here — <see cref="Deserialize" /> rejects a mismatched
+    ///     version by returning null and <c>LoadExplicitPrecompiledPackages</c> skips a null
+    ///     sidecar silently, so raising the number invalidates every cached artifact, including the
+    ///     pkgcache shipped inside a published toolchain, with no diagnostic to explain it.
+    /// </summary>
     public static string Serialize(
         string packageName,
         string version,
         string assemblyName,
         IReadOnlyDictionary<string, CompiledModule> modules,
         string? importPrefix = null,
-        string? defaultModule = null
+        string? defaultModule = null,
+        IReadOnlyList<PrecompiledPackageDependency>? dependencies = null,
+        string? inputFingerprint = null
     )
     {
         var root = new JsonObject
@@ -37,9 +47,30 @@ public static class MetadataSerializer
         if (defaultModule is not null)
             root["defaultModule"] = defaultModule;
 
+        if (inputFingerprint is not null)
+            root["inputFingerprint"] = inputFingerprint;
+
+        if (dependencies is { Count: > 0 })
+        {
+            var depsArray = new JsonArray();
+            foreach (var dep in dependencies)
+                depsArray.Add(
+                    new JsonObject { ["name"] = dep.Name, ["version"] = dep.Version }
+                );
+            root["dependencies"] = depsArray;
+        }
+
         var modulesObj = new JsonObject();
         foreach (var (name, mod) in modules)
+        {
+            // A module whose code lives in another assembly is not this package's to export.
+            // Left in, the sidecar claims e.g. stdlib/option as one of http's own modules, and a
+            // consumer loading both packages binds that name to whichever loaded first.
+            if (mod.IsExternallyEmitted)
+                continue;
             modulesObj[name] = SerializeModule(mod);
+        }
+
         root["modules"] = modulesObj;
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
@@ -66,6 +97,17 @@ public static class MetadataSerializer
 
         var importPrefix = root["importPrefix"]?.GetValue<string>();
         var defaultModule = root["defaultModule"]?.GetValue<string>();
+        var inputFingerprint = root["inputFingerprint"]?.GetValue<string>();
+
+        var dependencies = new List<PrecompiledPackageDependency>();
+        if (root["dependencies"] is JsonArray depsArray)
+            foreach (var depNode in depsArray)
+                if (
+                    depNode is JsonObject depObj
+                    && depObj["name"]?.GetValue<string>() is { } depName
+                    && depObj["version"]?.GetValue<string>() is { } depVersion
+                )
+                    dependencies.Add(new PrecompiledPackageDependency(depName, depVersion));
 
         var modules = new Dictionary<string, CompiledModule>();
         foreach (var (name, moduleNode) in modulesNode)
@@ -81,7 +123,9 @@ public static class MetadataSerializer
             assemblyPath,
             modules,
             importPrefix,
-            defaultModule
+            defaultModule,
+            dependencies,
+            inputFingerprint
         );
     }
 

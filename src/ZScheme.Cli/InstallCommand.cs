@@ -193,7 +193,12 @@ internal static class InstallCommand
                 result.AssemblyBytes,
                 result.Modules,
                 manifest.ImportPrefix,
-                manifest.DefaultModule
+                manifest.DefaultModule,
+                dependencies: PackageDependencyResolver.ResolveDependencyIdentities(
+                    manifest,
+                    manifestDir
+                ),
+                inputFingerprint: PackageFingerprint.Compute(manifestDir, manifest)
             );
         }
         catch (IOException e)
