@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ZScheme.Toolchain;
 
 namespace ZScheme.Compiler.Package.NuGet;
 
@@ -77,6 +78,44 @@ internal sealed class NuGetV3Client : INuGetV3Client
         return versions;
     }
 
+    /// <summary>
+    ///     Deletes scratch downloads older than <see cref="ZSchemeHome.StagingMaxAge" />.
+    /// </summary>
+    /// <remarks>
+    ///     The <c>finally</c> below covers a download that failed, but not one that was killed:
+    ///     a Ctrl-C or a SIGKILL part-way through a large nupkg leaves its scratch file behind and
+    ///     nothing else walks this cache, so they accumulate with nothing to reclaim them.
+    ///     Age-gated because a concurrent download's scratch is live, and deleting it leaves that
+    ///     process renaming a file that is gone.
+    /// </remarks>
+    private static void SweepStaleDownloads(string dir)
+    {
+        var cutoff = DateTime.UtcNow - ZSchemeHome.StagingMaxAge;
+
+        try
+        {
+            foreach (var stale in Directory.EnumerateFiles(dir, "*.tmp"))
+            {
+                if (File.GetLastWriteTimeUtc(stale) >= cutoff)
+                    continue;
+
+                try
+                {
+                    File.Delete(stale);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    // Swept by a later download.
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort: scratch left behind costs disk, not correctness, and must never be
+            // the reason a package went undownloaded.
+        }
+    }
+
     public async Task DownloadNupkgAsync(string packageId, string version, string destinationPath)
     {
         var baseAddress = await GetPackageBaseAddressAsync();
@@ -89,7 +128,10 @@ internal sealed class NuGetV3Client : INuGetV3Client
 
         var dir = Path.GetDirectoryName(destinationPath);
         if (dir is not null)
+        {
             Directory.CreateDirectory(dir);
+            SweepStaleDownloads(dir);
+        }
 
         // Land the nupkg in one step. The cache is shared by every compile running on the
         // machine -- the test assemblies `dotnet test` runs side by side, several `zs build`s --

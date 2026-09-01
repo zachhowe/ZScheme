@@ -1,4 +1,5 @@
 using Serilog;
+using ZScheme.Toolchain;
 
 namespace ZScheme.Compiler.Cache;
 
@@ -43,12 +44,19 @@ internal static class AtomicDirectory
 {
     private static readonly ILogger Log = Serilog.Log.ForContext(typeof(AtomicDirectory));
 
+    /// <summary>Prefix of the directory an entry is assembled under before it is published.</summary>
+    private const string StagingPrefix = ".staging-";
+
+    /// <summary>Prefix of the name an entry being replaced is moved aside under.</summary>
+    private const string PreviousPrefix = ".previous-";
+
     /// <summary>The private name to assemble an entry under, beside its destination —
     ///     the commit is a rename, and that requires a single volume.</summary>
     public static string StagingPathFor(string dest)
     {
         var parent = Path.GetDirectoryName(dest)!;
-        return Path.Combine(parent, $".staging-{Guid.NewGuid():N}");
+        SweepStale(parent);
+        return Path.Combine(parent, $"{StagingPrefix}{Guid.NewGuid():N}");
     }
 
     /// <summary>
@@ -80,11 +88,12 @@ internal static class AtomicDirectory
         string? previous = null;
         if (Directory.Exists(dest))
         {
-            var aside = Path.Combine(parent, $".previous-{Guid.NewGuid():N}");
+            var aside = Path.Combine(parent, $"{PreviousPrefix}{Guid.NewGuid():N}");
             switch (TryMove(dest, aside))
             {
                 case MoveOutcome.Moved:
                     previous = aside;
+                    Touch(aside);
                     break;
 
                 // A concurrent writer displaced it between the check and the rename, which frees
@@ -144,6 +153,56 @@ internal static class AtomicDirectory
             previous
         );
         return CommitResult.Failed;
+    }
+
+    /// <summary>
+    ///     Deletes scratch directories older than <see cref="ZSchemeHome.StagingMaxAge" /> from
+    ///     <paramref name="parent" />.
+    /// </summary>
+    /// <remarks>
+    ///     Both kinds leak. The <c>finally</c> around a commit covers a failure but not a kill
+    ///     during the fill, and the restore at the end of <see cref="Commit" /> is best-effort: a
+    ///     lost race leaves a displaced entry under its private name for good. Nothing else walks
+    ///     these caches, so they accumulate under <c>~/.zscheme</c> with nothing to reclaim them.
+    ///     Age-gated for the reason every other staging sweep here is: a concurrent writer's
+    ///     scratch is live, and deleting it leaves that process renaming a path that is gone.
+    ///     They are invisible to readers either way — every entry is looked up by exact path, and
+    ///     a leading '.' is neither a package version nor a cache key.
+    /// </remarks>
+    private static void SweepStale(string parent)
+    {
+        var cutoff = DateTime.UtcNow - ZSchemeHome.StagingMaxAge;
+
+        try
+        {
+            foreach (var prefix in (string[])[StagingPrefix, PreviousPrefix])
+            foreach (var stale in Directory.EnumerateDirectories(parent, prefix + "*"))
+                if (Directory.GetLastWriteTimeUtc(stale) < cutoff)
+                    TryDelete(stale);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort: scratch left behind costs disk, not correctness, and must never be
+            // the reason an entry went uncached.
+        }
+    }
+
+    /// <summary>Stamps a directory as new, so the sweep dates it from when it became scratch.</summary>
+    /// <remarks>
+    ///     A rename carries the directory's original timestamps, so an entry cached last month
+    ///     arrives under its private name already past the cutoff — and a concurrent commit would
+    ///     sweep it while it is still the only copy of what this one displaced.
+    /// </remarks>
+    private static void Touch(string path)
+    {
+        try
+        {
+            Directory.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // A timestamp is not worth failing a commit over.
+        }
     }
 
     /// <summary>Best-effort cleanup of a scratch directory this process owns.</summary>
