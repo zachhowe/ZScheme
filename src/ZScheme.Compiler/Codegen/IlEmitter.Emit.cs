@@ -5356,6 +5356,18 @@ public sealed partial class IlEmitter
             return;
         }
 
+        // Same table, two key conventions: a module emitted into this assembly registers its
+        // values under the source name, while LoadPrecompiledAssembly can only see what is baked
+        // into the referenced assembly, which is the emitted name. So a module-level *value* read
+        // across an assembly boundary — `log-level/warning`, a define of a CLR enum constant —
+        // has to be looked up the way _methods already is. Only reachable once a dependency is
+        // referenced rather than compiled in, which is why nothing needed it before.
+        if (_staticFields.TryGetValue(sanitizedName, out var precompiledField))
+        {
+            il.Add(CilOpCodes.Ldsfld, precompiledField);
+            return;
+        }
+
         // Check if the name is a function in _methods (for main module function values)
         Log.Debug(
             "EmitLoadVar: trying to load '{Name}', sanitizedName={Sanitized}, inStaticFields={InStatic}, inMethods={InMethods}",

@@ -130,23 +130,26 @@ public static class PackageAutoInstaller
             // Resolve ZScheme dependencies from manifest. Deliberately the *direct* local deps
             // only, not `closure` above: this fixes the framework gap without also widening which
             // modules an auto-installed package can import, which is a separate change.
-            var packagePaths = new Dictionary<string, string>();
-            var moduleAliases = new Dictionary<string, string>();
+            var directPackages = new List<ResolvedPackage>();
             foreach (var dep in manifest.Dependencies.ZScheme)
                 if (dep.Source is ZSchemeDependencySource.Local local)
                 {
                     var depDir = Path.GetFullPath(Path.Combine(packageDir, local.Path));
-                    var depInfo = ResolvePackagePath(depDir);
-                    if (depInfo is not null)
-                    {
-                        packagePaths.TryAdd(depInfo.Value.Prefix, depInfo.Value.SourceDir);
-                        if (depInfo.Value.DefaultModule is { } defMod)
-                            moduleAliases.TryAdd(
-                                depInfo.Value.Prefix,
-                                $"{depInfo.Value.Prefix}/{defMod}"
-                            );
-                    }
+                    if (PackageDependencyResolver.TryResolvePackage(depDir) is { } depResolved)
+                        directPackages.Add(depResolved);
                 }
+
+            // A dependency with a current artifact is referenced. Without this the artifact this
+            // installs would itself carry a compiled-in copy of its dependencies, which is the
+            // shape being removed — auto-installing would quietly reintroduce it.
+            var wiring = PackageDependencyWiring.ForPackages(
+                directPackages,
+                true,
+                diagnostics,
+                cacheDirectory
+            );
+            var packagePaths = new Dictionary<string, string>(wiring.PackagePaths);
+            var moduleAliases = new Dictionary<string, string>(wiring.ModuleAliases);
 
             // Add manifest-level ref paths (main build config)
             if (manifest.Build.Main is { } mainBuild)
@@ -159,6 +162,7 @@ public static class PackageAutoInstaller
                 PackagePaths = packagePaths,
                 ModuleAliases = moduleAliases,
                 CacheDirectory = cacheDirectory,
+                PrecompiledPackagePaths = [.. wiring.PrecompiledAssemblyPaths],
             };
 
             // Compile the package

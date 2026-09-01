@@ -537,7 +537,16 @@ public sealed partial class Compilation
 
         _analyzedModuleName = moduleName;
 
+        // Referenced dependency assemblies have to be in the module cache before imports are
+        // resolved, or this module's `(import stdlib/treelist)` looks for sources that are no
+        // longer on any search path. The whole-program path does this inside CompileLoadModules;
+        // there was no equivalent here, and this is the path a package library compiles every one
+        // of its own modules through.
+        var precompiledAliases = LoadPrecompiledPackagesIntoCache();
+
         var resolver = CreateModuleResolver(filePath);
+        foreach (var (alias, qualified) in precompiledAliases)
+            resolver.AddModuleAlias(alias, qualified);
         resolver.InjectSource(moduleName, filePath, source);
 
         // Register prelude type aliases (e.g. Mutable-Vector from stdlib/mutable/vector) so they are
@@ -565,6 +574,21 @@ public sealed partial class Compilation
 
         foreach (var preludeName in _options.PreludeModules)
         {
+            // A prelude module that arrives as a referenced assembly has no source to parse. Its
+            // alias declarations were recorded in the metadata sidecar when it was built, so read
+            // them from there. Missing this is not subtle: Mutable-Vector backs the variadic
+            // rest-parameter type, and without it every varargs signature in a consuming package
+            // fails to unify against the CLR array it lowers to.
+            if (
+                _moduleCache.TryGetValue(preludeName, out var precompiled)
+                && precompiled.PrecompiledAssemblyPath is not null
+            )
+            {
+                foreach (var def in precompiled.ExportedIrDefinitions)
+                    CollectTypeAliases(def);
+                continue;
+            }
+
             // TryResolve, not Resolve: a package that ships without stdlib is expected to
             // miss here, and Resolve would record a hard "Module not found" per prelude
             // module per compiled module — failing the build over an optional probe.

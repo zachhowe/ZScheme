@@ -485,14 +485,26 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var allIrDefs = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>();
         foreach (var (name, mod) in compiledModules)
         {
+            // A module that lives in a referenced assembly is not emitted again here. Its
+            // metadata still carries type declarations — that is how a consumer type-checks
+            // against it — and emitting those would redeclare Option and friends in this
+            // assembly, beside the reference to the ones that already exist.
+            if (mod.IsExternallyEmitted)
+                continue;
+
             var className = NameConverter.ClassNameFromModuleName(name);
             var defs = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
             if (defs.Count > 0)
                 allIrDefs.Add((className, defs));
         }
 
+        // Only inlined modules contribute using directives; a referenced module's members are
+        // reached through its build namespace instead, and pulling its CLR namespaces in here
+        // is what would make an ambiguous short type name resolve differently than it did when
+        // that module was built.
         var clrNamespaces = compiledModules
-            .Values.SelectMany(m => m.ExportedClrNamespaces)
+            .Values.Where(m => !m.IsExternallyEmitted)
+            .SelectMany(m => m.ExportedClrNamespaces)
             .Distinct()
             .ToList();
 
