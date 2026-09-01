@@ -2,6 +2,32 @@ using Serilog;
 
 namespace ZScheme.Compiler.Cache;
 
+/// <summary>What a call to <see cref="AtomicDirectory.Commit" /> left at the destination.</summary>
+internal enum CommitResult
+{
+    /// <summary>The staged content is the entry at the destination.</summary>
+    Committed,
+
+    /// <summary>
+    ///     Another writer's entry is at the destination and the staged content was not published.
+    ///     A caller whose destination is content-keyed can take that entry for its own — it was
+    ///     produced for the same key. A caller whose destination is only a name, a package
+    ///     version say, cannot: nothing says the two writers built the same thing.
+    /// </summary>
+    PeerWon,
+
+    /// <summary>
+    ///     The entry that was already at the destination could not be displaced, so it is still
+    ///     there and the staged content was not published. An assembly inside it held open by
+    ///     another process is the usual cause. The destination therefore holds content that
+    ///     predates this call — most likely stale.
+    /// </summary>
+    Blocked,
+
+    /// <summary>Nothing was published and the destination holds no entry at all.</summary>
+    Failed,
+}
+
 /// <summary>
 ///     Publishes a finished directory into a shared cache by rename, so readers only ever see a
 ///     complete entry.
@@ -37,36 +63,80 @@ internal static class AtomicDirectory
     ///         either copy will do. What this must never do is leave the cache emptier than it
     ///         found it, hence the restore at the end.
     ///     </para>
+    ///     <para>
+    ///         Which of those outcomes actually happened is the caller's to judge, so it is
+    ///         returned rather than only logged. Swallowing it meant a store that published
+    ///         nothing was indistinguishable from one that published everything, and both callers
+    ///         went on to report success — see <see cref="CommitResult" />.
+    ///     </para>
     /// </summary>
-    public static void Commit(string staging, string dest)
+    public static CommitResult Commit(string staging, string dest)
     {
         var parent = Path.GetDirectoryName(dest)!;
 
-        // Free the name for the rename below. Failing here means a concurrent writer moved the
-        // old entry aside first, leaving us nothing to displace.
+        // Free the name for the rename below. Failing while the entry is still there means it
+        // cannot be displaced at all — an assembly inside it held open by another process is the
+        // usual cause on Windows — and nothing further down could publish over it either.
         string? previous = null;
         if (Directory.Exists(dest))
         {
             var aside = Path.Combine(parent, $".previous-{Guid.NewGuid():N}");
             if (TryMove(dest, aside))
                 previous = aside;
+            else if (Directory.Exists(dest))
+            {
+                Log.Warning("AtomicDirectory: could not displace the entry at {Path}", dest);
+                return CommitResult.Blocked;
+            }
+
+            // Otherwise a concurrent writer displaced it first and the name is free regardless.
         }
 
-        if (!TryMove(staging, dest))
+        if (TryMove(staging, dest))
         {
-            if (Directory.Exists(dest))
-                Log.Debug("AtomicDirectory: another process committed {Path} first", dest);
-            else
-                Log.Warning("AtomicDirectory: could not commit {Path}", dest);
+            if (previous is not null)
+                TryDelete(previous);
+            return CommitResult.Committed;
+        }
+
+        // From here the staged content did not land, and all that is left to settle is what the
+        // destination ends up holding.
+        if (previous is not null && Directory.Exists(dest))
+        {
+            TryDelete(previous);
+            Log.Debug("AtomicDirectory: another process committed {Path} first", dest);
+            return CommitResult.PeerWon;
         }
 
         if (previous is null)
-            return;
+        {
+            if (Directory.Exists(dest))
+            {
+                Log.Debug("AtomicDirectory: another process committed {Path} first", dest);
+                return CommitResult.PeerWon;
+            }
 
-        if (Directory.Exists(dest))
-            TryDelete(previous);
-        else
-            TryMove(previous, dest);
+            Log.Warning("AtomicDirectory: could not commit {Path}", dest);
+            return CommitResult.Failed;
+        }
+
+        // This process holds the only copy of what used to be at dest: put it back rather than
+        // leave the cache emptier than it was found.
+        if (TryMove(previous, dest))
+        {
+            Log.Warning(
+                "AtomicDirectory: could not commit {Path}; restored the entry it displaced",
+                dest
+            );
+            return CommitResult.Blocked;
+        }
+
+        Log.Warning(
+            "AtomicDirectory: could not commit {Path}, and the entry it displaced is left at {Previous}",
+            dest,
+            previous
+        );
+        return CommitResult.Failed;
     }
 
     /// <summary>Best-effort cleanup of a scratch directory this process owns.</summary>
