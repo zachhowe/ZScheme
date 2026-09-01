@@ -74,9 +74,13 @@ jobs:
       - name: Install the native toolchain
         if: startsWith(matrix.os, 'ubuntu')
         run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
-      - name: Build the release artifacts
-        run: |
-          pwsh ./publish.ps1 -Runtimes ${{ matrix.rid }}
-          pwsh ./publish-zsup.ps1 -Runtime ${{ matrix.rid }}
+      # One command per step on purpose. GitHub's pwsh shell -- the default on the Windows runner
+      # -- reports only the LAST command's exit code, so a publish.ps1 that failed ahead of a
+      # publish-zsup.ps1 that succeeded left this step green and the failure surfaced two steps
+      # later as a missing archive.
+      - name: Build the toolchain archive
+        run: pwsh ./publish.ps1 -Runtimes ${{ matrix.rid }}
+      - name: Build zsup
+        run: pwsh ./publish-zsup.ps1 -Runtime ${{ matrix.rid }}
       - name: Run the end-to-end checks
         run: pwsh ./scripts/Test-Toolchain.ps1 -Rid ${{ matrix.rid }}
