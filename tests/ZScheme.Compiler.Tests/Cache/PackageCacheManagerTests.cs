@@ -237,6 +237,39 @@ public sealed class PackageCacheManagerTests : IDisposable
         Assert.Throws<IOException>(() => _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules));
     }
 
+    /// <summary>
+    ///     A store killed part-way through, or a commit that lost the race to put back the entry
+    ///     it displaced, leaves its scratch directory behind. Nothing else walks the package
+    ///     cache, so without a sweep these accumulate under <c>~/.zscheme</c> for good.
+    /// </summary>
+    [Fact]
+    public void StoreSweepsScratchAnEarlierRunLeftBehind()
+    {
+        var modules = CreateTestModules();
+        var packageRoot = Path.Combine(_tempDir, "test-pkg");
+        Directory.CreateDirectory(packageRoot);
+
+        var abandonedFill = Path.Combine(packageRoot, ".staging-abandoned");
+        var orphanedEntry = Path.Combine(packageRoot, ".previous-orphaned");
+        var anotherWritersFill = Path.Combine(packageRoot, ".staging-inflight");
+        foreach (var dir in new[] { abandonedFill, orphanedEntry, anotherWritersFill })
+            Directory.CreateDirectory(dir);
+
+        var pastTheCutoff = DateTime.UtcNow - TimeSpan.FromHours(2);
+        Directory.SetLastWriteTimeUtc(abandonedFill, pastTheCutoff);
+        Directory.SetLastWriteTimeUtc(orphanedEntry, pastTheCutoff);
+
+        _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules);
+
+        Assert.False(Directory.Exists(abandonedFill));
+        Assert.False(Directory.Exists(orphanedEntry));
+
+        // Recent scratch belongs to a writer that is still filling it: deleting that leaves the
+        // other process renaming a path that is gone.
+        Assert.True(Directory.Exists(anotherWritersFill));
+        Assert.NotNull(_cache.TryLoad("test-pkg", "1.0.0"));
+    }
+
     [Fact]
     public void Store_Overwrite_ReplacesExisting()
     {
