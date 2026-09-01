@@ -94,6 +94,20 @@ public sealed class NuGetResolver(DiagnosticBag diagnostics)
                 return null;
             }
 
+            // Another compile may have filled this cache key while this one was downloading, and
+            // one that got a hit on it is already holding paths into that directory. Publishing
+            // over it renames it away and deletes it for content that is byte-for-byte what is
+            // already there -- the cache key is a hash of the package set -- so there is nothing
+            // to gain and a reader to disturb. Take what is there instead.
+            if (HasResolvedDlls(outputDir))
+            {
+                Log.Debug(
+                    "NuGetResolver: {OutputDir} was filled concurrently, keeping it",
+                    outputDir
+                );
+                return outputDir;
+            }
+
             // A commit that did not land can leave outputDir with nothing in it, and the finally
             // below then drops the staging tree that held the only copy of these DLLs. Returning
             // the path regardless sent the caller off to a directory that does not exist, with no
