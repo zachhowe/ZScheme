@@ -335,7 +335,6 @@ internal static class GenerateProjectCommand
         if (mainResult is null)
             return null;
 
-        var csFileName = $"{mainProjectName}.cs";
         var frameworkRefs = CollectFrameworkRefs(
             manifest.Dependencies.Frameworks,
             context.TransitiveFrameworks
@@ -361,15 +360,21 @@ internal static class GenerateProjectCommand
             ),
         };
 
+        // One file per module, mirroring the package's source tree the way the test project
+        // mirrors its own. Pruning matters now that the project is many files: with no
+        // <Compile> items the SDK globs **/*.cs, so a module renamed since the last run
+        // would leave a source file behind that still compiles.
         CSharpProjectGenerator.WriteProjectDirectory(
             mainDir,
             mainProjectName,
-            [(csFileName, mainResult.CsOutput)],
-            projectOptions
+            [.. mainResult.Files.Select(f => (f.RelativePath, f.Source))],
+            projectOptions,
+            pruneGeneratedCsFiles: true
         );
 
         Console.WriteLine($"Generated: {Path.Combine(mainDir, $"{mainProjectName}.csproj")}");
-        Console.WriteLine($"Generated: {Path.Combine(mainDir, csFileName)}");
+        foreach (var file in mainResult.Files)
+            Console.WriteLine($"Generated: {Path.Combine(mainDir, file.RelativePath)}");
         return mainResult;
     }
 
@@ -617,7 +622,8 @@ internal static class GenerateProjectCommand
             testDir,
             testProjectName,
             csFiles,
-            testProjectOptions
+            testProjectOptions,
+            pruneGeneratedCsFiles: true
         );
 
         Console.WriteLine($"Generated: {Path.Combine(testDir, $"{testProjectName}.csproj")}");
