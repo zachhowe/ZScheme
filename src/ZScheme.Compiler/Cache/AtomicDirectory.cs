@@ -239,13 +239,18 @@ internal static class AtomicDirectory
         }
     }
 
-    /// <summary>Stamps a directory as new, so the sweep dates it from when it became scratch.</summary>
+    /// <summary>Stamps a directory as new, so the sweep dates it from now.</summary>
     /// <remarks>
     ///     A rename carries the directory's original timestamps, so an entry cached last month
     ///     arrives under its private name already past the cutoff — and a concurrent commit would
     ///     sweep it while it is still the only copy of what this one displaced.
+    ///     <para>
+    ///         A caller filling a staging tree needs it for the mirror image: the sweep ages that
+    ///         tree off its own timestamp, and writing into a subdirectory of it leaves that
+    ///         timestamp where it was, so a long fill has to say it is still alive.
+    ///     </para>
     /// </remarks>
-    private static void Touch(string path)
+    public static void Touch(string path)
     {
         try
         {
