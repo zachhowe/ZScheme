@@ -15,10 +15,12 @@ namespace ZScheme.Compiler.Package;
 ///         parallel fan-out would mean every worker rebuilding every dependency at once.
 ///     </para>
 ///     <para>
-///         The hash covers only the package's <em>own</em> inputs. A dependency's freshness is not
-///         folded in: a consumer validates the whole closure by checking each package against its
-///         own recorded fingerprint, so a change to stdlib invalidates stdlib's artifact directly
-///         rather than through every artifact that happens to reference it.
+///         The hash covers only the package's <em>own</em> inputs. What it was built
+///         <em>against</em> is recorded separately, as each dependency's fingerprint at build time
+///         (<c>PrecompiledPackageDependency.Fingerprint</c>). Checking a package against its own
+///         hash alone would not be enough: stdlib can change, be rebuilt, and be current again
+///         while an http artifact compiled against its previous signatures still matches its own
+///         sources exactly.
 ///     </para>
 /// </summary>
 public static class PackageFingerprint
@@ -34,13 +36,19 @@ public static class PackageFingerprint
     /// </summary>
     public static string? Compute(string packageDir, PackageManifest manifest)
     {
+        return Compute(
+            packageDir,
+            manifest.Sources?.Main is { } main
+                ? Path.GetFullPath(Path.Combine(packageDir, main))
+                : packageDir
+        );
+    }
+
+    /// <inheritdoc cref="Compute(string, PackageManifest)" />
+    public static string? Compute(string packageDir, string sourceDir)
+    {
         try
         {
-            var sourceDir =
-                manifest.Sources?.Main is { } main
-                    ? Path.GetFullPath(Path.Combine(packageDir, main))
-                    : packageDir;
-
             var inputs = new List<(string Key, string Path)>();
 
             var manifestPath = Path.Combine(packageDir, "package.zspkg");

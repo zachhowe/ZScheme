@@ -24,5 +24,13 @@ public sealed record PrecompiledPackage(
 
 /// <summary>
 ///     A package this artifact was built against, as recorded in its metadata sidecar.
+///     <c>Fingerprint</c> is that dependency's own input hash at the time this artifact was built,
+///     which is what makes staleness decidable: an artifact whose own sources are unchanged is
+///     still stale if the dependency now offers different signatures than the ones it was compiled
+///     against. Null when the dependency could not be fingerprinted.
 /// </summary>
-public sealed record PrecompiledPackageDependency(string Name, string Version);
+public sealed record PrecompiledPackageDependency(
+    string Name,
+    string Version,
+    string? Fingerprint = null
+);

@@ -21,13 +21,28 @@ public static class PackageAutoInstaller
     ///     compile it, cache the result, and return the loaded package.
     ///     Returns <c>null</c> if the source cannot be found or compilation fails.
     /// </summary>
+    /// <param name="knownSource">
+    ///     The package's source directory and manifest when the caller already knows them, which
+    ///     skips <see cref="FindPackageSource" />. A dependency resolved through a manifest is
+    ///     found by path, not by scanning upwards for a <c>packages/</c> directory that happens to
+    ///     hold a matching name.
+    /// </param>
+    /// <param name="ignoreCache">
+    ///     Rebuild even when the cache has an entry. Used by a caller that has already decided the
+    ///     cached artifact is stale — the lookup here cannot tell, since it compares nothing.
+    /// </param>
     public static PrecompiledPackage? TryAutoInstall(
         string packageName,
         string? anchorDir,
         DiagnosticBag diagnostics,
-        string? cacheDirectory = null
+        string? cacheDirectory = null,
+        (string PackageDir, PackageManifest Manifest)? knownSource = null,
+        bool ignoreCache = false
     )
     {
+        // Locks are per package name, and a rebuild may recursively install a dependency. That
+        // nests locks, but only ever from consumer to dependency — dependency edges are a DAG, so
+        // the acquisition order is consistent and cannot deadlock.
         var lockObj = InstallLocks.GetOrAdd(packageName, _ => new object());
         lock (lockObj)
         {
@@ -35,11 +50,11 @@ public static class PackageAutoInstaller
             var cacheManager = new PackageCacheManager(
                 ZSchemePaths.GetPackageCacheRoot(cacheDirectory)
             );
-            var cached = cacheManager.TryLoadLatest(packageName);
+            var cached = ignoreCache ? null : cacheManager.TryLoadLatest(packageName);
             if (cached is not null)
                 return cached;
 
-            var source = FindPackageSource(packageName, anchorDir);
+            var source = knownSource ?? FindPackageSource(packageName, anchorDir);
             if (source is null)
             {
                 Log.Debug("PackageAutoInstaller: no source found for {PackageName}", packageName);
