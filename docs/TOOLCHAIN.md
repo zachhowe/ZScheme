@@ -146,6 +146,14 @@ name and renamed into place. An entry that exists is therefore an entry that is 
 matters because existence is the whole of what a later seed reads as "already cached" — there is no
 marker file. `zsup install --force` reseeds, replacing an entry rather than merging into it.
 
+The compiler writes to these caches the same way, under `.staging-*` (see
+`ZScheme.Compiler.Cache.AtomicDirectory`): a package it auto-installs into `cache/pkg/`, and the
+assemblies it extracts into `cache/nuget/`, both appear only once complete. Nothing serializes the
+compiles that share a cache — `dotnet test` alone runs several test assemblies side by side — so
+filling an entry in place let one process read a half-written one, miss on it, and redo the work
+while the writer still held its files open. Scratch names are dot-prefixed and never a package
+version, so a leftover from a killed process is skipped rather than seeded.
+
 The prebuilt cache is stored as `pkgcache/<compiler version>/…`, and it is that version — not the
 name the toolchain was installed under — that decides where it is seeded. The two differ whenever a
 toolchain is installed under another name (`zsup install dev --from …`), and the compiler only ever

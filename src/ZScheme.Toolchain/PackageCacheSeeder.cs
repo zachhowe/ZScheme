@@ -52,6 +52,11 @@ public static class PackageCacheSeeder
             foreach (var packageDir in Directory.EnumerateDirectories(compilerVersionDir))
             foreach (var versionDir in Directory.EnumerateDirectories(packageDir))
             {
+                // Scratch directories -- this seeder's own staging, and the compiler's when a
+                // store is killed mid-flight -- are dot-prefixed, never package versions.
+                if (Path.GetFileName(versionDir).StartsWith('.'))
+                    continue;
+
                 var dest = Path.Combine(
                     destRoot,
                     Path.GetFileName(packageDir),

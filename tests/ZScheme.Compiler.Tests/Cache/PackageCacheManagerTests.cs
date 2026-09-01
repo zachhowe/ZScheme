@@ -116,6 +116,106 @@ public sealed class PackageCacheManagerTests : IDisposable
         Assert.Equal([0x02], v2Bytes);
     }
 
+    /// <summary>A payload big enough that writing it is not instantaneous, so a reader
+    ///     sampling in a tight loop lands inside the write rather than around it.</summary>
+    private static byte[] BigAssembly()
+    {
+        var body = new byte[8 * 1024 * 1024];
+        Random.Shared.NextBytes(body);
+        return body;
+    }
+
+    /// <summary>
+    ///     Regression: this cache is shared by every compile on the machine — the test assemblies
+    ///     <c>dotnet test</c> runs side by side, several <c>zs build</c>s. Writing the assembly and
+    ///     its metadata straight into the version directory made the entry visible while it was
+    ///     still being filled, and <see cref="PackageCacheManager.TryLoad" /> reads that as a miss:
+    ///     the reader re-installed the package and collided with the writer still holding the file
+    ///     open. The directory must therefore never exist in a state <c>TryLoad</c> misses on.
+    /// </summary>
+    [Fact]
+    public async Task StoreIsNeverVisibleHalfWritten()
+    {
+        var modules = CreateTestModules();
+        var body = BigAssembly();
+        var packageDir = Path.Combine(_tempDir, "test-pkg", "1.0.0");
+
+        using var done = new CancellationTokenSource();
+        var torn = 0;
+        var watcher = Task.Run(() =>
+        {
+            while (!done.IsCancellationRequested)
+                try
+                {
+                    // A directory that is there but does not load is the half-written entry.
+                    // No directory at all is fine: the commit moves the old entry aside before
+                    // renaming the new one in, and a reader in that window simply misses.
+                    if (Directory.Exists(packageDir) && _cache.TryLoad("test-pkg", "1.0.0") is null)
+                        Interlocked.Increment(ref torn);
+                }
+                catch (Exception)
+                {
+                    // Metadata caught mid-write: torn just the same.
+                    Interlocked.Increment(ref torn);
+                }
+        });
+
+        for (var i = 0; i < 3; i++)
+        {
+            _cache.Store("test-pkg", "1.0.0", body, modules);
+            Assert.NotNull(_cache.TryLoad("test-pkg", "1.0.0"));
+        }
+
+        await done.CancelAsync();
+        await watcher;
+
+        Assert.Equal(0, Volatile.Read(ref torn));
+    }
+
+    /// <summary>
+    ///     The same entry stored from several processes at once — the shape a cold cache takes on
+    ///     CI, where every test assembly auto-installs the same packages. Writing in place made the
+    ///     writers collide outright ("the process cannot access the file … because it is being used
+    ///     by another process"); each now assembles its own copy and renames it in.
+    /// </summary>
+    [Fact]
+    public async Task ConcurrentStoresOfOneVersionAllSucceed()
+    {
+        const int writers = 8;
+        var modules = CreateTestModules();
+        var body = BigAssembly();
+
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stores = Enumerable
+            .Range(0, writers)
+            .Select(_ =>
+                Task.Run(async () =>
+                {
+                    await start.Task;
+                    // A separate manager per writer: in production these are separate processes,
+                    // so nothing in-process is serializing them.
+                    new PackageCacheManager(_tempDir).Store("test-pkg", "1.0.0", body, modules);
+                })
+            )
+            .ToList();
+
+        start.SetResult();
+        await Task.WhenAll(stores);
+
+        var result = _cache.TryLoad("test-pkg", "1.0.0");
+        Assert.NotNull(result);
+        Assert.Equal(body, await File.ReadAllBytesAsync(result.AssemblyPath));
+
+        // Only the committed version directory survives: every staging tree was cleaned up.
+        Assert.Equal(
+            ["1.0.0"],
+            Directory
+                .GetDirectories(Path.Combine(_tempDir, "test-pkg"))
+                .Select(Path.GetFileName)
+                .Order()
+        );
+    }
+
     [Fact]
     public void Store_Overwrite_ReplacesExisting()
     {

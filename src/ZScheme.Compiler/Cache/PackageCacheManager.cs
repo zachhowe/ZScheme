@@ -43,30 +43,48 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
     )
     {
         var packageDir = GetPackageDir(packageName, version);
-        Directory.CreateDirectory(packageDir);
+        var parent = Path.GetDirectoryName(packageDir)!;
+        Directory.CreateDirectory(parent);
 
-        var assemblyPath = Path.Combine(packageDir, $"{packageName}.dll");
-        File.WriteAllBytes(assemblyPath, assemblyBytes);
+        // Assemble under a private name and rename it in (see AtomicDirectory). Writing the
+        // assembly and its metadata straight into packageDir left a window where the .dll was
+        // there and the metadata was not, which TryLoad reads as a miss: a reader in that window
+        // auto-installed the package again and its File.WriteAllBytes collided with the writer
+        // still holding that .dll open.
+        var staging = AtomicDirectory.StagingPathFor(packageDir);
+        Directory.CreateDirectory(staging);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(staging, $"{packageName}.dll"), assemblyBytes);
 
-        var metadataJson = MetadataSerializer.Serialize(
-            packageName,
-            version,
-            packageName,
-            modules,
-            importPrefix,
-            defaultModule
-        );
-        var metadataPath = Path.Combine(packageDir, $"{packageName}.metadata.json");
-        File.WriteAllText(metadataPath, metadataJson);
+            var metadataJson = MetadataSerializer.Serialize(
+                packageName,
+                version,
+                packageName,
+                modules,
+                importPrefix,
+                defaultModule
+            );
+            File.WriteAllText(
+                Path.Combine(staging, $"{packageName}.metadata.json"),
+                metadataJson
+            );
 
-        Log.Debug(
-            "PackageCache: stored {PackageName}@{Version} ({ByteCount} bytes, {ModuleCount} modules) at {Path}",
-            packageName,
-            version,
-            assemblyBytes.Length,
-            modules.Count,
-            packageDir
-        );
+            AtomicDirectory.Commit(staging, packageDir);
+
+            Log.Debug(
+                "PackageCache: stored {PackageName}@{Version} ({ByteCount} bytes, {ModuleCount} modules) at {Path}",
+                packageName,
+                version,
+                assemblyBytes.Length,
+                modules.Count,
+                packageDir
+            );
+        }
+        finally
+        {
+            AtomicDirectory.TryDelete(staging);
+        }
     }
 
     public PrecompiledPackage? TryLoadLatest(string packageName)
