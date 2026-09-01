@@ -156,15 +156,25 @@ public static class PackageAutoInstaller
                 return null;
             }
 
-            // Store in cache
-            cacheManager.Store(
-                manifest.Name,
-                manifest.Version,
-                result.AssemblyBytes,
-                result.Modules,
-                manifest.ImportPrefix,
-                manifest.DefaultModule
-            );
+            // Store in cache. A store that could not publish this build throws rather than
+            // leaving the previous one cached under the same version, and TryLoad below would
+            // happily hand that stale entry back as if it were what was just compiled.
+            try
+            {
+                cacheManager.Store(
+                    manifest.Name,
+                    manifest.Version,
+                    result.AssemblyBytes,
+                    result.Modules,
+                    manifest.ImportPrefix,
+                    manifest.DefaultModule
+                );
+            }
+            catch (IOException e)
+            {
+                diagnostics.Error(e.Message, SourceSpan.None);
+                return null;
+            }
 
             Log.Information(
                 "PackageAutoInstaller: cached {PackageName}@{Version}",

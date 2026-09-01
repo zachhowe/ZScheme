@@ -81,18 +81,25 @@ internal static class AtomicDirectory
         if (Directory.Exists(dest))
         {
             var aside = Path.Combine(parent, $".previous-{Guid.NewGuid():N}");
-            if (TryMove(dest, aside))
-                previous = aside;
-            else if (Directory.Exists(dest))
+            switch (TryMove(dest, aside))
             {
-                Log.Warning("AtomicDirectory: could not displace the entry at {Path}", dest);
-                return CommitResult.Blocked;
-            }
+                case MoveOutcome.Moved:
+                    previous = aside;
+                    break;
 
-            // Otherwise a concurrent writer displaced it first and the name is free regardless.
+                // A concurrent writer displaced it between the check and the rename, which frees
+                // the name just as well. Only the source going missing says that happened, which
+                // is why it is told apart from a rename that failed with the entry still there.
+                case MoveOutcome.SourceGone:
+                    break;
+
+                default:
+                    Log.Warning("AtomicDirectory: could not displace the entry at {Path}", dest);
+                    return CommitResult.Blocked;
+            }
         }
 
-        if (TryMove(staging, dest))
+        if (TryMove(staging, dest) is MoveOutcome.Moved)
         {
             if (previous is not null)
                 TryDelete(previous);
@@ -122,7 +129,7 @@ internal static class AtomicDirectory
 
         // This process holds the only copy of what used to be at dest: put it back rather than
         // leave the cache emptier than it was found.
-        if (TryMove(previous, dest))
+        if (TryMove(previous, dest) is MoveOutcome.Moved)
         {
             Log.Warning(
                 "AtomicDirectory: could not commit {Path}; restored the entry it displaced",
@@ -153,16 +160,34 @@ internal static class AtomicDirectory
         }
     }
 
-    private static bool TryMove(string source, string dest)
+    /// <summary>How a rename in <see cref="Commit" /> ended.</summary>
+    private enum MoveOutcome
+    {
+        Moved,
+
+        /// <summary>
+        ///     The source was gone by the time the rename ran — another writer renamed it away
+        ///     first. Only ever a race between writers, never a lock or a permission.
+        /// </summary>
+        SourceGone,
+
+        Failed,
+    }
+
+    private static MoveOutcome TryMove(string source, string dest)
     {
         try
         {
             Directory.Move(source, dest);
-            return true;
+            return MoveOutcome.Moved;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return MoveOutcome.SourceGone;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return false;
+            return MoveOutcome.Failed;
         }
     }
 }

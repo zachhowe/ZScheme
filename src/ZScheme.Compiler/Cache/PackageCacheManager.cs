@@ -70,7 +70,24 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
                 metadataJson
             );
 
-            AtomicDirectory.Commit(staging, packageDir);
+            // A commit that did not publish this build must not pass for one that did. The
+            // version directory is a name, not a content hash: whatever is left there when the
+            // rename cannot happen is the *previous* build, so reporting success would have
+            // `zs install` print "cached at ..." over a package that is still the old one, and
+            // every later compile would link that. Writing straight into packageDir used to fail
+            // loudly here for the same reason -- "the process cannot access the file ... because
+            // it is being used by another process" -- and it should still.
+            var commit = AtomicDirectory.Commit(staging, packageDir);
+            if (commit is CommitResult.Blocked)
+                throw new IOException(
+                    $"Could not replace the cached {packageName} v{version} at {packageDir}: "
+                        + $"another process is most likely holding {packageName}.dll open. "
+                        + "The previous build is still what is cached."
+                );
+            if (commit is CommitResult.Failed)
+                throw new IOException(
+                    $"Could not cache {packageName} v{version} at {packageDir}."
+                );
 
             Log.Debug(
                 "PackageCache: stored {PackageName}@{Version} ({ByteCount} bytes, {ModuleCount} modules) at {Path}",
