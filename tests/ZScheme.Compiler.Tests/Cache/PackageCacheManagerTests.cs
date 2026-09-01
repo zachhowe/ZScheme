@@ -145,19 +145,34 @@ public sealed class PackageCacheManagerTests : IDisposable
         var watcher = Task.Run(() =>
         {
             while (!done.IsCancellationRequested)
+            {
+                string?[] present;
                 try
                 {
-                    // A directory that is there but does not load is the half-written entry.
-                    // No directory at all is fine: the commit moves the old entry aside before
-                    // renaming the new one in, and a reader in that window simply misses.
-                    if (Directory.Exists(packageDir) && _cache.TryLoad("test-pkg", "1.0.0") is null)
-                        Interlocked.Increment(ref torn);
+                    // One enumeration, judged on the contents it returns. Sampling through
+                    // TryLoad instead counted a read that merely raced the commit: it checks
+                    // both files exist and then reads the metadata, and a swap landing in
+                    // between makes that read throw on an entry that was never half-written.
+                    // No directory at all is a plain miss, which every reader handles.
+                    present = Directory.GetFiles(packageDir).Select(Path.GetFileName).ToArray();
                 }
-                catch (Exception)
+                catch (DirectoryNotFoundException)
                 {
-                    // Metadata caught mid-write: torn just the same.
-                    Interlocked.Increment(ref torn);
+                    continue;
                 }
+
+                // Any other shape -- one of the two files, or neither of them -- is the
+                // half-written entry this must never expose. Only what the one enumeration
+                // returned is judged: reading each file's length would stat it again, and that
+                // second look is the very race being ruled out here.
+                var whole =
+                    present.Length == 2
+                    && present.Contains("test-pkg.dll")
+                    && present.Contains("test-pkg.metadata.json");
+
+                if (!whole)
+                    Interlocked.Increment(ref torn);
+            }
         });
 
         for (var i = 0; i < 3; i++)
