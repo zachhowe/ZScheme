@@ -21,7 +21,8 @@ internal enum CommitResult
     ///     The entry that was already at the destination could not be displaced, so it is still
     ///     there and the staged content was not published. An assembly inside it held open by
     ///     another process is the usual cause. The destination therefore holds content that
-    ///     predates this call — most likely stale.
+    ///     predates this call — most likely stale. Only reported once retrying has stopped
+    ///     helping, so a handle that is merely passing does not surface as one.
     /// </summary>
     Blocked,
 
@@ -83,44 +84,59 @@ internal static class AtomicDirectory
         for (var attempt = 1; ; attempt++)
         {
             var result = CommitOnce(staging, dest);
-            if (result is not CommitResult.Failed || attempt == MaxAttempts)
+            if (result is CommitResult.Committed or CommitResult.PeerWon || attempt == MaxAttempts)
             {
-                if (result is CommitResult.Failed)
+                if (result is CommitResult.Blocked or CommitResult.Failed)
                     Log.Warning(
-                        "AtomicDirectory: could not commit {Path} in {Attempts} attempts",
+                        "AtomicDirectory: could not commit {Path} in {Attempts} attempts ({Result})",
                         dest,
-                        attempt
+                        attempt,
+                        result
                     );
 
                 return result;
             }
 
-            // Let the writer that is mid-swap land its rename rather than spinning against it.
-            Thread.Sleep(attempt);
+            // Let the writer that is mid-swap land its rename — or whatever briefly held the
+            // entry open drop it — rather than spinning against either.
+            Thread.Sleep(BackoffMs * attempt);
         }
     }
 
     /// <summary>
-    ///     How many times a commit that finds nothing at the destination is retried.
+    ///     How many times a commit that published nothing is retried.
     /// </summary>
     /// <remarks>
-    ///     A rename that fails while the destination is absent settles nothing: with several
-    ///     writers on one entry it is almost always another of them mid-swap, between displacing
-    ///     what was there and renaming its own copy in, and a moment later the destination is
-    ///     populated again. A failed rename leaves the staged content untouched, so the whole
-    ///     commit can simply be tried again — and only a destination that stays unwritable across
-    ///     every attempt is reported as a failure. Judging it from one attempt made eight
-    ///     concurrent writers of the same package version report a failed store now and then.
+    ///     Neither outcome that publishes nothing settles anything from one attempt. A rename that
+    ///     fails while the destination is absent is almost always another writer mid-swap, between
+    ///     displacing what was there and renaming its own copy in, and a moment later the
+    ///     destination is populated again. A destination that cannot be displaced is usually an
+    ///     assembly inside it held open — but on Windows that handle is as often a scanner reading
+    ///     the .dll a peer just wrote as it is a process with the entry loaded, and it is gone
+    ///     within milliseconds. Both leave the staged content untouched and the destination holding
+    ///     what it held before, so the whole commit can simply be tried again, and only a
+    ///     destination that stays unpublishable across every attempt is reported as anything but a
+    ///     success. Judging either from one attempt made eight concurrent writers of the same
+    ///     package version report a failed store now and then.
     /// </remarks>
     private const int MaxAttempts = 5;
+
+    /// <summary>Base of the linear backoff between commit attempts, in milliseconds.</summary>
+    /// <remarks>
+    ///     Long enough to outlast a scanner's handle on a freshly written assembly, which a
+    ///     sub-millisecond spin only races against; short enough that the whole retry budget is
+    ///     lost noise beside compiling the package that is being cached.
+    /// </remarks>
+    private const int BackoffMs = 10;
 
     private static CommitResult CommitOnce(string staging, string dest)
     {
         var parent = Path.GetDirectoryName(dest)!;
 
         // Free the name for the rename below. Failing while the entry is still there means it
-        // cannot be displaced at all — an assembly inside it held open by another process is the
-        // usual cause on Windows — and nothing further down could publish over it either.
+        // cannot be displaced on this attempt — an assembly inside it held open by another process
+        // is the usual cause on Windows — and nothing further down could publish over it either,
+        // so give up on the attempt and let Commit decide whether the handle was a passing one.
         string? previous = null;
         if (Directory.Exists(dest))
         {
