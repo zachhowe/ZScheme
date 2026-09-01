@@ -369,7 +369,9 @@ public sealed class PackageCacheManagerTests : IDisposable
             // came for, and not what `zs install` was asked to publish.
             (CommitResult.PeerWon, StoreRequirement.ThisBuild, false),
             (CommitResult.PeerWon, StoreRequirement.AnyBuildOfThisVersion, true),
-            // Nothing published, and what the version directory holds predates the call.
+            // Nothing published, and nothing at the version directory either — this cache root
+            // is empty. What a caller can do with an entry it could not displace depends on
+            // there being one; see BlockedByAnEntryIsAStoreForACallerThatNeedsAnyBuild.
             (CommitResult.Blocked, StoreRequirement.ThisBuild, false),
             (CommitResult.Blocked, StoreRequirement.AnyBuildOfThisVersion, false),
             (CommitResult.Failed, StoreRequirement.ThisBuild, false),
@@ -391,6 +393,42 @@ public sealed class PackageCacheManagerTests : IDisposable
                 $"{commit} for a caller needing {requirement}: {failure ?? "reported as stored"}"
             );
         }
+    }
+
+    /// <summary>
+    ///     A commit blocked by an entry it could not displace leaves that entry in place, and for
+    ///     a caller that needs a build of this version and no more, that entry is what its own
+    ///     lookup would have hit had the peer published a moment earlier — it compiled because
+    ///     the lookup missed, and the entry appeared while it was compiling. Failing a compile
+    ///     over a usable entry buys nothing: on Windows the handle in the way is as often a
+    ///     scanner reading a freshly written .dll as it is a process with the entry loaded.
+    /// </summary>
+    [Fact]
+    public void BlockedByAnEntryIsAStoreForACallerThatNeedsAnyBuild()
+    {
+        var modules = CreateTestModules();
+        var packageDir = Path.Combine(_tempDir, "test-pkg", "1.0.0");
+
+        // Stand-in for the peer's entry that the blocked rename could not displace.
+        _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules);
+
+        Assert.Null(Blocked(StoreRequirement.AnyBuildOfThisVersion));
+
+        // `zs install` was asked to publish the build it was handed, and that entry is not it.
+        Assert.NotNull(Blocked(StoreRequirement.ThisBuild));
+
+        // Half an entry is not one, whatever the caller needed: a lookup misses on it.
+        File.Delete(Path.Combine(packageDir, "test-pkg.metadata.json"));
+        Assert.NotNull(Blocked(StoreRequirement.AnyBuildOfThisVersion));
+
+        string? Blocked(StoreRequirement requirement) =>
+            PackageCacheManager.PublishFailure(
+                CommitResult.Blocked,
+                requirement,
+                "test-pkg",
+                "1.0.0",
+                packageDir
+            );
     }
 
     /// <summary>
