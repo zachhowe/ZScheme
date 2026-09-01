@@ -119,7 +119,9 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
         IReadOnlyDictionary<string, CompiledModule> modules,
         string? importPrefix = null,
         string? defaultModule = null,
-        StoreRequirement requirement = StoreRequirement.ThisBuild
+        StoreRequirement requirement = StoreRequirement.ThisBuild,
+        IReadOnlyList<PrecompiledPackageDependency>? dependencies = null,
+        string? inputFingerprint = null
     )
     {
         var packageDir = GetPackageDir(packageName, version);
@@ -144,7 +146,9 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
                 packageName,
                 modules,
                 importPrefix,
-                defaultModule
+                defaultModule,
+                dependencies,
+                inputFingerprint
             );
             File.WriteAllText(
                 Path.Combine(staging, $"{packageName}.metadata.json"),

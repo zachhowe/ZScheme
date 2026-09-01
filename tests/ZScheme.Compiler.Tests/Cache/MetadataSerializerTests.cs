@@ -840,4 +840,128 @@ public sealed class MetadataSerializerTests
         var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
         Assert.Null(result!.Modules["m"].TypeEmittedNames);
     }
+
+    private static CompiledModule BareModule(string name)
+    {
+        return new CompiledModule(
+            name,
+            $"{name}.zs",
+            new HashSet<string> { "f" },
+            new Dictionary<string, ZType>(),
+            new Dictionary<
+                string,
+                (
+                    string,
+                    string,
+                    int,
+                    ClrImportKind,
+                    IReadOnlyDictionary<string, GenericConstraintKind>?
+                )
+            >(),
+            [],
+            [],
+            new Dictionary<string, MacroDefinition>()
+        );
+    }
+
+    [Fact]
+    public void RoundTrip_Dependencies_PreservesNameAndVersion()
+    {
+        var modules = new Dictionary<string, CompiledModule> { ["http/http"] = BareModule("http/http") };
+        IReadOnlyList<PrecompiledPackageDependency> deps =
+        [
+            new("zscheme-stdlib", "0.5.0"),
+            new("zscheme-logging", "0.5.0"),
+        ];
+
+        var json = MetadataSerializer.Serialize(
+            "zscheme-http",
+            "0.5.0",
+            "zscheme-http",
+            modules,
+            dependencies: deps
+        );
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.Equal(deps, result!.Dependencies);
+    }
+
+    [Fact]
+    public void RoundTrip_NoDependencies_OmitsFieldAndReadsEmpty()
+    {
+        var modules = new Dictionary<string, CompiledModule> { ["m"] = BareModule("m") };
+
+        var json = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        Assert.DoesNotContain("dependencies", json);
+
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+        Assert.Empty(result!.Dependencies);
+    }
+
+    [Fact]
+    public void RoundTrip_InputFingerprint_PreservedAndOmittedWhenAbsent()
+    {
+        var modules = new Dictionary<string, CompiledModule> { ["m"] = BareModule("m") };
+
+        var withPrint = MetadataSerializer.Serialize(
+            "pkg",
+            "1.0.0",
+            "pkg",
+            modules,
+            inputFingerprint: "abc123"
+        );
+        Assert.Equal(
+            "abc123",
+            MetadataSerializer.Deserialize(withPrint, "/assembly.dll")!.InputFingerprint
+        );
+
+        var without = MetadataSerializer.Serialize("pkg", "1.0.0", "pkg", modules);
+        Assert.DoesNotContain("inputFingerprint", without);
+        Assert.Null(MetadataSerializer.Deserialize(without, "/assembly.dll")!.InputFingerprint);
+    }
+
+    /// <summary>
+    ///     A module whose code lives in another assembly is not this package's export. Serializing
+    ///     it is what lets zscheme-http advertise stdlib/option as its own, so that a consumer
+    ///     loading both packages binds the name to whichever loaded first.
+    /// </summary>
+    [Fact]
+    public void Serialize_ExternallyEmittedModule_IsNotExported()
+    {
+        var modules = new Dictionary<string, CompiledModule>
+        {
+            ["http/http"] = BareModule("http/http"),
+            ["stdlib/option"] = BareModule("stdlib/option") with { EmitAsExternalReference = true },
+        };
+
+        var json = MetadataSerializer.Serialize("zscheme-http", "0.5.0", "zscheme-http", modules);
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.True(result!.Modules.ContainsKey("http/http"));
+        Assert.False(result.Modules.ContainsKey("stdlib/option"));
+    }
+
+    /// <summary>
+    ///     Both new fields are additive, so metadata written before they existed still loads.
+    /// </summary>
+    [Fact]
+    public void Deserialize_SidecarWithoutTheNewFields_StillLoads()
+    {
+        const string json = """
+            {
+              "formatVersion": 2,
+              "package": "pkg",
+              "version": "1.0.0",
+              "assemblyName": "pkg",
+              "modules": { "m": { "exportedNames": ["f"] } }
+            }
+            """;
+
+        var result = MetadataSerializer.Deserialize(json, "/assembly.dll");
+
+        Assert.NotNull(result);
+        Assert.Empty(result.Dependencies);
+        Assert.Null(result.InputFingerprint);
+        Assert.True(result.Modules.ContainsKey("m"));
+    }
 }
