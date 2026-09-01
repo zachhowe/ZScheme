@@ -102,7 +102,17 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
     /// <summary>Base of the linear backoff between lookup attempts, in milliseconds.</summary>
     private const int LoadBackoffMs = 10;
 
-    public void Store(
+    /// <summary>
+    ///     Publishes a build into the cache and returns the entry a later lookup will hand back.
+    /// </summary>
+    /// <remarks>
+    ///     The entry comes from the metadata that was just written, not from reading the cache
+    ///     back: that read is a lookup like any other, and a caller which has just cached a
+    ///     package successfully must not be told the package cannot be found because a peer's
+    ///     commit landed in it. Only a store that accepted a peer's entry has to look, since what
+    ///     is published there is that writer's build and not this one's.
+    /// </remarks>
+    public PrecompiledPackage? Store(
         string packageName,
         string version,
         byte[] assemblyBytes,
@@ -113,6 +123,7 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
     )
     {
         var packageDir = GetPackageDir(packageName, version);
+        var assemblyPath = Path.Combine(packageDir, $"{packageName}.dll");
         var parent = Path.GetDirectoryName(packageDir)!;
         Directory.CreateDirectory(parent);
 
@@ -159,6 +170,10 @@ public sealed class PackageCacheManager(string? cacheRoot = null)
                 modules.Count,
                 packageDir
             );
+
+            return commit is CommitResult.Committed
+                ? MetadataSerializer.Deserialize(metadataJson, assemblyPath)
+                : TryLoad(packageName, version);
         }
         finally
         {

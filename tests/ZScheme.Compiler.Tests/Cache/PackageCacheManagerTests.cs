@@ -310,6 +310,35 @@ public sealed class PackageCacheManagerTests : IDisposable
     }
 
     /// <summary>
+    ///     Regression: the caller that has just cached a package needs the entry it published,
+    ///     and it used to look the package up again to get it. That lookup is a lookup like any
+    ///     other — a peer's commit lands in it — so the auto-installer could report "package not
+    ///     found" for a package it had compiled and cached a moment earlier. A store hands back
+    ///     what it wrote.
+    /// </summary>
+    [Fact]
+    public void StoreHandsBackTheEntryItPublished()
+    {
+        var modules = CreateTestModules();
+
+        var stored = _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules, "test", "core");
+
+        Assert.NotNull(stored);
+
+        // Indistinguishable from what a later hit hands back: the assembly it names is the one
+        // in the cache, and the metadata is the metadata that was written beside it.
+        var loaded = _cache.TryLoad("test-pkg", "1.0.0");
+        Assert.NotNull(loaded);
+        Assert.Equal(loaded.AssemblyPath, stored.AssemblyPath);
+        Assert.Equal(loaded.PackageName, stored.PackageName);
+        Assert.Equal(loaded.Version, stored.Version);
+        Assert.Equal(loaded.ImportPrefix, stored.ImportPrefix);
+        Assert.Equal(loaded.DefaultModule, stored.DefaultModule);
+        Assert.Equal(loaded.Modules.Keys.Order(), stored.Modules.Keys.Order());
+        Assert.True(File.Exists(stored.AssemblyPath));
+    }
+
+    /// <summary>
     ///     Regression: <see cref="CommitResult.PeerWon" /> — a peer publishing its own build under
     ///     this name and version — was the one outcome a store did not check. The version
     ///     directory is a name, not a content hash, so nothing says the two writers built the
