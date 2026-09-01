@@ -43,12 +43,26 @@ public static class RoslynCompileVerifier
         IReadOnlyList<string>? extraReferencePaths = null
     )
     {
+        AssertCompiles([csSource], precompiledAssemblyPaths, extraReferencePaths);
+    }
+
+    /// <summary>
+    ///     Asserts that <paramref name="csSources" /> compile <em>together</em>, as separate
+    ///     source files of one assembly. This is how a generated project with one file per
+    ///     module is really built, so cross-file references are checked rather than assumed.
+    /// </summary>
+    public static void AssertCompiles(
+        IReadOnlyList<string> csSources,
+        IReadOnlyList<string>? precompiledAssemblyPaths = null,
+        IReadOnlyList<string>? extraReferencePaths = null
+    )
+    {
         var references = new List<MetadataReference>(HostReferences.Value);
         foreach (var path in (precompiledAssemblyPaths ?? []).Concat(extraReferencePaths ?? []))
             if (File.Exists(path))
                 references.Add(MetadataReference.CreateFromFile(path));
 
-        var tree = CSharpSyntaxTree.ParseText(csSource);
+        var trees = csSources.Select(s => CSharpSyntaxTree.ParseText(s)).ToArray();
         var options = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary,
             optimizationLevel: OptimizationLevel.Debug,
@@ -58,7 +72,7 @@ public static class RoslynCompileVerifier
 
         var compilation = CSharpCompilation.Create(
             "ZSchemeEmitterVerification",
-            [tree],
+            trees,
             references,
             options
         );
@@ -75,8 +89,16 @@ public static class RoslynCompileVerifier
         sb.AppendLine($"Emitted C# failed to compile ({errors.Count} error(s)):");
         foreach (var d in errors)
             sb.AppendLine("  " + d);
-        sb.AppendLine("--- emitted C# source ---");
-        AppendNumberedSource(sb, csSource);
+        for (var i = 0; i < csSources.Count; i++)
+        {
+            sb.AppendLine(
+                csSources.Count == 1
+                    ? "--- emitted C# source ---"
+                    : $"--- emitted C# source {i + 1}/{csSources.Count} ---"
+            );
+            AppendNumberedSource(sb, csSources[i]);
+        }
+
         Assert.Fail(sb.ToString());
     }
 

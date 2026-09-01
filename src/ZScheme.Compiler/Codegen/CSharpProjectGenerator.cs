@@ -1,4 +1,5 @@
 using System.Text;
+using Serilog;
 
 namespace ZScheme.Compiler.Codegen;
 
@@ -34,6 +35,8 @@ public sealed record CSharpProjectOptions
 
 public static class CSharpProjectGenerator
 {
+    private static readonly ILogger Log = Serilog.Log.ForContext(typeof(CSharpProjectGenerator));
+
     /// <summary>
     ///     Framework references each SDK already implies. Restating one is not an error but
     ///     NETSDK1086 warns about it, which a stricter consumer build turns into a failure.
@@ -146,14 +149,26 @@ public static class CSharpProjectGenerator
             """;
     }
 
+    /// <param name="pruneGeneratedCsFiles">
+    ///     Delete previously generated <c>.cs</c> files under <paramref name="outputDir" />
+    ///     before writing. The csproj carries no <c>&lt;Compile&gt;</c> items, so the SDK
+    ///     globs <c>**/*.cs</c>: once a project is more than one file, a renamed or deleted
+    ///     module leaves behind a source file that still compiles, and the project fails on
+    ///     duplicate definitions. Only files this compiler wrote are removed — see
+    ///     <see cref="PruneGeneratedCsFiles" />.
+    /// </param>
     public static void WriteProjectDirectory(
         string outputDir,
         string projectName,
         IReadOnlyList<(string FileName, string Content)> csFiles,
-        CSharpProjectOptions options
+        CSharpProjectOptions options,
+        bool pruneGeneratedCsFiles = false
     )
     {
         Directory.CreateDirectory(outputDir);
+
+        if (pruneGeneratedCsFiles)
+            PruneGeneratedCsFiles(outputDir);
 
         var csprojPath = Path.Combine(outputDir, $"{projectName}.csproj");
         File.WriteAllText(csprojPath, GenerateCsproj(options));
@@ -165,6 +180,57 @@ public static class CSharpProjectGenerator
             if (!string.IsNullOrEmpty(fileDir))
                 Directory.CreateDirectory(fileDir);
             File.WriteAllText(filePath, content);
+        }
+    }
+
+    /// <summary>
+    ///     Deletes the <c>.cs</c> files under <paramref name="outputDir" /> that this
+    ///     compiler generated, leaving anything else alone. Generated output goes into
+    ///     user-named directories (<c>zs compile --emit-project</c> points wherever the user
+    ///     says), so the marker check is what keeps this from deleting hand-written sources;
+    ///     a file emitted with the version preamble suppressed carries no marker and
+    ///     survives, which only costs a stale file.
+    /// </summary>
+    private static void PruneGeneratedCsFiles(string outputDir)
+    {
+        // Materialized: the enumeration is being deleted from as it runs.
+        var candidates = Directory
+            .EnumerateFiles(outputDir, "*.cs", SearchOption.AllDirectories)
+            .ToList();
+
+        foreach (var path in candidates)
+        {
+            // Build output, not source. obj/ holds the SDK's own generated .cs, which it
+            // rewrites on the next build; neither tree is compiled from here.
+            var root = Path.GetRelativePath(outputDir, path).Split('/', '\\')[0];
+            if (
+                root.Equals("bin", StringComparison.OrdinalIgnoreCase)
+                || root.Equals("obj", StringComparison.OrdinalIgnoreCase)
+            )
+                continue;
+
+            try
+            {
+                using (var reader = new StreamReader(path))
+                {
+                    var firstLine = reader.ReadLine();
+                    if (
+                        firstLine?.StartsWith(
+                            CSharpEmitter.GeneratedFileMarker,
+                            StringComparison.Ordinal
+                        ) != true
+                    )
+                        continue;
+                }
+
+                File.Delete(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A locked or unreadable file is not worth failing the whole generation
+                // over; the build that follows reports it far more clearly.
+                Log.Warning(ex, "Could not remove stale generated file {Path}", path);
+            }
         }
     }
 }
