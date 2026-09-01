@@ -146,32 +146,41 @@ public sealed class PackageCacheManagerTests : IDisposable
         {
             while (!done.IsCancellationRequested)
             {
+                // Confirmed by a second, independent enumeration before it counts. An
+                // enumeration resolves the path once and then reads the directory it landed on,
+                // so a commit renaming that directory aside and dropping it leaves the first
+                // read describing a directory that is no longer the entry -- on Linux it comes
+                // back empty, while the entry sitting at the path is whole. That view is gone
+                // the moment the path is resolved again, whereas a genuinely half-written entry
+                // is published for as long as it takes to write the assembly, which BigAssembly
+                // makes far longer than the two reads.
+                if (LooksWhole() == false && LooksWhole() == false)
+                    Interlocked.Increment(ref torn);
+            }
+
+            // Whether the entry at packageDir is complete: null when there is no directory at
+            // all, which is the plain miss every reader already handles. Judged on the one
+            // enumeration and nothing else -- reading each file's length would stat it again,
+            // and that second look is the very race being ruled out here. Any shape but the two
+            // files -- one of them, or neither -- is the half-written entry this must never
+            // expose. Sampling through TryLoad instead counted a read that merely raced the
+            // commit: it checks both files exist and then reads the metadata, and a swap
+            // landing in between makes that read throw on an entry that was never half-written.
+            bool? LooksWhole()
+            {
                 string?[] present;
                 try
                 {
-                    // One enumeration, judged on the contents it returns. Sampling through
-                    // TryLoad instead counted a read that merely raced the commit: it checks
-                    // both files exist and then reads the metadata, and a swap landing in
-                    // between makes that read throw on an entry that was never half-written.
-                    // No directory at all is a plain miss, which every reader handles.
                     present = Directory.GetFiles(packageDir).Select(Path.GetFileName).ToArray();
                 }
                 catch (DirectoryNotFoundException)
                 {
-                    continue;
+                    return null;
                 }
 
-                // Any other shape -- one of the two files, or neither of them -- is the
-                // half-written entry this must never expose. Only what the one enumeration
-                // returned is judged: reading each file's length would stat it again, and that
-                // second look is the very race being ruled out here.
-                var whole =
-                    present.Length == 2
+                return present.Length == 2
                     && present.Contains("test-pkg.dll")
                     && present.Contains("test-pkg.metadata.json");
-
-                if (!whole)
-                    Interlocked.Increment(ref torn);
             }
         });
 
