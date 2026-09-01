@@ -36,62 +36,36 @@ function Run-Step {
     }
 }
 
-Run-Step "stdlib tests" {
+. "$RepoRoot/scripts/Get-ZsPackages.ps1"
+
+# Dependency order, and the installs between steps, both come from Get-ZsPackages rather than
+# being written out by hand. Every package is installed before the packages that depend on it
+# are tested, because a dependency is now *referenced* by its dependents rather than compiled
+# into them: what `zs test` binds against is the artifact in the cache, so a package whose
+# sources changed has to be reinstalled before anything downstream is tested. The hand-written
+# list this replaces had drifted — zunit was never installed here at all, and the step before
+# the aspnet tests installed aspnet rather than http.
+$packages = Get-ZsPackages -PackagesRoot "$RepoRoot/packages"
+
+foreach ($pkg in $packages) {
+    Write-Host ""
+    Write-Host "=== Installing $($pkg.Name) ==="
     dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-        test -m "$RepoRoot/packages/stdlib/package.zspkg" @DebugArgs
-}
+        install --manifest $pkg.Manifest
+    if ($LASTEXITCODE -ne 0) {
+        # Previously discarded with `2>&1 | Out-Null` and never checked, so a dependency that
+        # failed to install showed up only as an unexplained downstream test failure.
+        $results += "FAIL: install $($pkg.Name)"
+        $failures++
+        continue
+    }
 
-# Rebuild stdlib package cache so dependent packages pick up latest changes
-dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-    install --manifest "$RepoRoot/packages/stdlib/package.zspkg" 2>&1 | Out-Null
+    if (-not $pkg.HasTests) { continue }
 
-Run-Step "di-abstractions tests" {
-    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-        test -m "$RepoRoot/packages/di-abstractions/package.zspkg" @DebugArgs
-}
-
-# Rebuild so dependents (di, aspnet) pick up latest changes
-dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-    install --manifest "$RepoRoot/packages/di-abstractions/package.zspkg" 2>&1 | Out-Null
-
-Run-Step "di tests" {
-    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-        test -m "$RepoRoot/packages/di/package.zspkg" @DebugArgs
-}
-
-# Rebuild so dependents pick up latest changes
-dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-    install --manifest "$RepoRoot/packages/di/package.zspkg" 2>&1 | Out-Null
-
-Run-Step "logging-abstractions tests" {
-    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-        test -m "$RepoRoot/packages/logging-abstractions/package.zspkg" @DebugArgs
-}
-
-# Rebuild so dependents (logging, aspnet) pick up latest changes
-dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-    install --manifest "$RepoRoot/packages/logging-abstractions/package.zspkg" 2>&1 | Out-Null
-
-Run-Step "logging tests" {
-    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-        test -m "$RepoRoot/packages/logging/package.zspkg" @DebugArgs
-}
-
-# Rebuild so dependents (aspnet) pick up latest changes
-dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-    install --manifest "$RepoRoot/packages/logging/package.zspkg" 2>&1 | Out-Null
-
-Run-Step "http tests" {
-    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-        test -m "$RepoRoot/packages/http/package.zspkg" @DebugArgs
-}
-
-dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-    install --manifest "$RepoRoot/packages/aspnet/package.zspkg" 2>&1 | Out-Null
-
-Run-Step "aspnet tests" {
-    dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
-        test -m "$RepoRoot/packages/aspnet/package.zspkg" @DebugArgs
+    Run-Step "$($pkg.Name) tests" {
+        dotnet run --no-build --project "$RepoRoot/src/ZScheme.Cli" -- `
+            test -m $pkg.Manifest @DebugArgs
+    }
 }
 
 Write-Host ""

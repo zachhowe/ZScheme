@@ -167,6 +167,13 @@ compile building stdlib from source anyway, which is the whole thing this avoids
 The sources are still worth shipping: the cache rebuilds from them if it is ever cleared, and the
 language server uses them for go-to-definition into stdlib.
 
+A cached package assembly is not self-contained. It references the assemblies of the packages it
+was built against rather than carrying a copy of their modules, so `pkgcache/<version>/` must be
+seeded as a set — `zscheme-http.dll` alone is not loadable without `zscheme-stdlib.dll`. Its
+`.metadata.json` names what it needs, and the compiler follows those entries when it loads one.
+`publish.ps1` builds the whole set into a scratch cache before archiving it, so this holds for
+what ships.
+
 Because the key is the compiler version, one `cache/pkg/<version>/` can back several installed
 toolchains. `zsup uninstall --purge-cache` therefore keeps it when any of the others still reports
 that version, and says so. A linked toolchain is exempt from that half entirely — it has no entry in
