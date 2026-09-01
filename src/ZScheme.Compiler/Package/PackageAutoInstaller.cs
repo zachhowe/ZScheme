@@ -159,6 +159,12 @@ public static class PackageAutoInstaller
             // Store in cache. A store that could not publish this build throws rather than
             // leaving the previous one cached under the same version, and TryLoad below would
             // happily hand that stale entry back as if it were what was just compiled.
+            //
+            // A peer that published its own build of this version first is not that: this
+            // compile asked the cache for the version, missed, and built it only to fill the
+            // miss, so a peer's entry for it is what a hit would have handed back. Every test
+            // assembly `dotnet test` runs side by side auto-installs the same packages at once,
+            // and all but one of them lose that race.
             try
             {
                 cacheManager.Store(
@@ -167,7 +173,8 @@ public static class PackageAutoInstaller
                     result.AssemblyBytes,
                     result.Modules,
                     manifest.ImportPrefix,
-                    manifest.DefaultModule
+                    manifest.DefaultModule,
+                    StoreRequirement.AnyBuildOfThisVersion
                 );
             }
             catch (IOException e)
