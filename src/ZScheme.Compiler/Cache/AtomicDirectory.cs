@@ -80,6 +80,42 @@ internal static class AtomicDirectory
     /// </summary>
     public static CommitResult Commit(string staging, string dest)
     {
+        for (var attempt = 1; ; attempt++)
+        {
+            var result = CommitOnce(staging, dest);
+            if (result is not CommitResult.Failed || attempt == MaxAttempts)
+            {
+                if (result is CommitResult.Failed)
+                    Log.Warning(
+                        "AtomicDirectory: could not commit {Path} in {Attempts} attempts",
+                        dest,
+                        attempt
+                    );
+
+                return result;
+            }
+
+            // Let the writer that is mid-swap land its rename rather than spinning against it.
+            Thread.Sleep(attempt);
+        }
+    }
+
+    /// <summary>
+    ///     How many times a commit that finds nothing at the destination is retried.
+    /// </summary>
+    /// <remarks>
+    ///     A rename that fails while the destination is absent settles nothing: with several
+    ///     writers on one entry it is almost always another of them mid-swap, between displacing
+    ///     what was there and renaming its own copy in, and a moment later the destination is
+    ///     populated again. A failed rename leaves the staged content untouched, so the whole
+    ///     commit can simply be tried again — and only a destination that stays unwritable across
+    ///     every attempt is reported as a failure. Judging it from one attempt made eight
+    ///     concurrent writers of the same package version report a failed store now and then.
+    /// </remarks>
+    private const int MaxAttempts = 5;
+
+    private static CommitResult CommitOnce(string staging, string dest)
+    {
         var parent = Path.GetDirectoryName(dest)!;
 
         // Free the name for the rename below. Failing while the entry is still there means it
@@ -132,7 +168,7 @@ internal static class AtomicDirectory
                 return CommitResult.PeerWon;
             }
 
-            Log.Warning("AtomicDirectory: could not commit {Path}", dest);
+            Log.Debug("AtomicDirectory: nothing at {Path} to commit onto yet", dest);
             return CommitResult.Failed;
         }
 
