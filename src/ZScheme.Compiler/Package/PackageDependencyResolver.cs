@@ -23,7 +23,10 @@ public sealed record ResolvedPackage(
     // The manifest's own name and version — the identity the package cache is keyed by, which
     // is not derivable from the dependency's directory name or its import prefix.
     string Name = "",
-    string Version = ""
+    string Version = "",
+    // The .NET namespace its generated code lives in, from (build (main (namespace ...))). What a
+    // consumer must qualify with to reference this package's classes from another project.
+    string? BuildNamespace = null
 );
 
 /// <summary>
@@ -125,7 +128,8 @@ public static class PackageDependencyResolver
             fullDir,
             manifest.Dependencies.ZScheme,
             manifest.Name,
-            manifest.Version
+            manifest.Version,
+            manifest.Build.Main?.Namespace
         );
     }
 
