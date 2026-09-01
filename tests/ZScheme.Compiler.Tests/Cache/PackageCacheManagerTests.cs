@@ -216,6 +216,27 @@ public sealed class PackageCacheManagerTests : IDisposable
         );
     }
 
+    /// <summary>
+    ///     Regression: a store that published nothing used to be silent. The commit logged its
+    ///     failure and returned, so <c>zs install</c> printed "cached at ..." and exited 0 while
+    ///     the version directory still held the previous build — and every later compile linked
+    ///     that one. Writing straight into the version directory used to fail loudly here ("used
+    ///     by another process"), and a store that cannot publish must still say so.
+    /// </summary>
+    [Fact]
+    public void StoreThatCannotPublishThrows()
+    {
+        var modules = CreateTestModules();
+        var packageDir = Path.Combine(_tempDir, "test-pkg", "1.0.0");
+        Directory.CreateDirectory(Path.GetDirectoryName(packageDir)!);
+
+        // A plain file where the version directory belongs: nothing can be renamed onto it. That
+        // is the portable stand-in for the entry a Windows file lock pins in place.
+        File.WriteAllText(packageDir, "");
+
+        Assert.Throws<IOException>(() => _cache.Store("test-pkg", "1.0.0", [0x4D, 0x5A], modules));
+    }
+
     [Fact]
     public void Store_Overwrite_ReplacesExisting()
     {

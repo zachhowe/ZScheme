@@ -185,14 +185,22 @@ internal static class InstallCommand
 
         // Store in cache
         var cacheManager = new PackageCacheManager();
-        cacheManager.Store(
-            manifest.Name,
-            manifest.Version,
-            result.AssemblyBytes,
-            result.Modules,
-            manifest.ImportPrefix,
-            manifest.DefaultModule
-        );
+        try
+        {
+            cacheManager.Store(
+                manifest.Name,
+                manifest.Version,
+                result.AssemblyBytes,
+                result.Modules,
+                manifest.ImportPrefix,
+                manifest.DefaultModule
+            );
+        }
+        catch (IOException e)
+        {
+            Console.Error.WriteLine($"error: {e.Message}");
+            return 1;
+        }
 
         var cachePath = Path.Combine(
             ZSchemePaths.GetPackageCacheRoot(),
