@@ -207,6 +207,16 @@ public sealed partial class Compilation
             foreach (var mod in transModules)
                 if (mod.ExportedClassInterfaces is not null)
                     inferer.RegisterClassInterfaces(mod.ExportedClassInterfaces);
+            // Nullary case names take the transitive closure for the same reason the exhaustiveness
+            // check below does: a match can scrutinize a union declared by a dependency's
+            // dependency, and a bare lower-case arm over it has to read as that case.
+            inferer.RegisterNullaryUnionCaseNames(
+                NullaryUnionCaseNames(
+                    _moduleCache.Values.SelectMany(m =>
+                        m.ExportedIrDefinitions.OfType<IrNode.UnionDecl>()
+                    )
+                )
+            );
             inferer.Infer(program, env);
             inferer.Resolve(program);
             // Union declarations take the *transitive* closure, for the same reason the pattern

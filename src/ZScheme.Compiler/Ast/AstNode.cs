@@ -391,7 +391,15 @@ public sealed record UnionCase(
     SourceSpan NameSpan = default
 );
 
-public sealed record MatchArm(Pattern Pattern, AstNode Body, SourceSpan Span);
+public sealed record MatchArm(Pattern Pattern, AstNode Body, SourceSpan Span)
+{
+    /// <summary>
+    ///     The arm's pattern. Settable because type inference resolves a bare atom that names a
+    ///     nullary union case into the constructor pattern it was meant to be — see
+    ///     <c>TypeInferer.ResolveBareCasePatterns</c>. Nothing else rewrites it.
+    /// </summary>
+    public Pattern Pattern { get; set; } = Pattern;
+}
 
 public sealed record HandlerClause(
     string ExceptionTypeName,
