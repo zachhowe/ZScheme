@@ -21,12 +21,7 @@ public sealed record LibraryCompilationResult(
 ///     tree (see <see cref="LibraryCompiler.RelativePathForModule" />), so the generated
 ///     project reads like the package it came from.
 /// </summary>
-public sealed record LibraryCsFile(
-    string ModuleName,
-    string ModuleClassName,
-    string RelativePath,
-    string Source
-);
+public sealed record LibraryCsFile(string RelativePath, string Source);
 
 public sealed record LibraryCSharpResult(
     /// <summary>
@@ -71,7 +66,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         if (compiledModules is null)
             return null;
 
-        var (allIrDefs, clrNamespaces, precompiledAssemblyPaths) = BuildEmitInputs(compiledModules);
+        var (allIrDefs, clrNamespaces, precompiledAssemblyPaths, moduleNamesByClass) =
+            BuildEmitInputs(compiledModules);
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> emitRenames;
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> typeEmitRenames;
         (allIrDefs, emitRenames, typeEmitRenames) = ResolveEmitNames(allIrDefs, compiledModules);
@@ -110,7 +106,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         if (diagnostics.HasErrors)
             return null;
 
-        var files = SplitIntoFiles(emitted, compiledModules, manifest);
+        var files = SplitIntoFiles(emitted, moduleNamesByClass, manifest);
 
         Log.Debug(
             "LibraryCompiler: emitted {Length} chars of C# across {FileCount} files for {ModuleCount} modules",
@@ -132,20 +128,13 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     ///     Turns one emission into a source file per module class. The main unit is dropped:
     ///     a package library emits with an empty main IR, so it never has content.
     /// </summary>
+    /// <param name="moduleNamesByClass">See <see cref="BuildEmitInputs" />.</param>
     private static List<LibraryCsFile> SplitIntoFiles(
         CSharpEmitUnits emitted,
-        IReadOnlyDictionary<string, CompiledModule> compiledModules,
+        IReadOnlyDictionary<string, string> moduleNamesByClass,
         PackageManifest manifest
     )
     {
-        // Class name back to module name. Built forward from the module names, never by
-        // reversing NameConverter.ClassNameFromModuleName — that mapping is lossy ('-'
-        // disappears, '/' becomes '_'), so `base-mod` and `base/mod` share a class name and
-        // neither can be recovered from it.
-        var moduleNames = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var name in compiledModules.Keys)
-            moduleNames.TryAdd(NameConverter.ClassNameFromModuleName(name), name);
-
         var files = new List<LibraryCsFile>(emitted.Units.Count);
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var unit in emitted.Units)
@@ -153,11 +142,9 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             if (unit.ModuleClassName is not { } className || string.IsNullOrWhiteSpace(unit.Body))
                 continue;
 
-            var moduleName = moduleNames.GetValueOrDefault(className, className);
+            var moduleName = moduleNamesByClass.GetValueOrDefault(className, className);
             files.Add(
                 new LibraryCsFile(
-                    moduleName,
-                    className,
                     RelativePathForModule(moduleName, className, manifest.ImportPrefix, taken),
                     emitted.Header + unit.Body
                 )
@@ -288,7 +275,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         if (compiledModules is null)
             return null;
 
-        var (allIrDefs, clrNamespaces, precompiledAssemblyPaths) = BuildEmitInputs(compiledModules);
+        var (allIrDefs, clrNamespaces, precompiledAssemblyPaths, _) =
+            BuildEmitInputs(compiledModules);
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> emitRenames;
         IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> typeEmitRenames;
         (allIrDefs, emitRenames, typeEmitRenames) = ResolveEmitNames(allIrDefs, compiledModules);
@@ -470,18 +458,30 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         return map;
     }
 
+    /// <returns>
+    ///     Alongside the emitter's inputs, the module name behind each emitted class name.
+    ///     Built forward from the module names, never by reversing
+    ///     <see cref="NameConverter.ClassNameFromModuleName" /> — that mapping is lossy ('-'
+    ///     disappears, '/' becomes '_'), so <c>base-mod</c> and <c>base/mod</c> share a class
+    ///     name and neither can be recovered from it; the first module keeps the entry.
+    /// </returns>
     private (
         List<(string ClassName, IReadOnlyList<IrNode> Definitions)> AllIrDefs,
         List<string> ClrNamespaces,
-        List<string> PrecompiledAssemblyPaths
+        List<string> PrecompiledAssemblyPaths,
+        Dictionary<string, string> ModuleNamesByClass
     ) BuildEmitInputs(IReadOnlyDictionary<string, CompiledModule> compiledModules)
     {
         var allIrDefs = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>();
+        var moduleNamesByClass = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (name, mod) in compiledModules)
         {
+            var className = NameConverter.ClassNameFromModuleName(name);
+            moduleNamesByClass.TryAdd(className, name);
+
             var defs = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
             if (defs.Count > 0)
-                allIrDefs.Add((NameConverter.ClassNameFromModuleName(name), defs));
+                allIrDefs.Add((className, defs));
         }
 
         var clrNamespaces = compiledModules
@@ -502,7 +502,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         )
             precompiledAssemblyPaths.Add(runtimeAssemblyPath);
 
-        return (allIrDefs, clrNamespaces, precompiledAssemblyPaths);
+        return (allIrDefs, clrNamespaces, precompiledAssemblyPaths, moduleNamesByClass);
     }
 
     private Dictionary<string, CompiledModule>? CompileModules(
