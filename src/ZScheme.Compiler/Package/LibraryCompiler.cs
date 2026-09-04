@@ -461,9 +461,10 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     /// <summary>
     ///     The module name behind each emitted class name, for laying the C# project out
     ///     as one file per module. Built forward from the module names, never by reversing
-    ///     <see cref="NameConverter.ClassNameFromModuleName" /> — that mapping is lossy ('-'
-    ///     disappears, '/' becomes '_'), so <c>base-mod</c> and <c>base/mod</c> share a class
-    ///     name and neither can be recovered from it; the first module keeps the entry.
+    ///     <see cref="NameConverter.ClassNameFromModuleName" /> — that mapping is lossy (each
+    ///     segment is capitalised, '-' disappears, '/' becomes '_'), so <c>base/mod</c> and
+    ///     <c>base/Mod</c>, or <c>base-mod</c> and <c>baseMod</c>, share a class name and
+    ///     neither can be recovered from it; the first module keeps the entry.
     /// </summary>
     private static Dictionary<string, string> ModuleNamesByClass(
         IReadOnlyDictionary<string, CompiledModule> compiledModules
