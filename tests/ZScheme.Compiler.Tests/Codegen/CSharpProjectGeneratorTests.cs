@@ -6,6 +6,32 @@ namespace ZScheme.Compiler.Tests.Codegen;
 
 public class CSharpProjectGeneratorTests
 {
+    /// <summary>A first line the prune recognises as the compiler's own.</summary>
+    private const string Marker = CSharpEmitter.GeneratedFileMarker + " 0.0.0>";
+
+    /// <summary>
+    ///     Creates the link, or reports that this Windows cannot: symlinks there need
+    ///     Developer Mode or elevation, and a test that needs one has nothing to assert
+    ///     without it. Elsewhere a link that cannot be created is a real failure, not a
+    ///     reason to pass with nothing asserted.
+    /// </summary>
+    private static bool TryCreateSymbolicLink(string path, string target, bool isDirectory)
+    {
+        try
+        {
+            if (isDirectory)
+                Directory.CreateSymbolicLink(path, target);
+            else
+                File.CreateSymbolicLink(path, target);
+            return true;
+        }
+        catch (Exception ex)
+            when (OperatingSystem.IsWindows() && ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     [Fact]
     public void GenerateCsproj_DefaultOptions_ProducesExeProject()
     {
@@ -204,6 +230,38 @@ public class CSharpProjectGeneratorTests
         Assert.DoesNotContain("<FrameworkReference", csproj);
     }
 
+    /// <summary>
+    ///     Naming the sources is what makes a stray .cs in the output directory inert: with
+    ///     the default glob a module's old file, or a hand-written source, would compile
+    ///     into a duplicate definition.
+    /// </summary>
+    [Fact]
+    public void GenerateCsproj_CompileItems_ReplaceTheDefaultGlob()
+    {
+        var options = new CSharpProjectOptions
+        {
+            CompileItems = ["Lib.cs", "mutable/vector.cs", "a&b.cs"],
+        };
+        var csproj = CSharpProjectGenerator.GenerateCsproj(options);
+
+        Assert.Contains("<EnableDefaultCompileItems>false</EnableDefaultCompileItems>", csproj);
+        Assert.Contains("<Compile Include=\"Lib.cs\" />", csproj);
+        Assert.Contains("<Compile Include=\"mutable/vector.cs\" />", csproj);
+        Assert.Contains("<Compile Include=\"a&amp;b.cs\" />", csproj);
+    }
+
+    /// <summary>
+    ///     <c>generate-project</c> with no manifest writes a csproj and nothing else; the
+    ///     user's own sources are found by the glob.
+    /// </summary>
+    [Fact]
+    public void GenerateCsproj_NoCompileItems_KeepsTheDefaultGlob()
+    {
+        var csproj = CSharpProjectGenerator.GenerateCsproj(new CSharpProjectOptions());
+        Assert.DoesNotContain("EnableDefaultCompileItems", csproj);
+        Assert.DoesNotContain("<Compile ", csproj);
+    }
+
     [Fact]
     public void WriteProjectDirectory_CreatesExpectedFiles()
     {
@@ -218,16 +276,29 @@ public class CSharpProjectGeneratorTests
             var csFiles = new List<(string FileName, string Content)>
             {
                 ("Example.cs", "// generated code"),
+                ("nested/Other.cs", "// more generated code"),
             };
 
-            CSharpProjectGenerator.WriteProjectDirectory(tempDir, "TestProject", csFiles, options);
+            CSharpProjectGenerator.WriteProjectDirectory(
+                tempDir,
+                "TestProject",
+                csFiles,
+                options,
+                pruneStaleGeneratedFiles: false
+            );
 
             Assert.True(File.Exists(Path.Combine(tempDir, "TestProject.csproj")));
             Assert.True(File.Exists(Path.Combine(tempDir, "Example.cs")));
+            Assert.True(File.Exists(Path.Combine(tempDir, "nested", "Other.cs")));
 
             var csproj = File.ReadAllText(Path.Combine(tempDir, "TestProject.csproj"));
             Assert.Contains("<OutputType>Library</OutputType>", csproj);
             Assert.Contains("<PackageReference Include=\"xunit\" Version=\"2.9.3\" />", csproj);
+
+            // Exactly the files written are the project's sources.
+            Assert.Contains("<EnableDefaultCompileItems>false</EnableDefaultCompileItems>", csproj);
+            Assert.Contains("<Compile Include=\"Example.cs\" />", csproj);
+            Assert.Contains("<Compile Include=\"nested/Other.cs\" />", csproj);
 
             var cs = File.ReadAllText(Path.Combine(tempDir, "Example.cs"));
             Assert.Equal("// generated code", cs);
@@ -236,6 +307,256 @@ public class CSharpProjectGeneratorTests
         {
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, true);
+        }
+    }
+
+    /// <summary>
+    ///     The csproj names its sources, so a stale file would not compile — but it would
+    ///     sit in the tree looking like part of the project. Pruning keeps a renamed
+    ///     module's old file from lingering.
+    /// </summary>
+    [Fact]
+    public void WriteProjectDirectory_Pruning_RemovesOnlyItsOwnStaleFiles()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"zs-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, "nested"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "obj"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "bin", "Debug"));
+
+            File.WriteAllText(
+                Path.Combine(tempDir, "stale.cs"),
+                Marker + "\npublic class Stale {}"
+            );
+            File.WriteAllText(
+                Path.Combine(tempDir, "nested", "stale.cs"),
+                Marker + "\npublic class NestedStale {}"
+            );
+            File.WriteAllText(Path.Combine(tempDir, "HandWritten.cs"), "public class Mine {}");
+            File.WriteAllText(Path.Combine(tempDir, "obj", "generated.cs"), Marker + "\n");
+            File.WriteAllText(Path.Combine(tempDir, "bin", "Debug", "leftover.cs"), Marker + "\n");
+
+            CSharpProjectGenerator.WriteProjectDirectory(
+                tempDir,
+                "TestProject",
+                [("fresh.cs", Marker + "\npublic class Fresh {}")],
+                new CSharpProjectOptions(),
+                pruneStaleGeneratedFiles: true
+            );
+
+            Assert.False(File.Exists(Path.Combine(tempDir, "stale.cs")));
+            Assert.False(File.Exists(Path.Combine(tempDir, "nested", "stale.cs")));
+            Assert.True(File.Exists(Path.Combine(tempDir, "fresh.cs")));
+
+            // Not ours to delete: a hand-written source, and the build output trees the SDK
+            // excludes from the compilation anyway.
+            Assert.True(File.Exists(Path.Combine(tempDir, "HandWritten.cs")));
+            Assert.True(File.Exists(Path.Combine(tempDir, "obj", "generated.cs")));
+            Assert.True(File.Exists(Path.Combine(tempDir, "bin", "Debug", "leftover.cs")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    /// <summary>
+    ///     A directory the prune cannot read may still hold a stale generated file. Skipping
+    ///     it would let the command report success with that file left behind, so the prune
+    ///     fails instead. Unix only: Windows has no mode bits to take away, and root reads
+    ///     everything regardless.
+    /// </summary>
+    [Fact]
+    public void WriteProjectDirectory_Pruning_FailsOnAnUnreadableDirectory()
+    {
+        if (OperatingSystem.IsWindows() || Environment.IsPrivilegedProcess)
+            return;
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"zs-test-{Guid.NewGuid():N}");
+        var lockedDir = Path.Combine(tempDir, "locked");
+        try
+        {
+            Directory.CreateDirectory(lockedDir);
+            File.WriteAllText(Path.Combine(lockedDir, "stale.cs"), Marker + "\n");
+            File.SetUnixFileMode(lockedDir, UnixFileMode.None);
+
+            Assert.Throws<UnauthorizedAccessException>(() =>
+                CSharpProjectGenerator.WriteProjectDirectory(
+                    tempDir,
+                    "TestProject",
+                    [("fresh.cs", Marker + "\npublic class Fresh {}")],
+                    new CSharpProjectOptions(),
+                    pruneStaleGeneratedFiles: true
+                )
+            );
+        }
+        finally
+        {
+            if (Directory.Exists(lockedDir))
+                File.SetUnixFileMode(
+                    lockedDir,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                );
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    /// <summary>
+    ///     Not following links is about directories. A stale generated file that is itself a
+    ///     link would compile like any other, so it is pruned — and pruning removes the link,
+    ///     never what it points at.
+    /// </summary>
+    [Fact]
+    public void WriteProjectDirectory_Pruning_RemovesAStaleFileLinkButNotItsTarget()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"zs-test-{Guid.NewGuid():N}");
+        var otherDir = Path.Combine(Path.GetTempPath(), $"zs-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            Directory.CreateDirectory(otherDir);
+            var target = Path.Combine(otherDir, "target.cs");
+            File.WriteAllText(target, Marker + "\npublic class Stale {}");
+
+            if (!TryCreateSymbolicLink(Path.Combine(tempDir, "stale.cs"), target, false))
+                return;
+
+            CSharpProjectGenerator.WriteProjectDirectory(
+                tempDir,
+                "TestProject",
+                [("fresh.cs", Marker + "\npublic class Fresh {}")],
+                new CSharpProjectOptions(),
+                pruneStaleGeneratedFiles: true
+            );
+
+            Assert.False(File.Exists(Path.Combine(tempDir, "stale.cs")));
+            Assert.True(File.Exists(target));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+            if (Directory.Exists(otherDir))
+                Directory.Delete(otherDir, true);
+        }
+    }
+
+    /// <summary>
+    ///     A link whose target is gone has no first line to check the marker against, so
+    ///     it cannot be told from anything hand-placed and is left where it is.
+    /// </summary>
+    [Fact]
+    public void WriteProjectDirectory_Pruning_LeavesADanglingFileLinkAlone()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"zs-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var link = Path.Combine(tempDir, "gone.cs");
+            if (!TryCreateSymbolicLink(link, Path.Combine(tempDir, "missing.cs"), false))
+                return;
+
+            CSharpProjectGenerator.WriteProjectDirectory(
+                tempDir,
+                "TestProject",
+                [("fresh.cs", Marker + "\npublic class Fresh {}")],
+                new CSharpProjectOptions(),
+                pruneStaleGeneratedFiles: true
+            );
+
+            Assert.NotNull(new FileInfo(link).LinkTarget);
+            Assert.True(File.Exists(Path.Combine(tempDir, "fresh.cs")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    /// <summary>
+    ///     A single-file write owns nothing but its own file: the directory it lands in may
+    ///     hold another compile's output, which is not stale and not this writer's to remove.
+    /// </summary>
+    [Fact]
+    public void WriteProjectDirectory_WithoutPruning_LeavesOtherGeneratedFilesAlone()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"zs-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, "lib"));
+            File.WriteAllText(Path.Combine(tempDir, "lib.cs"), Marker + "\npublic class Lib {}");
+            File.WriteAllText(
+                Path.Combine(tempDir, "lib", "lib.cs"),
+                Marker + "\npublic class Lib {}"
+            );
+
+            CSharpProjectGenerator.WriteProjectDirectory(
+                tempDir,
+                "app",
+                [("app.cs", Marker + "\npublic class App {}")],
+                new CSharpProjectOptions(),
+                pruneStaleGeneratedFiles: false
+            );
+
+            Assert.True(File.Exists(Path.Combine(tempDir, "lib.cs")));
+            Assert.True(File.Exists(Path.Combine(tempDir, "lib", "lib.cs")));
+            Assert.True(File.Exists(Path.Combine(tempDir, "app.cs")));
+
+            // And the leftovers are not part of the project either.
+            var csproj = File.ReadAllText(Path.Combine(tempDir, "app.csproj"));
+            Assert.Contains("<Compile Include=\"app.cs\" />", csproj);
+            Assert.DoesNotContain("lib.cs", csproj);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    /// <summary>
+    ///     The output directory is user-named, so a link inside it can point anywhere. The
+    ///     prune must not follow it: the linked tree's generated files are not this
+    ///     project's, and a link back into the tree would otherwise loop.
+    /// </summary>
+    [Fact]
+    public void WriteProjectDirectory_Pruning_DoesNotFollowDirectoryLinks()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"zs-test-{Guid.NewGuid():N}");
+        var otherDir = Path.Combine(Path.GetTempPath(), $"zs-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            Directory.CreateDirectory(otherDir);
+            File.WriteAllText(Path.Combine(otherDir, "theirs.cs"), Marker + "\n");
+
+            if (
+                !TryCreateSymbolicLink(Path.Combine(tempDir, "link"), otherDir, true)
+                || !TryCreateSymbolicLink(Path.Combine(tempDir, "self"), tempDir, true)
+            )
+                return;
+
+            CSharpProjectGenerator.WriteProjectDirectory(
+                tempDir,
+                "TestProject",
+                [("fresh.cs", Marker + "\npublic class Fresh {}")],
+                new CSharpProjectOptions(),
+                pruneStaleGeneratedFiles: true
+            );
+
+            Assert.True(File.Exists(Path.Combine(otherDir, "theirs.cs")));
+            Assert.True(File.Exists(Path.Combine(tempDir, "fresh.cs")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+            if (Directory.Exists(otherDir))
+                Directory.Delete(otherDir, true);
         }
     }
 }

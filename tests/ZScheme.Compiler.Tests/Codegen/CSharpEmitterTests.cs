@@ -5591,4 +5591,96 @@ public class CSharpEmitterTests
         Assert.Contains("(await ((System.Func<", cs);
         Assert.Contains("async", cs);
     }
+
+    #region Per-file emission
+
+    /// <summary>
+    ///     Builds an emitter over a main program plus two imported module classes. Two calls
+    ///     produce two *separate* emitters on purpose: an emitter carries state across a pass
+    ///     (the local-name counter, the emitted-class table) that is not reset between calls,
+    ///     so <c>Emit</c> and <c>EmitUnits</c> have to be compared on fresh instances.
+    /// </summary>
+    private static CSharpEmitter MakeMultiModuleEmitter()
+    {
+        IrNode Fn(string name) =>
+            new IrNode.FuncDef(name, [], ZType.Int, new IrNode.IntConst(1), false);
+
+        return new CSharpEmitter(
+            new DiagnosticBag(),
+            "TestNameSpace",
+            "TestClass",
+            importedModules:
+            [
+                ("AlphaModule", [Fn("alpha-one"), Fn("alpha-two")]),
+                ("BetaModule", [Fn("beta-one")]),
+            ],
+            suppressVersionPreamble: true
+        );
+    }
+
+    private static IrNode MultiModuleMain()
+    {
+        return new IrNode.Seq(
+            [new IrNode.FuncDef("main_fn", [], ZType.Int, new IrNode.IntConst(0), false)]
+        );
+    }
+
+    [Fact]
+    public void EmitUnits_ReassemblesIntoExactlyWhatEmitProduces()
+    {
+        var single = MakeMultiModuleEmitter().Emit(MultiModuleMain());
+        var units = MakeMultiModuleEmitter().EmitUnits(MultiModuleMain());
+
+        Assert.Equal(single, units.ToSingleFile());
+    }
+
+    [Fact]
+    public void EmitUnits_SplitsMainAndEachModuleIntoItsOwnUnit()
+    {
+        var units = MakeMultiModuleEmitter().EmitUnits(MultiModuleMain());
+
+        Assert.Equal([null, "AlphaModule", "BetaModule"], units.Units.Select(u => u.ModuleClassName));
+        Assert.Contains("public static class TestClass", units.Units[0].Body);
+        Assert.Contains("AlphaTwo", units.Units[1].Body);
+        Assert.DoesNotContain("BetaOne", units.Units[1].Body);
+        Assert.Contains("BetaOne", units.Units[2].Body);
+    }
+
+    [Fact]
+    public void EmitUnits_HeaderCarriesTheNamespaceAndEachUnitExactlyOneClass()
+    {
+        var units = MakeMultiModuleEmitter().EmitUnits(MultiModuleMain());
+
+        Assert.Contains("namespace TestNameSpace;", units.Header);
+        foreach (var unit in units.Units)
+        {
+            Assert.DoesNotContain("namespace ", unit.Body);
+            // The blank line between two classes is the earlier unit's tail, not the later
+            // one's head, so header + module body never opens with a doubled blank line —
+            // on any platform's line ending. (The main unit keeps the single-file layout's
+            // blank after its inline type declarations; it is never written on its own.)
+            if (unit.ModuleClassName is not null)
+                Assert.StartsWith("public static class", unit.Body);
+            // Top-level only: nested declarations are indented.
+            var declarations = unit
+                .Body.Split('\n')
+                .Count(line => line.StartsWith("public static class", StringComparison.Ordinal));
+            Assert.Equal(1, declarations);
+        }
+    }
+
+    /// <summary>
+    ///     Header plus one unit has to be a compilable file on its own — that is the whole
+    ///     point of the split. The module classes reference each other, so they are verified
+    ///     together as separate syntax trees, the way the generated project compiles them.
+    /// </summary>
+    [Fact]
+    public void EmitUnits_EachUnitCompilesAsItsOwnFile()
+    {
+        var units = MakeMultiModuleEmitter().EmitUnits(MultiModuleMain());
+
+        RoslynCompileVerifier.AssertCompiles([.. units.Units.Select(units.ToFile)]);
+    }
+
+    #endregion
 }

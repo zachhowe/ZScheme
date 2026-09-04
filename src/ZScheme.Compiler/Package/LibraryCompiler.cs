@@ -15,12 +15,26 @@ public sealed record LibraryCompilationResult(
     IReadOnlyList<string> PrecompiledDependencyPaths
 );
 
+/// <summary>
+///     One module's emitted C# as its own source file, ready to write into a generated
+///     project. <see cref="RelativePath" /> mirrors the module's place in the source
+///     tree (see <see cref="LibraryCompiler.RelativePathForModule" />), so the generated
+///     project reads like the package it came from.
+/// </summary>
+public sealed record LibraryCsFile(string RelativePath, string Source);
+
 public sealed record LibraryCSharpResult(
+    /// <summary>
+    ///     Every module in one file. <see cref="Files" /> is the same emission split per
+    ///     module; the two are not substring-related, because each file repeats the header.
+    /// </summary>
     string CsOutput,
     IReadOnlyDictionary<string, CompiledModule> Modules,
     IReadOnlyList<string> PrecompiledDependencyPaths,
     /// <summary>See <see cref="CSharpEmitter.ClrTypeAssemblies" />.</summary>
-    IReadOnlyDictionary<string, string> ClrTypeAssemblies
+    IReadOnlyDictionary<string, string> ClrTypeAssemblies,
+    /// <summary>One file per module class. See <see cref="CsOutput" />.</summary>
+    IReadOnlyList<LibraryCsFile> Files
 );
 
 public sealed class LibraryCompiler(DiagnosticBag diagnostics)
@@ -28,6 +42,9 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     private static readonly ILogger Log = Serilog.Log.ForContext<LibraryCompiler>();
 
     private readonly HashSet<string> _precompiledAssemblyPaths = [];
+
+    /// <summary>Cached for <see cref="IsUsableAsPath" />, which runs per module.</summary>
+    private static readonly char[] InvalidPathChars = Path.GetInvalidFileNameChars();
 
     /// <summary>
     ///     Union of every per-module sub-compilation's alias registry. Each sub-compilation
@@ -82,14 +99,18 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             aliasRegistry,
             precompiledTypeRenames: precompiledTypeRenames
         );
-        var csOutput = emitter.Emit(emptyIr);
+        var emitted = emitter.EmitUnits(emptyIr);
+        var csOutput = emitted.ToSingleFile();
 
         if (diagnostics.HasErrors)
             return null;
 
+        var files = SplitIntoFiles(emitted, ModuleNamesByClass(compiledModules), manifest);
+
         Log.Debug(
-            "LibraryCompiler: emitted {Length} chars of C# for {ModuleCount} modules",
+            "LibraryCompiler: emitted {Length} chars of C# across {FileCount} files for {ModuleCount} modules",
             csOutput.Length,
+            files.Count,
             compiledModules.Count
         );
 
@@ -97,8 +118,102 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             csOutput,
             compiledModules,
             precompiledAssemblyPaths,
-            emitter.ClrTypeAssemblies
+            emitter.ClrTypeAssemblies,
+            files
         );
+    }
+
+    /// <summary>
+    ///     Turns one emission into a source file per module class. The main unit is dropped:
+    ///     a package library emits with an empty main IR, so it never has content.
+    /// </summary>
+    /// <param name="moduleNamesByClass">See <see cref="ModuleNamesByClass" />.</param>
+    private static List<LibraryCsFile> SplitIntoFiles(
+        CSharpEmitUnits emitted,
+        IReadOnlyDictionary<string, string> moduleNamesByClass,
+        PackageManifest manifest
+    )
+    {
+        var files = new List<LibraryCsFile>(emitted.Units.Count);
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var unit in emitted.Units)
+        {
+            if (unit.ModuleClassName is not { } className || string.IsNullOrWhiteSpace(unit.Body))
+                continue;
+
+            // Every unit's class came from a compiled module, so the lookup cannot miss.
+            var moduleName = moduleNamesByClass[className];
+            files.Add(
+                new LibraryCsFile(
+                    RelativePathForModule(moduleName, className, manifest.ImportPrefix, taken),
+                    emitted.ToFile(unit)
+                )
+            );
+        }
+
+        return files;
+    }
+
+    /// <summary>
+    ///     The path a module's emitted C# is written to, relative to the project directory.
+    ///     Mirrors the source tree: the package's own <c>import-prefix</c> is stripped, so
+    ///     <c>stdlib/mutable/vector</c> becomes <c>mutable/vector.cs</c> in stdlib's own
+    ///     project, while a dependency inlined from source keeps its prefix as a folder
+    ///     (<c>stdlib/list.cs</c> inside the http project).
+    /// </summary>
+    /// <param name="taken">
+    ///     Paths already claimed, compared case-insensitively so two modules differing only
+    ///     in case do not collide on a case-insensitive filesystem. Added to as it goes.
+    /// </param>
+    internal static string RelativePathForModule(
+        string moduleName,
+        string className,
+        string? importPrefix,
+        HashSet<string> taken
+    )
+    {
+        var path = moduleName;
+        if (
+            !string.IsNullOrEmpty(importPrefix)
+            && path.StartsWith(importPrefix + '/', StringComparison.Ordinal)
+        )
+            path = path[(importPrefix.Length + 1)..];
+
+        var candidate = IsUsableAsPath(path) ? path + ".cs" : className + ".cs";
+        if (taken.Add(candidate))
+            return candidate;
+
+        // A module name that already collides on its class name is a duplicate-definition
+        // error in the emitted C# regardless of how the files are laid out; the suffix is
+        // here so an injected or aliased module with an exotic name cannot silently
+        // overwrite another module's file.
+        candidate = className + ".cs";
+        for (var n = 2; !taken.Add(candidate); n++)
+            candidate = $"{className}_{n}.cs";
+        return candidate;
+    }
+
+    /// <summary>
+    ///     Whether a module name is safe to use as a relative file path: no escaping the
+    ///     project directory, nothing the filesystem rejects, and not under a <c>bin</c> or
+    ///     <c>obj</c> root or a dot-prefixed directory. The generated csproj names every
+    ///     source explicitly, so the SDK's <c>DefaultItemExcludes</c> (which cover exactly
+    ///     those paths) no longer decide what compiles; the fallback stays so a module's
+    ///     file never sits inside the project's own build output or a hidden directory.
+    /// </summary>
+    private static bool IsUsableAsPath(string moduleName)
+    {
+        if (moduleName.Length == 0 || Path.IsPathRooted(moduleName))
+            return false;
+
+        var segments = moduleName.Split('/');
+        if (
+            segments[0].Equals("bin", StringComparison.OrdinalIgnoreCase)
+            || segments[0].Equals("obj", StringComparison.OrdinalIgnoreCase)
+        )
+            return false;
+
+        return segments.All(s => s.Length > 0 && s[0] != '.' && s.IndexOfAny(InvalidPathChars) < 0);
     }
 
     /// <summary>
@@ -343,6 +458,24 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         return map;
     }
 
+    /// <summary>
+    ///     The module name behind each emitted class name, for laying the C# project out
+    ///     as one file per module. Built forward from the module names, never by reversing
+    ///     <see cref="NameConverter.ClassNameFromModuleName" /> — that mapping is lossy (each
+    ///     segment is capitalised, '-' disappears, '/' becomes '_'), so <c>base/mod</c> and
+    ///     <c>base/Mod</c>, or <c>base-mod</c> and <c>baseMod</c>, share a class name and
+    ///     neither can be recovered from it; the first module keeps the entry.
+    /// </summary>
+    private static Dictionary<string, string> ModuleNamesByClass(
+        IReadOnlyDictionary<string, CompiledModule> compiledModules
+    )
+    {
+        var moduleNamesByClass = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var name in compiledModules.Keys)
+            moduleNamesByClass.TryAdd(NameConverter.ClassNameFromModuleName(name), name);
+        return moduleNamesByClass;
+    }
+
     private (
         List<(string ClassName, IReadOnlyList<IrNode> Definitions)> AllIrDefs,
         List<string> ClrNamespaces,
@@ -352,9 +485,10 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var allIrDefs = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>();
         foreach (var (name, mod) in compiledModules)
         {
+            var className = NameConverter.ClassNameFromModuleName(name);
             var defs = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
             if (defs.Count > 0)
-                allIrDefs.Add((NameConverter.ClassNameFromModuleName(name), defs));
+                allIrDefs.Add((className, defs));
         }
 
         var clrNamespaces = compiledModules

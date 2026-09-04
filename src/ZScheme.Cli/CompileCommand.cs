@@ -166,92 +166,110 @@ internal static class CompileCommand
             if (!diag.IsError)
                 Console.Error.WriteLine(diag);
 
-        switch (result)
+        // Every write lands wherever -o points. A file the filesystem will not let the
+        // compiler overwrite is the user's to sort out, reported by path rather than as a
+        // crash with a stack trace.
+        try
         {
-            case CompilationResult.CSharpOutputResult csResult:
+            switch (result)
             {
-                if (emitProject)
+                case CompilationResult.CSharpOutputResult csResult:
                 {
-                    var projectDir = Path.GetFullPath(outputPath);
-                    var projectName = Path.GetFileName(projectDir);
-                    var resolvedOutputType =
-                        outputType ?? (csResult.IsExecutable ? "Exe" : "Library");
-                    var projectOptions = new CSharpProjectOptions
+                    if (emitProject)
                     {
-                        OutputType = resolvedOutputType,
-                        LangVersion = langVersion,
-                        AssemblyReferences = csResult.PrecompiledAssemblyPaths,
-                        NuGetPackages = nugetPackages,
-                    };
-                    var csFileName = $"{projectName}.cs";
-                    CSharpProjectGenerator.WriteProjectDirectory(
-                        projectDir,
-                        projectName,
-                        [(csFileName, csResult.CsOutput)],
-                        projectOptions
-                    );
-                    Log.Debug("compile: wrote project to {OutputDir}", projectDir);
-                    Console.WriteLine(
-                        $"Generated: {Path.Combine(projectDir, $"{projectName}.csproj")}"
-                    );
-                    Console.WriteLine($"Generated: {Path.Combine(projectDir, csFileName)}");
+                        var projectDir = Path.GetFullPath(outputPath);
+                        var projectName = Path.GetFileName(projectDir);
+                        var resolvedOutputType =
+                            outputType ?? (csResult.IsExecutable ? "Exe" : "Library");
+                        var projectOptions = new CSharpProjectOptions
+                        {
+                            OutputType = resolvedOutputType,
+                            LangVersion = langVersion,
+                            AssemblyReferences = csResult.PrecompiledAssemblyPaths,
+                            NuGetPackages = nugetPackages,
+                        };
+                        var csFileName = $"{projectName}.cs";
+                        // No prune: the csproj names its one file, so a per-module tree left
+                        // here by generate-project is inert, and the directory is wherever the
+                        // user pointed -o — it can hold other compiles' output.
+                        CSharpProjectGenerator.WriteProjectDirectory(
+                            projectDir,
+                            projectName,
+                            [(csFileName, csResult.CsOutput)],
+                            projectOptions,
+                            pruneStaleGeneratedFiles: false
+                        );
+                        Log.Debug("compile: wrote project to {OutputDir}", projectDir);
+                        Console.WriteLine(
+                            $"Generated: {Path.Combine(projectDir, $"{projectName}.csproj")}"
+                        );
+                        Console.WriteLine($"Generated: {Path.Combine(projectDir, csFileName)}");
+                    }
+                    else
+                    {
+                        var outputFile = Path.ChangeExtension(outputPath, ".cs");
+                        File.WriteAllText(outputFile, csResult.CsOutput);
+                        Log.Debug(
+                            "compile: wrote C# output to {OutputFile} ({Length} chars)",
+                            outputFile,
+                            csResult.CsOutput.Length
+                        );
+                        Console.WriteLine($"Generated: {outputFile}");
+
+                        // Generate companion .csproj if precompiled assemblies are referenced
+                        if (csResult.PrecompiledAssemblyPaths.Count > 0)
+                        {
+                            var csprojFile = Path.ChangeExtension(outputPath, ".csproj");
+                            var projectOptions = new CSharpProjectOptions
+                            {
+                                AssemblyReferences = csResult.PrecompiledAssemblyPaths,
+                                CompileItems = [Path.GetFileName(outputFile)],
+                            };
+                            File.WriteAllText(
+                                csprojFile,
+                                CSharpProjectGenerator.GenerateCsproj(projectOptions)
+                            );
+                            Console.WriteLine($"Generated: {csprojFile}");
+                        }
+                    }
+
+                    break;
                 }
-                else
+                case CompilationResult.IlOutputResult ilResult:
                 {
-                    var outputFile = Path.ChangeExtension(outputPath, ".cs");
-                    File.WriteAllText(outputFile, csResult.CsOutput);
+                    var extension = ilResult.IsExecutable ? ".exe" : ".dll";
+                    var outputFile = Path.ChangeExtension(outputPath, extension);
+                    File.WriteAllBytes(outputFile, ilResult.OutputBytes);
                     Log.Debug(
-                        "compile: wrote C# output to {OutputFile} ({Length} chars)",
+                        "compile: wrote IL output to {OutputFile} ({Length} bytes)",
                         outputFile,
-                        csResult.CsOutput.Length
+                        ilResult.OutputBytes.Length
                     );
                     Console.WriteLine($"Generated: {outputFile}");
 
-                    // Generate companion .csproj if precompiled assemblies are referenced
-                    if (csResult.PrecompiledAssemblyPaths.Count > 0)
+                    // Copy precompiled assemblies alongside output
+                    CliHelpers.CopyPrecompiledAssemblies(
+                        ilResult.PrecompiledAssemblyPaths,
+                        Path.GetDirectoryName(outputFile)!
+                    );
+
+                    if (ilResult.IsExecutable)
                     {
-                        var csprojFile = Path.ChangeExtension(outputPath, ".csproj");
-                        var projectOptions = new CSharpProjectOptions
-                        {
-                            AssemblyReferences = csResult.PrecompiledAssemblyPaths,
-                        };
-                        File.WriteAllText(
-                            csprojFile,
-                            CSharpProjectGenerator.GenerateCsproj(projectOptions)
+                        var runtimeConfigFile = Path.ChangeExtension(
+                            outputFile,
+                            ".runtimeconfig.json"
                         );
-                        Console.WriteLine($"Generated: {csprojFile}");
+                        File.WriteAllText(runtimeConfigFile, ilResult.BuildRuntimeConfigJson());
+                        Console.WriteLine($"Generated: {runtimeConfigFile}");
                     }
+
+                    break;
                 }
-
-                break;
             }
-            case CompilationResult.IlOutputResult ilResult:
-            {
-                var extension = ilResult.IsExecutable ? ".exe" : ".dll";
-                var outputFile = Path.ChangeExtension(outputPath, extension);
-                File.WriteAllBytes(outputFile, ilResult.OutputBytes);
-                Log.Debug(
-                    "compile: wrote IL output to {OutputFile} ({Length} bytes)",
-                    outputFile,
-                    ilResult.OutputBytes.Length
-                );
-                Console.WriteLine($"Generated: {outputFile}");
-
-                // Copy precompiled assemblies alongside output
-                CliHelpers.CopyPrecompiledAssemblies(
-                    ilResult.PrecompiledAssemblyPaths,
-                    Path.GetDirectoryName(outputFile)!
-                );
-
-                if (ilResult.IsExecutable)
-                {
-                    var runtimeConfigFile = Path.ChangeExtension(outputFile, ".runtimeconfig.json");
-                    File.WriteAllText(runtimeConfigFile, ilResult.BuildRuntimeConfigJson());
-                    Console.WriteLine($"Generated: {runtimeConfigFile}");
-                }
-
-                break;
-            }
+        }
+        catch (Exception ex) when (CliHelpers.IsOutputFailure(ex))
+        {
+            return CliHelpers.Error($"compile: {ex.Message}");
         }
 
         return 0;

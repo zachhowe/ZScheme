@@ -1,3 +1,5 @@
+using System.IO.Enumeration;
+using System.Security;
 using System.Text;
 
 namespace ZScheme.Compiler.Codegen;
@@ -30,6 +32,17 @@ public sealed record CSharpProjectOptions
     ///     generated code does not use restores a single candidate.
     /// </summary>
     public IReadOnlyList<string> AliasedAssemblies { get; init; } = [];
+
+    /// <summary>
+    ///     The source files to compile, as paths relative to the project directory. When
+    ///     non-empty the SDK's default <c>**/*.cs</c> glob is switched off and exactly these
+    ///     are compiled, so a stray <c>.cs</c> in the directory — a module's file from before
+    ///     it was renamed, a per-module tree left where <c>zs compile --emit-project</c> now
+    ///     writes one file, a hand-written source — is never picked up. Empty keeps the glob,
+    ///     for a project whose sources the user adds by hand (<c>generate-project</c> with no
+    ///     manifest).
+    /// </summary>
+    public IReadOnlyList<string> CompileItems { get; init; } = [];
 }
 
 public static class CSharpProjectGenerator
@@ -71,7 +84,18 @@ public static class CSharpProjectGenerator
         if (hasItems)
             sb.AppendLine("    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>");
 
+        if (options.CompileItems.Count > 0)
+            sb.AppendLine("    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>");
+
         sb.AppendLine("  </PropertyGroup>");
+
+        if (options.CompileItems.Count > 0)
+        {
+            sb.AppendLine("  <ItemGroup>");
+            foreach (var path in options.CompileItems)
+                sb.AppendLine($"    <Compile Include=\"{SecurityElement.Escape(path)}\" />");
+            sb.AppendLine("  </ItemGroup>");
+        }
 
         if (hasItems)
         {
@@ -146,17 +170,40 @@ public static class CSharpProjectGenerator
             """;
     }
 
+    /// <summary>
+    ///     Writes the csproj and every source file. The csproj lists exactly
+    ///     <paramref name="csFiles" /> as its <c>&lt;Compile&gt;</c> items, so whatever else
+    ///     sits under <paramref name="outputDir" /> is not compiled.
+    /// </summary>
+    /// <param name="pruneStaleGeneratedFiles">
+    ///     First delete every <c>.cs</c> file a previous run generated anywhere under
+    ///     <paramref name="outputDir" />, so a module renamed or deleted since does not leave
+    ///     its old file lingering as if it were part of the project. Only for a caller that
+    ///     owns the whole tree, as <c>generate-project</c> does: it writes one file per
+    ///     module and every generated file under its directory is one of its own. A
+    ///     single-file write such as <c>zs compile --emit-project</c> owns nothing but the
+    ///     file it overwrites, and the directory it is pointed at can hold other compiles'
+    ///     output — <c>-o .</c> at a repo root would sweep every generated tree below it.
+    ///     Only files this compiler wrote are removed — see
+    ///     <see cref="PruneGeneratedCsFiles" />.
+    /// </param>
     public static void WriteProjectDirectory(
         string outputDir,
         string projectName,
         IReadOnlyList<(string FileName, string Content)> csFiles,
-        CSharpProjectOptions options
+        CSharpProjectOptions options,
+        bool pruneStaleGeneratedFiles
     )
     {
         Directory.CreateDirectory(outputDir);
+        if (pruneStaleGeneratedFiles)
+            PruneGeneratedCsFiles(outputDir);
 
         var csprojPath = Path.Combine(outputDir, $"{projectName}.csproj");
-        File.WriteAllText(csprojPath, GenerateCsproj(options));
+        File.WriteAllText(
+            csprojPath,
+            GenerateCsproj(options with { CompileItems = [.. csFiles.Select(f => f.FileName)] })
+        );
 
         foreach (var (fileName, content) in csFiles)
         {
@@ -165,6 +212,84 @@ public static class CSharpProjectGenerator
             if (!string.IsNullOrEmpty(fileDir))
                 Directory.CreateDirectory(fileDir);
             File.WriteAllText(filePath, content);
+        }
+    }
+
+    /// <summary>
+    ///     Deletes the <c>.cs</c> files under <paramref name="outputDir" /> that this
+    ///     compiler generated, leaving anything else alone. Generated output goes into
+    ///     user-named directories, so the marker check is what keeps this from deleting
+    ///     hand-written sources; a file emitted with the version preamble suppressed carries
+    ///     no marker and survives, which only costs a stale file.
+    /// </summary>
+    private static void PruneGeneratedCsFiles(string outputDir)
+    {
+        // Materialized: the enumeration is being deleted from as it runs. A file that is
+        // itself a link stays a candidate — if what it points at carries the marker it is
+        // as stale as any other, and deleting it removes the link, not its target. A link
+        // whose target is gone reads as no file at all and is left alone: with nothing to
+        // check the marker against it cannot be told from anything hand-placed. A
+        // directory link is not descended into, so a symlink or junction under a
+        // user-named output directory cannot walk this into another tree's files, or into
+        // itself. Nor is bin/ or obj/ at the root: build output, not source. obj/ holds
+        // the SDK's own generated .cs, which it rewrites on the next build. An unreadable
+        // directory is not skipped either: a stale file inside it has to fail the prune
+        // rather than be silently left behind (EnumerationOptions ignores inaccessible
+        // entries by default; SearchOption.AllDirectories never did).
+        var candidates = new FileSystemEnumerable<string>(
+            outputDir,
+            (ref FileSystemEntry entry) => entry.ToFullPath(),
+            new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = 0,
+                IgnoreInaccessible = false,
+            }
+        )
+        {
+            ShouldIncludePredicate = (ref FileSystemEntry entry) =>
+                !entry.IsDirectory
+                && entry.FileName.EndsWith(".cs", StringComparison.OrdinalIgnoreCase),
+            ShouldRecursePredicate = (ref FileSystemEntry entry) =>
+                (entry.Attributes & FileAttributes.ReparsePoint) == 0
+                && !(
+                    entry.Directory.SequenceEqual(entry.RootDirectory)
+                    && (
+                        entry.FileName.Equals("bin", StringComparison.OrdinalIgnoreCase)
+                        || entry.FileName.Equals("obj", StringComparison.OrdinalIgnoreCase)
+                    )
+                ),
+        }.ToList();
+
+        foreach (var path in candidates)
+        {
+            if (!IsGeneratedFile(path))
+                continue;
+
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    ///     Whether the file's first line carries <see cref="CSharpEmitter.GeneratedFileMarker" />.
+    ///     A locked or unreadable file propagates: swallowing it would let the command report
+    ///     success with the stale file still there and nothing saying a prune was attempted.
+    ///     A file gone since it was enumerated is simply nothing to prune, and a link whose
+    ///     target is missing reads the same way.
+    /// </summary>
+    private static bool IsGeneratedFile(string path)
+    {
+        try
+        {
+            using var reader = new StreamReader(path);
+            return reader
+                    .ReadLine()
+                    ?.StartsWith(CSharpEmitter.GeneratedFileMarker, StringComparison.Ordinal)
+                == true;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
         }
     }
 }
