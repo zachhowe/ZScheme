@@ -56,13 +56,20 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     /// </summary>
     private readonly TypeAliasRegistry _packageAliases = new();
 
+    /// <param name="externalModules">
+    ///     Modules another project in the same solution emits, injected so this package's sources
+    ///     compile against them without a copy of their code landing here. Each carries the build
+    ///     namespace of the project that owns it, which is what references to it are qualified
+    ///     with. This is the same mechanism the test project uses to reference the main one.
+    /// </param>
     public LibraryCSharpResult? CompileToCSharp(
         string packageDir,
         PackageManifest manifest,
-        CompilerOptions options
+        CompilerOptions options,
+        IReadOnlyDictionary<string, CompiledModule>? externalModules = null
     )
     {
-        var compiledModules = CompileModules(packageDir, manifest, options);
+        var compiledModules = CompileModules(packageDir, manifest, options, externalModules);
         if (compiledModules is null)
             return null;
 
@@ -72,8 +79,11 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         (allIrDefs, emitRenames, typeEmitRenames) = ResolveEmitNames(allIrDefs, compiledModules);
         compiledModules = ApplyEmittedNames(compiledModules, emitRenames, typeEmitRenames);
 
+        // IsExternallyEmitted, not PrecompiledAssemblyPath: a module emitted by a sibling project
+        // has no assembly to point at yet, but references to it must be qualified exactly the same
+        // way as ones into a prebuilt package.
         var precompiledModuleMap = compiledModules
-            .Values.Where(m => m.PrecompiledAssemblyPath is not null)
+            .Values.Where(m => m.IsExternallyEmitted)
             .SelectMany(m =>
                 m.ExportedNames.Select(name =>
                     (name, className: NameConverter.ClassNameFromModuleName(m.Name))
@@ -87,6 +97,19 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var emptyIr = new IrNode.Seq([]) { Type = ZType.Unit };
         var ns = manifest.Build.Main?.Namespace ?? options.Namespace;
         var aliasRegistry = BuildAliasRegistry(compiledModules);
+        var externalModuleInfos = compiledModules
+            .Values.Where(m => m.EmitAsExternalReference)
+            .Select(m =>
+            {
+                var className = NameConverter.ClassNameFromModuleName(m.Name);
+                return new ExternalModuleInfo(
+                    className,
+                    m.BuildNamespace is { Length: > 0 } bns ? $"{bns}.{className}" : className,
+                    m.AllIrDefinitions ?? m.ExportedIrDefinitions
+                );
+            })
+            .ToList();
+
         var emitter = new CSharpEmitter(
             diagnostics,
             ns,
@@ -97,7 +120,11 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             false,
             false,
             aliasRegistry,
-            precompiledTypeRenames: precompiledTypeRenames
+            precompiledModuleNamespaces: compiledModules
+                .Values.Where(m => m.IsExternallyEmitted && m.BuildNamespace is { Length: > 0 })
+                .ToDictionary(m => m.Name, m => m.BuildNamespace!),
+            precompiledTypeRenames: precompiledTypeRenames,
+            externalModules: externalModuleInfos
         );
         var emitted = emitter.EmitUnits(emptyIr);
         var csOutput = emitted.ToSingleFile();
@@ -382,7 +409,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     )
     {
         var precompiledRenames = compiledModules
-            .Values.Where(m => m.PrecompiledAssemblyPath is not null && m.EmittedNames is not null)
+            .Values.Where(m => m.IsExternallyEmitted && m.EmittedNames is not null)
             .GroupBy(m => m.Name)
             .ToDictionary(
                 g => g.Key,
@@ -452,7 +479,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     {
         var map = new Dictionary<string, string>();
         foreach (var m in compiledModules)
-            if (m.PrecompiledAssemblyPath is not null && m.TypeEmittedNames is { } te)
+            if (m.IsExternallyEmitted && m.TypeEmittedNames is { } te)
                 foreach (var (raw, emitted) in te)
                     map[raw] = emitted; // last writer wins
         return map;
@@ -485,14 +512,26 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         var allIrDefs = new List<(string ClassName, IReadOnlyList<IrNode> Definitions)>();
         foreach (var (name, mod) in compiledModules)
         {
+            // A module that lives in a referenced assembly is not emitted again here. Its
+            // metadata still carries type declarations — that is how a consumer type-checks
+            // against it — and emitting those would redeclare Option and friends in this
+            // assembly, beside the reference to the ones that already exist.
+            if (mod.IsExternallyEmitted)
+                continue;
+
             var className = NameConverter.ClassNameFromModuleName(name);
             var defs = mod.AllIrDefinitions ?? mod.ExportedIrDefinitions;
             if (defs.Count > 0)
                 allIrDefs.Add((className, defs));
         }
 
+        // Only inlined modules contribute using directives; a referenced module's members are
+        // reached through its build namespace instead, and pulling its CLR namespaces in here
+        // is what would make an ambiguous short type name resolve differently than it did when
+        // that module was built.
         var clrNamespaces = compiledModules
-            .Values.SelectMany(m => m.ExportedClrNamespaces)
+            .Values.Where(m => !m.IsExternallyEmitted)
+            .SelectMany(m => m.ExportedClrNamespaces)
             .Distinct()
             .ToList();
 
@@ -515,7 +554,8 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
     private Dictionary<string, CompiledModule>? CompileModules(
         string packageDir,
         PackageManifest manifest,
-        CompilerOptions options
+        CompilerOptions options,
+        IReadOnlyDictionary<string, CompiledModule>? externalModules = null
     )
     {
         // Discover .zs files: use sources.main subdir if specified, else package root
@@ -602,8 +642,14 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         if (order.Count > 0)
             Log.Debug("LibraryCompiler: module order: {Order}", string.Join(" -> ", order));
 
-        // Compile modules in topological order
+        // Compile modules in topological order. Modules another project emits are seeded in
+        // first, so every sub-compilation below is handed them the way it is handed an
+        // already-compiled sibling — they are injected, never compiled, and BuildEmitInputs
+        // leaves them out of what this project emits.
         var compiledModules = new Dictionary<string, CompiledModule>();
+        if (externalModules is not null)
+            foreach (var (name, mod) in externalModules)
+                compiledModules[name] = mod;
         var compilingModules = new HashSet<string>();
         var failedModules = new HashSet<string>();
 

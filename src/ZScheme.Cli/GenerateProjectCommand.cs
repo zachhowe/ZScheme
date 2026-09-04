@@ -153,21 +153,45 @@ internal static class GenerateProjectCommand
         var mainProjectName = ResolveMainProjectName(manifest);
         var mainDir = Path.Combine(fullOutputDir, mainProjectName);
 
+        // Dependency packages first, each into its own project. What comes back is every module
+        // they emit, which the package's own compilation then references rather than re-emitting.
+        var solutionEntries = new List<SolutionProjectEntry>();
+        var externalModules = new Dictionary<string, CompiledModule>();
+        var csprojByPackageDir = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (
+            !EmitDependencyProjects(
+                diagnostics,
+                context,
+                fullOutputDir,
+                solutionEntries,
+                externalModules,
+                csprojByPackageDir
+            )
+        )
+        {
+            foreach (var d in diagnostics.Diagnostics)
+                Console.Error.WriteLine(d);
+            return 1;
+        }
+
         var mainResult = EmitMainProject(
             diagnostics,
             manifestDir,
             manifest,
             context,
             mainDir,
-            mainProjectName
+            mainProjectName,
+            externalModules,
+            DirectProjectReferences(
+                manifest.Dependencies.ZScheme,
+                manifestDir,
+                csprojByPackageDir
+            )
         );
         if (mainResult is null)
             return Fail();
 
-        var solutionEntries = new List<SolutionProjectEntry>
-        {
-            new("src", $"{mainProjectName}/{mainProjectName}.csproj"),
-        };
+        solutionEntries.Add(new SolutionProjectEntry("src", $"{mainProjectName}/{mainProjectName}.csproj"));
 
         // Emit test project if the package declares tests
         if (manifest.Sources?.Test is not null)
@@ -189,7 +213,12 @@ internal static class GenerateProjectCommand
                         mainResult,
                         testProjectDir,
                         testProjectName,
-                        $"../{mainProjectName}/{mainProjectName}.csproj"
+                        $"../{mainProjectName}/{mainProjectName}.csproj",
+                        DirectProjectReferences(
+                            manifest.TestDependencies.ZScheme,
+                            manifestDir,
+                            csprojByPackageDir
+                        )
                     );
                     if (!testOk)
                         return Fail();
@@ -348,13 +377,177 @@ internal static class GenerateProjectCommand
         return "Microsoft.NET.Sdk";
     }
 
+    /// <param name="externalModules">
+    ///     Modules emitted by dependency projects in the same solution, injected so this project
+    ///     compiles against them and references them by their own namespace instead of holding a
+    ///     second copy.
+    /// </param>
+    /// <param name="projectReferences">
+    ///     Relative paths to the dependency projects' csproj files.
+    /// </param>
+    /// <summary>
+    ///     Emits one project per dependency package, dependencies before the packages that use
+    ///     them, and returns every module they emit — marked external and carrying the namespace
+    ///     of the project that owns it — plus each package's csproj path relative to the solution
+    ///     root.
+    ///     <para>
+    ///         Each package is compiled from its own sources into its own namespace, so the
+    ///         solution holds exactly one <c>Option&lt;T&gt;</c> and stays buildable from ZScheme
+    ///         source with nothing but csc.
+    ///     </para>
+    /// </summary>
+    private static bool EmitDependencyProjects(
+        DiagnosticBag diagnostics,
+        PackageEmissionContext context,
+        string fullOutputDir,
+        List<SolutionProjectEntry> solutionEntries,
+        Dictionary<string, CompiledModule> externalModules,
+        Dictionary<string, string> csprojByPackageDir
+    )
+    {
+        foreach (var package in OrderDependenciesFirst(context.Packages))
+        {
+            var manifestPath = Path.Combine(package.PackageDir, "package.zspkg");
+            if (!File.Exists(manifestPath))
+                continue;
+
+            var depManifest = new ManifestParser(diagnostics).Parse(
+                File.ReadAllText(manifestPath),
+                manifestPath
+            );
+            if (depManifest is null || diagnostics.HasErrors)
+                return false;
+
+            var projectName = ResolveMainProjectName(depManifest);
+            var projectDir = Path.Combine(fullOutputDir, projectName);
+
+            // Its own context, not the root package's. A dependency resolves its own frameworks,
+            // NuGet packages and ref paths — zunit needs xunit.v3.assert on the search path to
+            // resolve the Assert type its sources bind to, and the root package has no reason to
+            // carry that.
+            var depContext = PackageEmissionContext.Build(
+                diagnostics,
+                package.PackageDir,
+                depManifest
+            );
+            if (depContext is null || diagnostics.HasErrors)
+                return false;
+
+            var result = EmitMainProject(
+                diagnostics,
+                package.PackageDir,
+                depManifest,
+                depContext,
+                projectDir,
+                projectName,
+                externalModules,
+                DirectProjectReferences(
+                    package.ZSchemeDeps,
+                    package.PackageDir,
+                    csprojByPackageDir
+                )
+            );
+            if (result is null)
+                return false;
+
+            // Only the package's own modules. The dictionary it was handed comes back in this
+            // result too, already external and already attributed to the project that emits it.
+            var buildNamespace = depManifest.Build.Main?.Namespace;
+            foreach (var (name, mod) in result.Modules)
+                if (!mod.IsExternallyEmitted)
+                    externalModules[name] = mod with
+                    {
+                        EmitAsExternalReference = true,
+                        BuildNamespace = buildNamespace,
+                    };
+
+            csprojByPackageDir[package.PackageDir] = $"{projectName}/{projectName}.csproj";
+            solutionEntries.Add(
+                new SolutionProjectEntry("deps", $"{projectName}/{projectName}.csproj")
+            );
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    ///     The csproj paths a package must reference, relative to its own project directory. Only
+    ///     its declared dependencies: an SDK-style ProjectReference flows transitively, so naming
+    ///     the whole closure here would add nothing but noise.
+    /// </summary>
+    private static List<string> DirectProjectReferences(
+        IReadOnlyList<ZSchemeDependency> dependencies,
+        string ownerDir,
+        IReadOnlyDictionary<string, string> csprojByPackageDir
+    )
+    {
+        var references = new List<string>();
+        foreach (var dep in dependencies)
+        {
+            if (dep.Source is not ZSchemeDependencySource.Local local)
+                continue;
+
+            var depDir = Path.GetFullPath(Path.Combine(ownerDir, local.Path));
+            if (csprojByPackageDir.TryGetValue(depDir, out var csproj))
+                references.Add($"../{csproj}");
+        }
+
+        return references;
+    }
+
+    /// <summary>
+    ///     Orders the closure so a package is emitted after everything it depends on, which is
+    ///     what lets each one be handed its dependencies' modules as already-emitted. The closure
+    ///     arrives in breadth-first order from the root, which is the opposite.
+    /// </summary>
+    private static List<ResolvedPackage> OrderDependenciesFirst(
+        IReadOnlyList<ResolvedPackage> packages
+    )
+    {
+        var byDir = packages.ToDictionary(
+            p => p.PackageDir,
+            p => p,
+            StringComparer.OrdinalIgnoreCase
+        );
+        var ordered = new List<ResolvedPackage>(packages.Count);
+        var state = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var package in packages)
+            Visit(package);
+
+        return ordered;
+
+        void Visit(ResolvedPackage package)
+        {
+            // false marks in-progress: a cycle among manifests is left to the resolver to report,
+            // and is only avoided from causing infinite recursion here.
+            if (state.ContainsKey(package.PackageDir))
+                return;
+            state[package.PackageDir] = false;
+
+            foreach (var dep in package.ZSchemeDeps)
+            {
+                if (dep.Source is not ZSchemeDependencySource.Local local)
+                    continue;
+                var depDir = Path.GetFullPath(Path.Combine(package.PackageDir, local.Path));
+                if (byDir.TryGetValue(depDir, out var resolvedDep))
+                    Visit(resolvedDep);
+            }
+
+            state[package.PackageDir] = true;
+            ordered.Add(package);
+        }
+    }
+
     private static LibraryCSharpResult? EmitMainProject(
         DiagnosticBag diagnostics,
         string manifestDir,
         PackageManifest manifest,
         PackageEmissionContext context,
         string mainDir,
-        string mainProjectName
+        string mainProjectName,
+        IReadOnlyDictionary<string, CompiledModule>? externalModules = null,
+        IReadOnlyList<string>? projectReferences = null
     )
     {
         var mainOptions = new CompilerOptions
@@ -368,7 +561,12 @@ internal static class GenerateProjectCommand
         };
 
         var libraryCompiler = new LibraryCompiler(diagnostics);
-        var mainResult = libraryCompiler.CompileToCSharp(manifestDir, manifest, mainOptions);
+        var mainResult = libraryCompiler.CompileToCSharp(
+            manifestDir,
+            manifest,
+            mainOptions,
+            externalModules
+        );
         if (mainResult is null)
             return null;
 
@@ -389,6 +587,7 @@ internal static class GenerateProjectCommand
                 .Dependencies.NuGet.Select(p => (p.PackageId, p.Version))
                 .ToList(),
             FrameworkReferences = frameworkRefs,
+            ProjectReferences = projectReferences ?? [],
             Sdk = sdk,
             AliasedAssemblies = CollectAliasedAssemblies(
                 mainResult.ClrTypeAssemblies,
@@ -486,7 +685,8 @@ internal static class GenerateProjectCommand
         LibraryCSharpResult mainResult,
         string testDir,
         string testProjectName,
-        string mainCsprojRelative
+        string mainCsprojRelative,
+        IReadOnlyList<string> dependencyCsprojRelative
     )
     {
         var mainSourceDir = manifest.Sources?.Main is not null
@@ -499,14 +699,20 @@ internal static class GenerateProjectCommand
         // references, so they must be referenced rather than re-emitted. Every test file is a
         // separate compilation but they all land in one csproj: inlining each file's whole
         // import graph redefines the same classes once per file.
+        // A dependency package's modules are in this dictionary too, already marked external and
+        // already carrying the namespace of the project that emits them. Only the package's own
+        // modules get stamped with the main project's namespace — restamping the rest would
+        // attribute stdlib/option to ZScheme.AspNet and spell the reference accordingly.
         var externalMainModules = mainResult.Modules.ToDictionary(
             kv => kv.Key,
             kv =>
-                kv.Value with
-                {
-                    EmitAsExternalReference = true,
-                    BuildNamespace = manifest.Build.Main?.Namespace,
-                }
+                kv.Value.IsExternallyEmitted
+                    ? kv.Value
+                    : kv.Value with
+                    {
+                        EmitAsExternalReference = true,
+                        BuildNamespace = manifest.Build.Main?.Namespace,
+                    }
         );
 
         // Modules that end up compiled into the test assembly itself: a sibling test module
@@ -651,7 +857,10 @@ internal static class GenerateProjectCommand
             OutputType = "Exe",
             AssemblyReferences = testAssemblyRefs,
             NuGetPackages = testNuGetPackages.Select(kv => (kv.Key, kv.Value)).ToList(),
-            ProjectReferences = [mainCsprojRelative],
+            // The main project plus every dependency project. A test-only dependency (zunit, and
+            // http for the aspnet suite) is referenced by no production module, so it reaches the
+            // solution only through here.
+            ProjectReferences = [mainCsprojRelative, .. dependencyCsprojRelative],
             FrameworkReferences = testFrameworkRefs,
             Sdk = testSdk,
             AliasedAssemblies = CollectAliasedAssemblies(
@@ -697,6 +906,13 @@ internal sealed record PackageEmissionContext(
     IReadOnlyList<string> TransitiveRefPaths
 )
 {
+    /// <summary>
+    ///     Every package in the closure, keeping the per-dependency identity the aggregate lists
+    ///     above lose. Each one becomes its own project, so what it is called, what namespace it
+    ///     emits into and what it depends on all have to survive the walk.
+    /// </summary>
+    public IReadOnlyList<ResolvedPackage> Packages { get; init; } = [];
+
     public static PackageEmissionContext? Build(
         DiagnosticBag diagnostics,
         string manifestDir,
@@ -731,12 +947,11 @@ internal sealed record PackageEmissionContext(
         var transitiveFrameworks = closure.Frameworks;
         var transitiveRefPaths = new List<string>(closure.RefPaths);
 
-        // Note: no precompiled ZScheme package assemblies are fed to these compilations, so
-        // every ZScheme dependency is emitted as C# alongside the package's own modules. A
-        // cached .dll is IL produced by the other backend, and C# cannot consume its public
-        // signatures — see issues/il-package-assemblies-reference-system-private-corelib.md,
-        // which also records why the two obvious workarounds do not work. Compiling from
-        // source also makes the generated tree self-contained and readable end to end.
+        // Note: no precompiled ZScheme package assemblies are fed to these compilations. Each
+        // dependency package is emitted as its own project in this solution and referenced with a
+        // <ProjectReference>, so the tree stays buildable from ZScheme sources alone with nothing
+        // but csc — while still holding exactly one copy of each dependency module, in the
+        // namespace of the package that owns it.
 
         // Resolve NuGet packages (main-only first, then combined for tests).
         // Transitive ref paths from dep manifests flow into the search path so the
@@ -800,6 +1015,9 @@ internal sealed record PackageEmissionContext(
             transitiveTestNuGet,
             transitiveFrameworks,
             transitiveRefPaths
-        );
+        )
+        {
+            Packages = closure.Packages,
+        };
     }
 }

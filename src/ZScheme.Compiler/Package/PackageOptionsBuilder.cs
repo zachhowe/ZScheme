@@ -15,7 +15,14 @@ public sealed record ResolvedPackageInputs(
     IReadOnlyDictionary<string, string> PackagePaths,
     IReadOnlyDictionary<string, string> ModuleAliases,
     IReadOnlyList<string> FrameworkIds
-);
+)
+{
+    /// <summary>
+    ///     Dependency assemblies to reference instead of compiling from source. Empty unless the
+    ///     caller asked for precompiled dependencies.
+    /// </summary>
+    public IReadOnlyList<string> PrecompiledPackagePaths { get; init; } = [];
+}
 
 /// <summary>
 ///     Turns a parsed <see cref="PackageManifest" /> into the search paths and package
@@ -39,11 +46,19 @@ public static class PackageOptionsBuilder
     ///     in-box assembly on the search path would load a duplicate into the default
     ///     load context and split that type's identity.
     /// </param>
+    /// <param name="preferPrecompiledDependencies">
+    ///     Reference a dependency's built assembly rather than compiling its sources into this
+    ///     build. Off by default so a caller opts in explicitly: the language server resolves
+    ///     go-to-definition into dependency sources and wants them compiled, and its answers should
+    ///     not become as stale as the last build of a package.
+    /// </param>
     public static ResolvedPackageInputs? Resolve(
         string manifestDir,
         PackageManifest manifest,
         DiagnosticBag diagnostics,
-        bool resolveNuGetDependencies = true
+        bool resolveNuGetDependencies = true,
+        bool preferPrecompiledDependencies = false,
+        string? cacheDirectory = null
     )
     {
         var assemblySearchPaths = new List<string>();
@@ -52,6 +67,7 @@ public static class PackageOptionsBuilder
         var moduleAliases = new Dictionary<string, string>();
         var nugetDeps = new List<NuGetDependency>(manifest.Dependencies.NuGet);
         var frameworkIds = new List<string>();
+        var precompiledPackagePaths = new List<string>();
 
         // Walk the full transitive closure so a dep-of-a-dep's prefixed modules resolve
         // without the consumer re-declaring them (e.g. depending on aspnet → stdlib/...).
@@ -67,11 +83,24 @@ public static class PackageOptionsBuilder
             if (diagnostics.HasErrors)
                 return null;
 
-            moduleSearchPaths.AddRange(closure.ModuleSearchPaths);
-            foreach (var (prefix, path) in closure.PackagePaths)
+            var wiring = PackageDependencyWiring.For(
+                closure,
+                preferPrecompiledDependencies,
+                diagnostics,
+                cacheDirectory
+            );
+
+            moduleSearchPaths.AddRange(wiring.ModuleSearchPaths);
+            foreach (var (prefix, path) in wiring.PackagePaths)
                 packagePaths[prefix] = path;
-            foreach (var (prefix, alias) in closure.ModuleAliases)
+            foreach (var (prefix, alias) in wiring.ModuleAliases)
                 moduleAliases[prefix] = alias;
+            precompiledPackagePaths.AddRange(wiring.PrecompiledAssemblyPaths);
+
+            // Frameworks, NuGet and ref paths come along whether a dependency was referenced or
+            // compiled. Metadata carries no assemblyHint for anything but a type alias, so a
+            // dependency's `import-clr :instance` members are re-resolved by name in the consumer's
+            // compilation and need the same reference assemblies either way.
             assemblySearchPaths.AddRange(
                 FrameworkResolver.Resolve(closure.Frameworks, diagnostics)
             );
@@ -130,7 +159,10 @@ public static class PackageOptionsBuilder
             packagePaths,
             moduleAliases,
             frameworkIds.Distinct().ToList()
-        );
+        )
+        {
+            PrecompiledPackagePaths = precompiledPackagePaths,
+        };
     }
 
     /// <summary>
@@ -138,15 +170,24 @@ public static class PackageOptionsBuilder
     ///     from <paramref name="overrides" /> are layered last so an explicit caller
     ///     preference is probed before anything the manifest implies.
     /// </summary>
+    /// <inheritdoc cref="Resolve" />
     public static CompilerOptions? BuildForPackage(
         string manifestDir,
         PackageManifest manifest,
         DiagnosticBag diagnostics,
         CompilerOptions? overrides = null,
-        bool resolveNuGetDependencies = true
+        bool resolveNuGetDependencies = true,
+        bool preferPrecompiledDependencies = false
     )
     {
-        var inputs = Resolve(manifestDir, manifest, diagnostics, resolveNuGetDependencies);
+        var inputs = Resolve(
+            manifestDir,
+            manifest,
+            diagnostics,
+            resolveNuGetDependencies,
+            preferPrecompiledDependencies,
+            overrides?.CacheDirectory
+        );
         if (inputs is null)
             return null;
 
@@ -175,6 +216,7 @@ public static class PackageOptionsBuilder
 
         AddDistinct(options.AssemblySearchPaths, inputs.AssemblySearchPaths);
         AddDistinct(options.ModuleSearchPaths, inputs.ModuleSearchPaths);
+        AddDistinct(options.PrecompiledPackagePaths, inputs.PrecompiledPackagePaths);
         return options;
     }
 

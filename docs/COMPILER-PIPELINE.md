@@ -131,8 +131,13 @@ precompiled** decision is made (see the dedicated section below). The steps are:
    `LibraryCompiler.ScanDependencies` does the same for the package-build walk, and
    hands the same alias table to each module's sub-compilation so both agree on the
    name a given import resolves to.
-3. **Load precompiled packages** — `CompileLoadModules` scans the package cache
-   and stdlib, loading any precompiled DLL + metadata pairs into the module cache.
+3. **Load precompiled packages** — `CompileLoadModules` loads the DLL + metadata pairs named by
+   `CompilerOptions.PrecompiledPackagePaths` into the module cache, then falls back to the cache
+   for stdlib when nothing else has supplied it. `CompileAsModule` — the path a package library
+   compiles each of its own modules through — does the same via
+   `LoadPrecompiledPackagesIntoCache`. A module in that cache is used as-is: the top-level import
+   loop and the recursive dependency scan both skip resolving it, because a referenced package has
+   no source on any search path.
 4. **Compile prelude modules** — `CompilePreludeModules` compiles the standard
    library prelude from source (unless disabled). A prelude module never gets the
    prelude injected into itself. It is identified by `CompilerOptions.PrimaryModuleName`
@@ -700,14 +705,22 @@ Coverage is wired only into the IL backend (tests always compile to IL).
 
 ZScheme resolves an imported module in one of two ways. The difference is
 captured on the [`CompiledModule`](../src/ZScheme.Compiler/Modules/CompiledModule.cs)
-record — specifically whether `PrecompiledAssemblyPath` is `null`.
+record — specifically `IsExternallyEmitted`, which is true when the module's code lives
+somewhere other than the output being produced: in a referenced assembly
+(`PrecompiledAssemblyPath`), or in a sibling project of the same generated solution
+(`EmitAsExternalReference`).
+
+**A package's dependencies take the second path.** Building a package resolves each dependency
+in its closure to a built artifact and references it, rather than compiling its sources in —
+see *Dependency resolution for a package build* below. What follows describes the two paths in
+general.
 
 ### Inline compilation (source modules)
 
 A module is compiled **inline** when its `.zs` source is found on a search path
 and compiled as part of the same overall compilation as the program that imports
-it. This is what happens for prelude modules, local package sources, and any
-dependency resolved to a source file.
+it. This is what happens for prelude modules, a package's own modules, and any
+dependency that could not be resolved to an artifact.
 
 The recursive `CompileModule` path runs the same lex → parse → macro-expand →
 AST → type-infer → lower stages on the module's source and produces a
@@ -741,6 +754,8 @@ installed packages (and the cached stdlib) are consumed.
   of a package's modules to IL and stores a `.dll` plus a `.metadata.json`
   sidecar in the package cache (keyed by package name and version).
 - `compile --precompiled <path>` can also load an explicit DLL + metadata pair.
+- A package build supplies its own dependencies this way, resolved through
+  `PackageArtifactResolver` — see below.
 
 At load time, `CompileLoadModules` reads the metadata and produces a
 `CompiledModule` whose:
@@ -773,8 +788,12 @@ Because there is no IR, precompiled modules are **never re-emitted** — they ar
   `precompiledModuleNamespaces` for exactly this, and `QualifiedModuleClass`
   prepends the namespace when one is present.
 - **CLR namespaces from precompiled modules are excluded from output `using`
-  directives** (only `PrecompiledAssemblyPath is null` modules contribute their
+  directives** (only modules that are *not* externally emitted contribute their
   namespaces), which forces the qualified form and avoids `using` conflicts.
+- **Module-level values are read under the name baked into the assembly.** An inlined module
+  registers its statics under the source name; a referenced one can only be seen under its
+  emitted name, so `IlEmitter.EmitLoadVar` tries the sanitized spelling as well — which is how
+  `log-level/warning`, a `define` of a CLR enum constant, resolves across the boundary.
 - **Assembly paths are collected and linked.** `PrecompiledAssemblyPath` entries
   are gathered and passed to the C# backend (for `.csproj` references) and to the
   IL backend (for assembly linking).
@@ -793,6 +812,48 @@ During `CompileResolveAndCompileImports`, for each import:
 In short: precompiled packages are loaded first and win; anything left that
 resolves to source is compiled inline.
 
+### Dependency resolution for a package build
+
+Building a package does not compile its dependencies' sources into itself. Every entry point
+that compiles a package — `zs build`, `zs install`, `zs test`, and the auto-installer — resolves
+its closure through
+[`PackageDependencyWiring`](../src/ZScheme.Compiler/Package/PackageDependencyWiring.cs), which
+decides per package between a reference and a source compile. They have to agree: if `zs build`
+referenced stdlib while `zs test` compiled it in, the two would disagree about which assembly
+declares `Option`, and a value could not cross between them.
+
+- **What makes an artifact usable.**
+  [`PackageArtifactResolver`](../src/ZScheme.Compiler/Package/PackageArtifactResolver.cs) accepts
+  a cached artifact when the package's own sources hash to the `inputFingerprint` recorded in its
+  metadata *and* every dependency it was built against is still offered at the same version and
+  fingerprint. Own-hash alone is not sufficient: stdlib can change, be rebuilt, and be current
+  again while an artifact compiled against its previous signatures still matches its own sources.
+  A stale or missing artifact is rebuilt through `PackageAutoInstaller`; if that fails, the
+  dependency falls back to being compiled from source.
+- **Why a content hash and not a timestamp.** The cache entry is keyed by package *version*, so
+  editing a package without bumping its manifest reuses the entry, and a `git checkout` rewrites
+  the mtime of files whose bytes never changed —
+  [`PackageFingerprint`](../src/ZScheme.Compiler/Package/PackageFingerprint.cs) hashes the
+  manifest plus every `.zs` under the manifest's source directory instead.
+- **What the metadata gained.** An optional `dependencies` array (name, version, fingerprint) so
+  a consumer loading `zscheme-http.dll` also loads `zscheme-stdlib.dll`, and an optional
+  `inputFingerprint`. Both are additive and the format version stays at 2: `Deserialize` rejects
+  a mismatched version by returning null and the loader skips a null sidecar *silently*, so
+  bumping it would invalidate every cached artifact — including the `pkgcache` shipped inside a
+  published toolchain — with nothing said about why. Modules that are externally emitted are no
+  longer serialized at all, so a package advertises only what it owns; `zscheme-http` used to
+  claim `stdlib/option` as its own module.
+- **The language server opts out.** It resolves go-to-definition into dependency sources, so it
+  passes `preferPrecompiledDependencies: false` and keeps compiling them — its answers should not
+  become as stale as the last build.
+- **Loading a referenced assembly.**
+  [`PrecompiledAssemblyProbe`](../src/ZScheme.Compiler/Codegen/PrecompiledAssemblyProbe.cs)
+  subscribes to `AssemblyLoadContext.Default.Resolving` for the duration of one `IlEmitter.Emit`
+  call. `Assembly.LoadFrom` probes only the app base and the loaded file's own directory, and the
+  cache gives every package its own directory, so without it a package assembly that references a
+  sibling throws `FileNotFoundException` from the *member walk* — lazily, well after the file
+  loaded successfully.
+
 ### Summary (inline vs. precompiled)
 
 | Aspect | Inline | Precompiled |
@@ -804,7 +865,7 @@ resolves to source is compiled inline.
 | C# references | Bare `ClassName` / `ClassName.Member` | Fully qualified `BuildNamespace.ClassName.Member` |
 | `using` directives | Module's CLR namespaces included | Excluded — qualification forced |
 | Assembly linking | n/a (same output) | DLL added as a reference / linked |
-| Produced by | `compile` / `build` | `install` (creates), consumed by `compile --precompiled` and cache loads |
+| Produced by | `compile` / `build` | `install` (creates), consumed by `compile --precompiled`, cache loads, and every package build's dependency closure |
 
 ---
 
@@ -1012,16 +1073,18 @@ whole solution rather than one project:
 ```
 <out>/
   Directory.Build.props          isolates the tree from any inherited build settings
-  <Namespace>.slnx
+  <Namespace>.slnx               deps/ + src/ + tests/ solution folders
   <Namespace>/                   main project: one .cs per module
   <Namespace>.Tests/             test project: one .cs per test file
+  <DepNamespace>/                one project per dependency package
 ```
 
-Both projects mirror the source tree they came from. In the main project a module's file
-sits where the module does, with the package's own `import-prefix` stripped — stdlib's
-`stdlib/mutable/vector` is written to `ZScheme.StdLib/mutable/vector.cs`. A dependency
-compiled from source keeps its prefix as a folder, so http's project holds
-`stdlib/list.cs` next to its own `http.cs`.
+Every project mirrors the source tree it came from, with its own package's `import-prefix`
+stripped: stdlib's `stdlib/mutable/vector` is written to `ZScheme.StdLib/mutable/vector.cs`.
+Depending on aspnet therefore yields eight projects — `ZScheme.AspNet` plus `ZScheme.StdLib`,
+`ZScheme.Logging`, `ZScheme.Logging.Abstractions`,
+`ZScheme.DependencyInjection.Abstractions`, `ZScheme.ZUnit`, `ZScheme.Http` and the test
+project — wired together with `<ProjectReference>`.
 
 Shape decisions worth knowing:
 
@@ -1047,18 +1110,23 @@ Shape decisions worth knowing:
   `WriteProjectDirectory` but opts out — it owns only the one file it overwrites, and `-o`
   can point at a directory holding other compiles' output.
 
-- **Dependencies are compiled from source, never referenced as cached `.dll`s.** This makes
-  the emitted tree self-contained and readable end to end, at the cost of re-emitting a
-  dependency's modules per consuming project. It was originally forced rather than chosen: the
-  IL backend scoped every corelib import to `System.Private.CoreLib`, which no reference pack
-  contains, so referencing a cached assembly failed with `CS0012` on every public signature
-  naming a corelib type. `CorLibFacadeMap` resolves the owning reference assembly per type now,
-  so that constraint is gone and referencing cached assemblies is a live option.
+- **Each dependency package is its own project, not code copied into the consumer, and not a
+  reference to a cached `.dll`.** Projects keep the emitted tree buildable from ZScheme source
+  with nothing but `csc`, which referencing cached assemblies would give up — the tree would
+  then depend on the IL backend having built them first. Packages are emitted
+  dependencies-first (`OrderDependenciesFirst`), each handed the modules its dependencies
+  emitted as `EmitAsExternalReference` carrying the owning project's namespace, so the solution
+  holds exactly one `Option<T>` and consumers spell it
+  `ZScheme.StdLib.Stdlib_OptionModule.Option<T>`. Each dependency resolves its own
+  `PackageEmissionContext`: zunit needs `xunit.v3.assert` on the search path to resolve the
+  `Assert` type its sources bind to, and the root package has no reason to carry that.
+  Project references name the declared dependencies only, since an SDK-style
+  `ProjectReference` already flows transitively.
 - **Each test file is its own compilation but they share one project**, so a module may be
-  emitted only once. The main package's modules are referenced from the main project; a
-  module a test file compiles from source (a shared `test-support`, a test-only dependency
-  such as `zunit`) is emitted by the first test file that needs it and referenced by the
-  rest. `CompiledModule.EmitAsExternalReference` marks both cases, and
+  emitted only once. The main package's modules are referenced from the main project and a
+  test-only dependency (`zunit`, and `http` for the aspnet suite) from its own project; a
+  module a test file still compiles from source — a shared `test-support` — is emitted by the
+  first test file that needs it and referenced by the rest. `CompiledModule.EmitAsExternalReference` marks both cases, and
   `CSharpEmitter`'s `externalModules` carries their signatures so a generic call across the
   boundary is still instantiated explicitly.
 - **Test projects are `OutputType=Exe` with `xunit.v3.core`.** xunit.v3 discovers tests by

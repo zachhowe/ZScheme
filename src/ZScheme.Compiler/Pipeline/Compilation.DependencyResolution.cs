@@ -72,7 +72,7 @@ public sealed partial class Compilation
     /// <param name="graph">Module graph to populate with discovered modules and edges.</param>
     /// <param name="resolver">Resolver used to locate imported modules on disk.</param>
     /// <param name="scanned">Set of already-visited module names; allocated on first call.</param>
-    private static void ScanDependencies(
+    private void ScanDependencies(
         string moduleName,
         string source,
         string filePath,
@@ -109,6 +109,17 @@ public sealed partial class Compilation
             // alias and its target compiles the file twice and turns every function it exports
             // into two overload candidates.
             var depName = resolver.ResolveAlias(import.ModuleName);
+
+            // Already satisfied by a precompiled package: there is no source to scan, and
+            // Resolve — unlike TryResolve — would record a hard "Module not found". The
+            // top-level import loop in CompileResolveAndCompileImports skips these the same
+            // way; missing it here only mattered once a dependency could be referenced rather
+            // than sitting on a search path, and then only for a *transitive* import: a test
+            // file's own imports go through that loop, but the ones its sibling test-support
+            // module makes come through here.
+            if (_moduleCache.ContainsKey(depName))
+                continue;
+
             graph.AddModule(depName);
             graph.AddDependency(moduleName, depName, import.Span);
 

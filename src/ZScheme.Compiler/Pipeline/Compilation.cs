@@ -475,8 +475,18 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         foreach (var (alias, qualified) in precompiledAliases)
             moduleAliases[alias] = qualified;
 
-        // Load stdlib modules from package cache (skip when PackagePaths provides stdlib source)
-        if (!packagePaths.ContainsKey("stdlib"))
+        // Load stdlib modules from package cache — skipped when stdlib is already accounted for,
+        // either as source on PackagePaths or as an explicitly referenced assembly. The second
+        // case matters once a package build references its dependencies: this lookup is
+        // TryLoadLatest, so left ungated it can pull a *different* stdlib version than the one the
+        // build was wired to, and whichever landed in _moduleCache first would win.
+        var stdlibAlreadySatisfied =
+            packagePaths.ContainsKey("stdlib")
+            || explicitPrecompiled.Any(mod =>
+                mod.Name.StartsWith("stdlib/", StringComparison.Ordinal)
+            );
+
+        if (!stdlibAlreadySatisfied)
         {
             var cachedModules = TryLoadPrecompiledModules("zscheme-stdlib");
             if (cachedModules is not null)

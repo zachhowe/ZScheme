@@ -110,6 +110,7 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         var moduleSearchPaths = new List<string>(additionalModuleSearchPaths);
         var packagePaths = new Dictionary<string, string>(additionalPackagePaths);
         var moduleAliases = new Dictionary<string, string>(additionalModuleAliases);
+        var dependencyAssemblyPaths = new List<string>();
 
         // Walk the full transitive closure (main + test deps, plus every dep-of-a-dep) so a
         // transitive package's prefixed modules resolve without re-declaring them here.
@@ -124,11 +125,18 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
         if (diagnostics.HasErrors)
             return null;
 
-        moduleSearchPaths.AddRange(closure.ModuleSearchPaths);
-        foreach (var (prefix, path) in closure.PackagePaths)
+        // A dependency with a current built artifact is referenced rather than compiled into the
+        // library and every test DLL. This has to match what `zs build` and `zs install` do: if one
+        // referenced stdlib while the other compiled it in, the two would disagree about which
+        // assembly declares Option, and a value could not cross between them.
+        var wiring = PackageDependencyWiring.For(closure, true, diagnostics);
+
+        moduleSearchPaths.AddRange(wiring.ModuleSearchPaths);
+        foreach (var (prefix, path) in wiring.PackagePaths)
             packagePaths.TryAdd(prefix, path);
-        foreach (var (prefix, alias) in closure.ModuleAliases)
+        foreach (var (prefix, alias) in wiring.ModuleAliases)
             moduleAliases.TryAdd(prefix, alias);
+        dependencyAssemblyPaths.AddRange(wiring.PrecompiledAssemblyPaths);
 
         Log.Debug(
             "PackageTester: resolved ZScheme dependencies (transitive), {Count} module search paths",
@@ -182,6 +190,10 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
             AssemblySearchPaths = [.. assemblySearchPaths],
             PackagePaths = new Dictionary<string, string>(packagePaths),
             ModuleAliases = new Dictionary<string, string>(moduleAliases),
+            // Referenced dependency assemblies reach the test compilations on their own: they come
+            // back out as mainResult.PrecompiledDependencyPaths, which is copied into the temp dir
+            // alongside its metadata and handed to every test file below.
+            PrecompiledPackagePaths = [.. dependencyAssemblyPaths],
         };
 
         var testSw = Stopwatch.StartNew();
@@ -232,9 +244,19 @@ public sealed class PackageTester(DiagnosticBag diagnostics)
                     File.Copy(runtimeAssemblyPath, runtimeDest);
             }
 
-            // Copy precompiled dependency assemblies and metadata (e.g. stdlib from package cache)
+            // Copy precompiled dependency assemblies and metadata (e.g. stdlib from package cache).
+            //
+            // Both lists, not just the main library's. mainResult reports the assemblies its own
+            // sources ended up importing; a test-only dependency (zunit, and http for the aspnet
+            // suite) is in the closure but is imported by no production module, so it appears only
+            // in the wiring. Its sources are no longer on any search path either, so a test file
+            // importing it would resolve nothing at all.
             var precompiledInTempDir = new List<string>();
-            foreach (var depPath in mainResult.PrecompiledDependencyPaths)
+            foreach (
+                var depPath in mainResult
+                    .PrecompiledDependencyPaths.Concat(dependencyAssemblyPaths)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+            )
                 if (File.Exists(depPath))
                 {
                     var dest = Path.Combine(tempDir, Path.GetFileName(depPath));

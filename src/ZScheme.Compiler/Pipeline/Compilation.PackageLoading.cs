@@ -56,6 +56,27 @@ public sealed partial class Compilation
     }
 
     /// <summary>
+    ///     Loads the explicitly referenced precompiled packages into the module cache and returns
+    ///     the prefix aliases their metadata declares, for a caller that resolves imports without
+    ///     going through <c>CompileLoadModules</c>.
+    /// </summary>
+    private Dictionary<string, string> LoadPrecompiledPackagesIntoCache()
+    {
+        if (_options.PrecompiledPackagePaths.Count == 0)
+            return [];
+
+        var (modules, aliases) = LoadExplicitPrecompiledPackages();
+        foreach (var mod in modules)
+            _moduleCache.TryAdd(mod.Name, mod);
+
+        Log.Debug(
+            "Compilation: {Count} precompiled modules available to this module compilation",
+            modules.Count
+        );
+        return aliases;
+    }
+
+    /// <summary>
     ///     Tries to load precompiled modules from explicit .dll paths in compiler options.
     /// </summary>
     private (

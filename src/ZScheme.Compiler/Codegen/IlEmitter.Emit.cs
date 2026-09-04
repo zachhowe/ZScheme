@@ -18,7 +18,19 @@ namespace ZScheme.Compiler.Codegen;
 
 public sealed partial class IlEmitter
 {
+    /// <summary>
+    ///     Emits the assembly. The probe stays subscribed for the whole call because reflection
+    ///     over a precompiled assembly is lazy: a reference to a sibling package assembly is not
+    ///     resolved when the file loads, but when a member signature naming one of its types is
+    ///     first touched, which happens throughout emission.
+    /// </summary>
     public byte[]? Emit(IrNode node)
+    {
+        using var probe = PrecompiledAssemblyProbe.For(precompiledAssemblyPaths);
+        return EmitCore(node);
+    }
+
+    private byte[]? EmitCore(IrNode node)
     {
         // IL requires stack depth 0 at try-block entry. Hoist any with-handlers nested inside
         // compound expressions (binops, calls, etc.) up into let bindings so each try starts
@@ -5341,6 +5353,18 @@ public sealed partial class IlEmitter
         if (_staticFields.TryGetValue(name, out var field))
         {
             il.Add(CilOpCodes.Ldsfld, field);
+            return;
+        }
+
+        // Same table, two key conventions: a module emitted into this assembly registers its
+        // values under the source name, while LoadPrecompiledAssembly can only see what is baked
+        // into the referenced assembly, which is the emitted name. So a module-level *value* read
+        // across an assembly boundary — `log-level/warning`, a define of a CLR enum constant —
+        // has to be looked up the way _methods already is. Only reachable once a dependency is
+        // referenced rather than compiled in, which is why nothing needed it before.
+        if (_staticFields.TryGetValue(sanitizedName, out var precompiledField))
+        {
+            il.Add(CilOpCodes.Ldsfld, precompiledField);
             return;
         }
 

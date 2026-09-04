@@ -106,22 +106,25 @@ internal static class InstallCommand
             }
         }
 
-        // Resolve ZScheme dependencies from manifest
+        // Resolve ZScheme dependencies from manifest. A dependency with a current built artifact
+        // is referenced rather than compiled in, so the package this installs holds only its own
+        // modules — and the copy of stdlib every consumer used to carry is one shared assembly.
+        // Still direct deps only, as before: widening what an installed package may import is a
+        // separate change from where its dependencies' code lives.
+        var directPackages = new List<ResolvedPackage>();
         foreach (var dep in manifest.Dependencies.ZScheme)
             if (dep.Source is ZSchemeDependencySource.Local local)
             {
                 var depDir = Path.GetFullPath(Path.Combine(manifestDir, local.Path));
-                var depResolved = CliHelpers.ResolvePackagePath(depDir);
-                if (depResolved is not null)
-                {
-                    packPackagePaths.TryAdd(depResolved.Value.Prefix, depResolved.Value.SourceDir);
-                    if (depResolved.Value.DefaultModule is { } defMod)
-                        packModuleAliases.TryAdd(
-                            depResolved.Value.Prefix,
-                            $"{depResolved.Value.Prefix}/{defMod}"
-                        );
-                }
+                if (PackageDependencyResolver.TryResolvePackage(depDir) is { } depResolved)
+                    directPackages.Add(depResolved);
             }
+
+        var wiring = PackageDependencyWiring.ForPackages(directPackages, true, diagnostics);
+        foreach (var (prefix, path) in wiring.PackagePaths)
+            packPackagePaths.TryAdd(prefix, path);
+        foreach (var (prefix, alias) in wiring.ModuleAliases)
+            packModuleAliases.TryAdd(prefix, alias);
 
         // Build any local subproject whose build output a ref path points into (e.g. a
         // `bridge/` C# project referenced as `bridge/bin/Release/net10.0`), so consumers
@@ -165,6 +168,7 @@ internal static class InstallCommand
             AssemblySearchPaths = assemblySearchPaths,
             PackagePaths = packPackagePaths,
             ModuleAliases = packModuleAliases,
+            PrecompiledPackagePaths = [.. wiring.PrecompiledAssemblyPaths],
         };
 
         // Compile as library
@@ -193,7 +197,12 @@ internal static class InstallCommand
                 result.AssemblyBytes,
                 result.Modules,
                 manifest.ImportPrefix,
-                manifest.DefaultModule
+                manifest.DefaultModule,
+                dependencies: PackageDependencyResolver.ResolveDependencyIdentities(
+                    manifest,
+                    manifestDir
+                ),
+                inputFingerprint: PackageFingerprint.Compute(manifestDir, manifest)
             );
         }
         catch (IOException e)

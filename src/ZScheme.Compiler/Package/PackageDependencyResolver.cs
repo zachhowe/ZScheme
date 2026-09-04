@@ -1,4 +1,5 @@
 using Serilog;
+using ZScheme.Compiler.Cache;
 using ZScheme.Compiler.Diagnostics;
 
 namespace ZScheme.Compiler.Package;
@@ -18,7 +19,14 @@ public sealed record ResolvedPackage(
     IReadOnlyList<NuGetDependency> NuGet,
     IReadOnlyList<string> RefPaths,
     string PackageDir,
-    IReadOnlyList<ZSchemeDependency> ZSchemeDeps
+    IReadOnlyList<ZSchemeDependency> ZSchemeDeps,
+    // The manifest's own name and version — the identity the package cache is keyed by, which
+    // is not derivable from the dependency's directory name or its import prefix.
+    string Name = "",
+    string Version = "",
+    // The .NET namespace its generated code lives in, from (build (main (namespace ...))). What a
+    // consumer must qualify with to reference this package's classes from another project.
+    string? BuildNamespace = null
 );
 
 /// <summary>
@@ -42,6 +50,14 @@ public sealed record TransitiveZSchemeClosure(
     ///     package cache — read it from here rather than guessing at a source dir's parent.
     /// </summary>
     public IReadOnlyList<string> PackageDirs { get; init; } = [];
+
+    /// <summary>
+    ///     Every reachable package, in the same BFS order, with the identity a caller needs to
+    ///     decide per dependency rather than for the closure as a whole — whether to reference a
+    ///     built assembly or compile the sources this closure also points at. A dependency
+    ///     directory with no usable manifest contributes a module search path but no entry here.
+    /// </summary>
+    public IReadOnlyList<ResolvedPackage> Packages { get; init; } = [];
 }
 
 public static class PackageDependencyResolver
@@ -110,8 +126,60 @@ public static class PackageDependencyResolver
             manifest.Dependencies.NuGet,
             refPaths,
             fullDir,
-            manifest.Dependencies.ZScheme
+            manifest.Dependencies.ZScheme,
+            manifest.Name,
+            manifest.Version,
+            manifest.Build.Main?.Namespace
         );
+    }
+
+    /// <summary>
+    ///     The identity — cache key, not import prefix — of each ZScheme package
+    ///     <paramref name="manifest" /> depends on directly, for recording in the artifact this
+    ///     build produces. Direct deps are enough: a consumer that follows them recursively
+    ///     reaches the whole closure, because every artifact records its own.
+    ///     <para>
+    ///         Only a <c>:local</c> dependency resolves here, by reading the manifest it points
+    ///         at. A dependency named any other way is skipped rather than guessed at: the
+    ///         declaration carries a name but not the version the build actually resolved.
+    ///     </para>
+    /// </summary>
+    public static IReadOnlyList<PrecompiledPackageDependency> ResolveDependencyIdentities(
+        PackageManifest manifest,
+        string manifestDir
+    )
+    {
+        return ResolveDependencyIdentities(manifest.Dependencies.ZScheme, manifestDir);
+    }
+
+    /// <inheritdoc cref="ResolveDependencyIdentities(PackageManifest, string)" />
+    public static IReadOnlyList<PrecompiledPackageDependency> ResolveDependencyIdentities(
+        IReadOnlyList<ZSchemeDependency> dependencies,
+        string manifestDir
+    )
+    {
+        var identities = new List<PrecompiledPackageDependency>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dep in dependencies)
+        {
+            if (dep.Source is not ZSchemeDependencySource.Local local)
+                continue;
+
+            var depDir = Path.GetFullPath(Path.Combine(manifestDir, local.Path));
+            if (TryResolvePackage(depDir) is not { Name.Length: > 0 } resolved)
+                continue;
+            if (seen.Add(resolved.Name))
+                identities.Add(
+                    new PrecompiledPackageDependency(
+                        resolved.Name,
+                        resolved.Version,
+                        PackageFingerprint.Compute(resolved.PackageDir, resolved.SourceDir)
+                    )
+                );
+        }
+
+        return identities;
     }
 
     /// <summary>
@@ -138,6 +206,7 @@ public static class PackageDependencyResolver
         var nuget = new List<NuGetDependency>();
         var refPaths = new List<string>();
         var packageDirs = new List<string>();
+        var packages = new List<ResolvedPackage>();
 
         // BFS so direct deps are processed before transitive ones: first writer wins for a
         // shared prefix (TryAdd), letting a consumer shadow a transitive package's prefix.
@@ -171,6 +240,7 @@ public static class PackageDependencyResolver
 
             moduleSearchPaths.Add(resolved.SourceDir);
             packageDirs.Add(resolved.PackageDir);
+            packages.Add(resolved);
             packagePaths.TryAdd(resolved.Prefix, resolved.SourceDir);
             if (resolved.DefaultModule is { } defMod)
                 moduleAliases.TryAdd(resolved.Prefix, $"{resolved.Prefix}/{defMod}");
@@ -193,6 +263,7 @@ public static class PackageDependencyResolver
         )
         {
             PackageDirs = packageDirs,
+            Packages = packages,
         };
     }
 }
