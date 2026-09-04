@@ -211,9 +211,10 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
     /// <summary>
     ///     Whether a module name is safe to use as a relative file path: no escaping the
-    ///     project directory, nothing the filesystem rejects, and no <c>bin</c>/<c>obj</c>
-    ///     root — the SDK's <c>DefaultItemExcludes</c> drops those, so a file written there
-    ///     would be silently left out of the compilation.
+    ///     project directory, nothing the filesystem rejects, and nowhere the SDK's
+    ///     <c>DefaultItemExcludes</c> would drop it from the compilation — a <c>bin</c> or
+    ///     <c>obj</c> root, or any dot-prefixed directory (<c>**/.*/**</c>). A file written
+    ///     there would be silently left out, and the modules importing it would fail to build.
     /// </summary>
     private static bool IsUsableAsPath(string moduleName)
     {
@@ -227,9 +228,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
         )
             return false;
 
-        return segments.All(s =>
-            s.Length > 0 && s != "." && s != ".." && s.IndexOfAny(InvalidPathChars) < 0
-        );
+        return segments.All(s => s.Length > 0 && s[0] != '.' && s.IndexOfAny(InvalidPathChars) < 0);
     }
 
     /// <summary>
