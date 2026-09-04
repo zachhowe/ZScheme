@@ -146,7 +146,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             files.Add(
                 new LibraryCsFile(
                     RelativePathForModule(moduleName, className, manifest.ImportPrefix, taken),
-                    emitted.Header + unit.Body
+                    emitted.ToFile(unit)
                 )
             );
         }

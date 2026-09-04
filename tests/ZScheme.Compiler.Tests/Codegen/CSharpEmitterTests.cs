@@ -5679,9 +5679,7 @@ public class CSharpEmitterTests
     {
         var units = MakeMultiModuleEmitter().EmitUnits(MultiModuleMain());
 
-        RoslynCompileVerifier.AssertCompiles(
-            [.. units.Units.Select(u => units.Header + u.Body)]
-        );
+        RoslynCompileVerifier.AssertCompiles([.. units.Units.Select(units.ToFile)]);
     }
 
     #endregion

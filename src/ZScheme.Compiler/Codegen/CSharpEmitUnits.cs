@@ -29,4 +29,15 @@ public sealed record CSharpEmitUnits(string Header, IReadOnlyList<CSharpEmitUnit
     {
         return Header + string.Concat(Units.Select(u => u.Body));
     }
+
+    /// <summary>
+    ///     <see cref="Header" /> followed by one unit's <see cref="CSharpEmitUnit.Body" />:
+    ///     that unit as a standalone C# file. The other half of the contract behind
+    ///     <see cref="ToSingleFile" /> — the per-module files a project is split into are
+    ///     assembled here so the boundary between header and body lives in one place.
+    /// </summary>
+    public string ToFile(CSharpEmitUnit unit)
+    {
+        return Header + unit.Body;
+    }
 }
