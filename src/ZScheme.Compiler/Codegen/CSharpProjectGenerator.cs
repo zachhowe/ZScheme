@@ -1,3 +1,4 @@
+using System.IO.Enumeration;
 using System.Security;
 using System.Text;
 
@@ -223,36 +224,45 @@ public static class CSharpProjectGenerator
     /// </summary>
     private static void PruneGeneratedCsFiles(string outputDir)
     {
-        // Materialized: the enumeration is being deleted from as it runs. Reparse points
-        // are skipped so a symlink or junction under a user-named output directory cannot
-        // walk this into another tree's files, or into itself. An unreadable directory is
-        // not skipped: the SDK still compiles from it, so a stale file inside it has to
-        // fail the prune rather than be silently left behind (EnumerationOptions ignores
-        // inaccessible entries by default; SearchOption.AllDirectories never did).
-        var candidates = Directory
-            .EnumerateFiles(
-                outputDir,
-                "*.cs",
-                new EnumerationOptions
-                {
-                    RecurseSubdirectories = true,
-                    AttributesToSkip = FileAttributes.ReparsePoint,
-                    IgnoreInaccessible = false,
-                }
-            )
-            .ToList();
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(outputDir));
+
+        // Materialized: the enumeration is being deleted from as it runs. A file that is
+        // itself a link stays a candidate — it is as stale as any other, and deleting it
+        // removes the link, not its target — but a directory link is not
+        // descended into, so a symlink or junction under a user-named output directory
+        // cannot walk this into another tree's files, or into itself. Nor is bin/ or obj/
+        // at the root: build output, not source. obj/ holds the SDK's own generated .cs,
+        // which it rewrites on the next build. An unreadable directory is not skipped
+        // either: a stale file inside it has to fail the prune rather than be silently
+        // left behind (EnumerationOptions ignores inaccessible entries by default;
+        // SearchOption.AllDirectories never did).
+        var candidates = new FileSystemEnumerable<string>(
+            root,
+            (ref FileSystemEntry entry) => entry.ToFullPath(),
+            new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = 0,
+                IgnoreInaccessible = false,
+            }
+        )
+        {
+            ShouldIncludePredicate = (ref FileSystemEntry entry) =>
+                !entry.IsDirectory
+                && entry.FileName.EndsWith(".cs", StringComparison.OrdinalIgnoreCase),
+            ShouldRecursePredicate = (ref FileSystemEntry entry) =>
+                (entry.Attributes & FileAttributes.ReparsePoint) == 0
+                && !(
+                    entry.Directory.SequenceEqual(root)
+                    && (
+                        entry.FileName.Equals("bin", StringComparison.OrdinalIgnoreCase)
+                        || entry.FileName.Equals("obj", StringComparison.OrdinalIgnoreCase)
+                    )
+                ),
+        }.ToList();
 
         foreach (var path in candidates)
         {
-            // Build output, not source. obj/ holds the SDK's own generated .cs, which it
-            // rewrites on the next build; neither tree is compiled from here.
-            var root = Path.GetRelativePath(outputDir, path).Split('/', '\\')[0];
-            if (
-                root.Equals("bin", StringComparison.OrdinalIgnoreCase)
-                || root.Equals("obj", StringComparison.OrdinalIgnoreCase)
-            )
-                continue;
-
             // A locked or unreadable file propagates. Swallowing it would let the command
             // report success and leave the user to meet the stale file as a duplicate
             // definition in the next build, with nothing saying a prune was attempted.
