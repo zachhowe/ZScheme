@@ -361,12 +361,15 @@ internal static class GenerateProjectCommand
         };
 
         // One file per module, mirroring the package's source tree the way the test project
-        // mirrors its own.
+        // mirrors its own. Pruned: this directory is the package's alone, so every generated
+        // file under it is a module's, and a module renamed since the last run would
+        // otherwise leave its old file behind.
         CSharpProjectGenerator.WriteProjectDirectory(
             mainDir,
             mainProjectName,
             [.. mainResult.Files.Select(f => (f.RelativePath, f.Source))],
-            projectOptions
+            projectOptions,
+            pruneStaleGeneratedFiles: true
         );
 
         Console.WriteLine($"Generated: {Path.Combine(mainDir, $"{mainProjectName}.csproj")}");
@@ -619,7 +622,8 @@ internal static class GenerateProjectCommand
             testDir,
             testProjectName,
             csFiles,
-            testProjectOptions
+            testProjectOptions,
+            pruneStaleGeneratedFiles: true
         );
 
         Console.WriteLine($"Generated: {Path.Combine(testDir, $"{testProjectName}.csproj")}");
