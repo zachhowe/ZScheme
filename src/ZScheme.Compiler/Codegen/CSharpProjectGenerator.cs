@@ -1,5 +1,4 @@
 using System.Text;
-using Serilog;
 
 namespace ZScheme.Compiler.Codegen;
 
@@ -35,8 +34,6 @@ public sealed record CSharpProjectOptions
 
 public static class CSharpProjectGenerator
 {
-    private static readonly ILogger Log = Serilog.Log.ForContext(typeof(CSharpProjectGenerator));
-
     /// <summary>
     ///     Framework references each SDK already implies. Restating one is not an error but
     ///     NETSDK1086 warns about it, which a stricter consumer build turns into a failure.
@@ -209,28 +206,22 @@ public static class CSharpProjectGenerator
             )
                 continue;
 
-            try
+            // A locked or unreadable file propagates. Swallowing it would let the command
+            // report success and leave the user to meet the stale file as a duplicate
+            // definition in the next build, with nothing saying a prune was attempted.
+            using (var reader = new StreamReader(path))
             {
-                using (var reader = new StreamReader(path))
-                {
-                    var firstLine = reader.ReadLine();
-                    if (
-                        firstLine?.StartsWith(
-                            CSharpEmitter.GeneratedFileMarker,
-                            StringComparison.Ordinal
-                        ) != true
-                    )
-                        continue;
-                }
+                var firstLine = reader.ReadLine();
+                if (
+                    firstLine?.StartsWith(
+                        CSharpEmitter.GeneratedFileMarker,
+                        StringComparison.Ordinal
+                    ) != true
+                )
+                    continue;
+            }
 
-                File.Delete(path);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // A locked or unreadable file is not worth failing the whole generation
-                // over; the build that follows reports it far more clearly.
-                Log.Warning(ex, "Could not remove stale generated file {Path}", path);
-            }
+            File.Delete(path);
         }
     }
 }
