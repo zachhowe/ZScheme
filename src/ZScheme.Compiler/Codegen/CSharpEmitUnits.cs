@@ -15,8 +15,18 @@ public sealed record CSharpEmitUnit(string? ModuleClassName, string Body);
 ///     <c>namespace</c>) and the units themselves.
 /// </summary>
 /// <remarks>
-///     <see cref="Header" /> concatenated with every <see cref="CSharpEmitUnit.Body" /> in
-///     order reproduces <see cref="CSharpEmitter.Emit" />'s single-file output byte for
-///     byte — the units are slices of one emitter pass, not separate emissions.
+///     The units are slices of one emitter pass, not separate emissions, so
+///     <see cref="ToSingleFile" /> reproduces <see cref="CSharpEmitter.Emit" />'s output
+///     byte for byte.
 /// </remarks>
-public sealed record CSharpEmitUnits(string Header, IReadOnlyList<CSharpEmitUnit> Units);
+public sealed record CSharpEmitUnits(string Header, IReadOnlyList<CSharpEmitUnit> Units)
+{
+    /// <summary>
+    ///     <see cref="Header" /> followed by every <see cref="CSharpEmitUnit.Body" /> in
+    ///     order: the whole program as one C# file.
+    /// </summary>
+    public string ToSingleFile()
+    {
+        return Header + string.Concat(Units.Select(u => u.Body));
+    }
+}

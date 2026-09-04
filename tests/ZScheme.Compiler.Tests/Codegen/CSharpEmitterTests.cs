@@ -5631,7 +5631,7 @@ public class CSharpEmitterTests
         var single = MakeMultiModuleEmitter().Emit(MultiModuleMain());
         var units = MakeMultiModuleEmitter().EmitUnits(MultiModuleMain());
 
-        Assert.Equal(single, units.Header + string.Concat(units.Units.Select(u => u.Body)));
+        Assert.Equal(single, units.ToSingleFile());
     }
 
     [Fact]
