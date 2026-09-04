@@ -53,10 +53,21 @@ internal static class GenerateProjectCommand
                 manifestPath = candidates[0];
         }
 
-        if (manifestPath is not null)
-            return RunPackageMode(manifestPath, outputDir);
+        // Everything below is filesystem work in a user-named directory: the prune reads
+        // every .cs under it to check for the marker, hand-written ones included, and then
+        // the project tree is written. A file it cannot open or delete is the user's to
+        // sort out, reported by path, not a crash with a stack trace.
+        try
+        {
+            if (manifestPath is not null)
+                return RunPackageMode(manifestPath, outputDir);
 
-        return RunLegacyMode(outputDir, projectOutputType, langVersion, nugetPackages);
+            return RunLegacyMode(outputDir, projectOutputType, langVersion, nugetPackages);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return CliHelpers.Error($"generate-project: {ex.Message}");
+        }
     }
 
     private static int RunLegacyMode(

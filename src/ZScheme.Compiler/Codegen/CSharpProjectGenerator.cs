@@ -263,22 +263,32 @@ public static class CSharpProjectGenerator
 
         foreach (var path in candidates)
         {
-            // A locked or unreadable file propagates. Swallowing it would let the command
-            // report success and leave the user to meet the stale file as a duplicate
-            // definition in the next build, with nothing saying a prune was attempted.
-            using (var reader = new StreamReader(path))
-            {
-                var firstLine = reader.ReadLine();
-                if (
-                    firstLine?.StartsWith(
-                        CSharpEmitter.GeneratedFileMarker,
-                        StringComparison.Ordinal
-                    ) != true
-                )
-                    continue;
-            }
+            if (!IsGeneratedFile(path))
+                continue;
 
             File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    ///     Whether the file's first line carries <see cref="CSharpEmitter.GeneratedFileMarker" />.
+    ///     A locked or unreadable file propagates: swallowing it would let the command report
+    ///     success with the stale file still there and nothing saying a prune was attempted.
+    ///     A file gone since it was enumerated is simply nothing to prune.
+    /// </summary>
+    private static bool IsGeneratedFile(string path)
+    {
+        try
+        {
+            using var reader = new StreamReader(path);
+            return reader.ReadLine()?.StartsWith(
+                    CSharpEmitter.GeneratedFileMarker,
+                    StringComparison.Ordinal
+                ) == true;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
         }
     }
 }
