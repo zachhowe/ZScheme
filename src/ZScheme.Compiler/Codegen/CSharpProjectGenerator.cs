@@ -146,26 +146,25 @@ public static class CSharpProjectGenerator
             """;
     }
 
-    /// <param name="pruneGeneratedCsFiles">
-    ///     Delete previously generated <c>.cs</c> files under <paramref name="outputDir" />
-    ///     before writing. The csproj carries no <c>&lt;Compile&gt;</c> items, so the SDK
-    ///     globs <c>**/*.cs</c>: once a project is more than one file, a renamed or deleted
-    ///     module leaves behind a source file that still compiles, and the project fails on
-    ///     duplicate definitions. Only files this compiler wrote are removed — see
+    /// <summary>
+    ///     Writes the csproj and every source file, first deleting the <c>.cs</c> files a
+    ///     previous run generated under <paramref name="outputDir" />. The csproj carries no
+    ///     <c>&lt;Compile&gt;</c> items, so the SDK globs <c>**/*.cs</c>: a module renamed or
+    ///     deleted since the last run — or a per-module tree left by <c>generate-project</c>
+    ///     where <c>zs compile --emit-project</c> now writes a single file — would otherwise
+    ///     leave behind a source that still compiles, and the project fails on duplicate
+    ///     definitions. Only files this compiler wrote are removed — see
     ///     <see cref="PruneGeneratedCsFiles" />.
-    /// </param>
+    /// </summary>
     public static void WriteProjectDirectory(
         string outputDir,
         string projectName,
         IReadOnlyList<(string FileName, string Content)> csFiles,
-        CSharpProjectOptions options,
-        bool pruneGeneratedCsFiles = false
+        CSharpProjectOptions options
     )
     {
         Directory.CreateDirectory(outputDir);
-
-        if (pruneGeneratedCsFiles)
-            PruneGeneratedCsFiles(outputDir);
+        PruneGeneratedCsFiles(outputDir);
 
         var csprojPath = Path.Combine(outputDir, $"{projectName}.csproj");
         File.WriteAllText(csprojPath, GenerateCsproj(options));
