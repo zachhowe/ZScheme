@@ -184,11 +184,15 @@ internal static class CompileCommand
                         NuGetPackages = nugetPackages,
                     };
                     var csFileName = $"{projectName}.cs";
+                    // No prune: the csproj names its one file, so a per-module tree left
+                    // here by generate-project is inert, and the directory is wherever the
+                    // user pointed -o — it can hold other compiles' output.
                     CSharpProjectGenerator.WriteProjectDirectory(
                         projectDir,
                         projectName,
                         [(csFileName, csResult.CsOutput)],
-                        projectOptions
+                        projectOptions,
+                        pruneStaleGeneratedFiles: false
                     );
                     Log.Debug("compile: wrote project to {OutputDir}", projectDir);
                     Console.WriteLine(

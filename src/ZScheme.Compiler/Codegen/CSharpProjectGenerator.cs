@@ -170,24 +170,33 @@ public static class CSharpProjectGenerator
     }
 
     /// <summary>
-    ///     Writes the csproj and every source file, first deleting the <c>.cs</c> files a
-    ///     previous run generated under <paramref name="outputDir" />. The csproj lists
-    ///     exactly <paramref name="csFiles" /> as its <c>&lt;Compile&gt;</c> items, so a file
-    ///     left over from an earlier run — a module renamed or deleted since, or a
-    ///     per-module tree where <c>zs compile --emit-project</c> now writes a single file —
-    ///     is not compiled either way; the prune keeps it from lingering as if it were part
-    ///     of the project. Only files this compiler wrote are removed — see
-    ///     <see cref="PruneGeneratedCsFiles" />.
+    ///     Writes the csproj and every source file. The csproj lists exactly
+    ///     <paramref name="csFiles" /> as its <c>&lt;Compile&gt;</c> items, so whatever else
+    ///     sits under <paramref name="outputDir" /> is not compiled.
     /// </summary>
+    /// <param name="pruneStaleGeneratedFiles">
+    ///     First delete every <c>.cs</c> file a previous run generated anywhere under
+    ///     <paramref name="outputDir" />, so a module renamed or deleted since does not leave
+    ///     its old file lingering as if it were part of the project. Only for a caller that
+    ///     owns the whole tree, as <c>generate-project</c> does: it writes one file per
+    ///     module and every generated file under its directory is one of its own. A
+    ///     single-file write such as <c>zs compile --emit-project</c> owns nothing but the
+    ///     file it overwrites, and the directory it is pointed at can hold other compiles'
+    ///     output — <c>-o .</c> at a repo root would sweep every generated tree below it.
+    ///     Only files this compiler wrote are removed — see
+    ///     <see cref="PruneGeneratedCsFiles" />.
+    /// </param>
     public static void WriteProjectDirectory(
         string outputDir,
         string projectName,
         IReadOnlyList<(string FileName, string Content)> csFiles,
-        CSharpProjectOptions options
+        CSharpProjectOptions options,
+        bool pruneStaleGeneratedFiles
     )
     {
         Directory.CreateDirectory(outputDir);
-        PruneGeneratedCsFiles(outputDir);
+        if (pruneStaleGeneratedFiles)
+            PruneGeneratedCsFiles(outputDir);
 
         var csprojPath = Path.Combine(outputDir, $"{projectName}.csproj");
         File.WriteAllText(
@@ -208,10 +217,9 @@ public static class CSharpProjectGenerator
     /// <summary>
     ///     Deletes the <c>.cs</c> files under <paramref name="outputDir" /> that this
     ///     compiler generated, leaving anything else alone. Generated output goes into
-    ///     user-named directories (<c>zs compile --emit-project</c> points wherever the user
-    ///     says), so the marker check is what keeps this from deleting hand-written sources;
-    ///     a file emitted with the version preamble suppressed carries no marker and
-    ///     survives, which only costs a stale file.
+    ///     user-named directories, so the marker check is what keeps this from deleting
+    ///     hand-written sources; a file emitted with the version preamble suppressed carries
+    ///     no marker and survives, which only costs a stale file.
     /// </summary>
     private static void PruneGeneratedCsFiles(string outputDir)
     {
