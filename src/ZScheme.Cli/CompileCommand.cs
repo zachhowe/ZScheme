@@ -214,6 +214,7 @@ internal static class CompileCommand
                         var projectOptions = new CSharpProjectOptions
                         {
                             AssemblyReferences = csResult.PrecompiledAssemblyPaths,
+                            CompileItems = [Path.GetFileName(outputFile)],
                         };
                         File.WriteAllText(
                             csprojFile,

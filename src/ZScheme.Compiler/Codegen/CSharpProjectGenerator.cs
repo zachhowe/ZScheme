@@ -1,3 +1,4 @@
+using System.Security;
 using System.Text;
 
 namespace ZScheme.Compiler.Codegen;
@@ -30,6 +31,17 @@ public sealed record CSharpProjectOptions
     ///     generated code does not use restores a single candidate.
     /// </summary>
     public IReadOnlyList<string> AliasedAssemblies { get; init; } = [];
+
+    /// <summary>
+    ///     The source files to compile, as paths relative to the project directory. When
+    ///     non-empty the SDK's default <c>**/*.cs</c> glob is switched off and exactly these
+    ///     are compiled, so a stray <c>.cs</c> in the directory — a module's file from before
+    ///     it was renamed, a per-module tree left where <c>zs compile --emit-project</c> now
+    ///     writes one file, a hand-written source — is never picked up. Empty keeps the glob,
+    ///     for a project whose sources the user adds by hand (<c>generate-project</c> with no
+    ///     manifest).
+    /// </summary>
+    public IReadOnlyList<string> CompileItems { get; init; } = [];
 }
 
 public static class CSharpProjectGenerator
@@ -71,7 +83,18 @@ public static class CSharpProjectGenerator
         if (hasItems)
             sb.AppendLine("    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>");
 
+        if (options.CompileItems.Count > 0)
+            sb.AppendLine("    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>");
+
         sb.AppendLine("  </PropertyGroup>");
+
+        if (options.CompileItems.Count > 0)
+        {
+            sb.AppendLine("  <ItemGroup>");
+            foreach (var path in options.CompileItems)
+                sb.AppendLine($"    <Compile Include=\"{SecurityElement.Escape(path)}\" />");
+            sb.AppendLine("  </ItemGroup>");
+        }
 
         if (hasItems)
         {
@@ -148,12 +171,12 @@ public static class CSharpProjectGenerator
 
     /// <summary>
     ///     Writes the csproj and every source file, first deleting the <c>.cs</c> files a
-    ///     previous run generated under <paramref name="outputDir" />. The csproj carries no
-    ///     <c>&lt;Compile&gt;</c> items, so the SDK globs <c>**/*.cs</c>: a module renamed or
-    ///     deleted since the last run — or a per-module tree left by <c>generate-project</c>
-    ///     where <c>zs compile --emit-project</c> now writes a single file — would otherwise
-    ///     leave behind a source that still compiles, and the project fails on duplicate
-    ///     definitions. Only files this compiler wrote are removed — see
+    ///     previous run generated under <paramref name="outputDir" />. The csproj lists
+    ///     exactly <paramref name="csFiles" /> as its <c>&lt;Compile&gt;</c> items, so a file
+    ///     left over from an earlier run — a module renamed or deleted since, or a
+    ///     per-module tree where <c>zs compile --emit-project</c> now writes a single file —
+    ///     is not compiled either way; the prune keeps it from lingering as if it were part
+    ///     of the project. Only files this compiler wrote are removed — see
     ///     <see cref="PruneGeneratedCsFiles" />.
     /// </summary>
     public static void WriteProjectDirectory(
@@ -167,7 +190,10 @@ public static class CSharpProjectGenerator
         PruneGeneratedCsFiles(outputDir);
 
         var csprojPath = Path.Combine(outputDir, $"{projectName}.csproj");
-        File.WriteAllText(csprojPath, GenerateCsproj(options));
+        File.WriteAllText(
+            csprojPath,
+            GenerateCsproj(options with { CompileItems = [.. csFiles.Select(f => f.FileName)] })
+        );
 
         foreach (var (fileName, content) in csFiles)
         {

@@ -195,10 +195,11 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
 
     /// <summary>
     ///     Whether a module name is safe to use as a relative file path: no escaping the
-    ///     project directory, nothing the filesystem rejects, and nowhere the SDK's
-    ///     <c>DefaultItemExcludes</c> would drop it from the compilation — a <c>bin</c> or
-    ///     <c>obj</c> root, or any dot-prefixed directory (<c>**/.*/**</c>). A file written
-    ///     there would be silently left out, and the modules importing it would fail to build.
+    ///     project directory, nothing the filesystem rejects, and not under a <c>bin</c> or
+    ///     <c>obj</c> root or a dot-prefixed directory. The generated csproj names every
+    ///     source explicitly, so the SDK's <c>DefaultItemExcludes</c> (which cover exactly
+    ///     those paths) no longer decide what compiles; the fallback stays so a module's
+    ///     file never sits inside the project's own build output or a hidden directory.
     /// </summary>
     private static bool IsUsableAsPath(string moduleName)
     {

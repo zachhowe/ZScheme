@@ -204,6 +204,38 @@ public class CSharpProjectGeneratorTests
         Assert.DoesNotContain("<FrameworkReference", csproj);
     }
 
+    /// <summary>
+    ///     Naming the sources is what makes a stray .cs in the output directory inert: with
+    ///     the default glob a module's old file, or a hand-written source, would compile
+    ///     into a duplicate definition.
+    /// </summary>
+    [Fact]
+    public void GenerateCsproj_CompileItems_ReplaceTheDefaultGlob()
+    {
+        var options = new CSharpProjectOptions
+        {
+            CompileItems = ["Lib.cs", "mutable/vector.cs", "a&b.cs"],
+        };
+        var csproj = CSharpProjectGenerator.GenerateCsproj(options);
+
+        Assert.Contains("<EnableDefaultCompileItems>false</EnableDefaultCompileItems>", csproj);
+        Assert.Contains("<Compile Include=\"Lib.cs\" />", csproj);
+        Assert.Contains("<Compile Include=\"mutable/vector.cs\" />", csproj);
+        Assert.Contains("<Compile Include=\"a&amp;b.cs\" />", csproj);
+    }
+
+    /// <summary>
+    ///     <c>generate-project</c> with no manifest writes a csproj and nothing else; the
+    ///     user's own sources are found by the glob.
+    /// </summary>
+    [Fact]
+    public void GenerateCsproj_NoCompileItems_KeepsTheDefaultGlob()
+    {
+        var csproj = CSharpProjectGenerator.GenerateCsproj(new CSharpProjectOptions());
+        Assert.DoesNotContain("EnableDefaultCompileItems", csproj);
+        Assert.DoesNotContain("<Compile ", csproj);
+    }
+
     [Fact]
     public void WriteProjectDirectory_CreatesExpectedFiles()
     {
@@ -218,16 +250,23 @@ public class CSharpProjectGeneratorTests
             var csFiles = new List<(string FileName, string Content)>
             {
                 ("Example.cs", "// generated code"),
+                ("nested/Other.cs", "// more generated code"),
             };
 
             CSharpProjectGenerator.WriteProjectDirectory(tempDir, "TestProject", csFiles, options);
 
             Assert.True(File.Exists(Path.Combine(tempDir, "TestProject.csproj")));
             Assert.True(File.Exists(Path.Combine(tempDir, "Example.cs")));
+            Assert.True(File.Exists(Path.Combine(tempDir, "nested", "Other.cs")));
 
             var csproj = File.ReadAllText(Path.Combine(tempDir, "TestProject.csproj"));
             Assert.Contains("<OutputType>Library</OutputType>", csproj);
             Assert.Contains("<PackageReference Include=\"xunit\" Version=\"2.9.3\" />", csproj);
+
+            // Exactly the files written are the project's sources.
+            Assert.Contains("<EnableDefaultCompileItems>false</EnableDefaultCompileItems>", csproj);
+            Assert.Contains("<Compile Include=\"Example.cs\" />", csproj);
+            Assert.Contains("<Compile Include=\"nested/Other.cs\" />", csproj);
 
             var cs = File.ReadAllText(Path.Combine(tempDir, "Example.cs"));
             Assert.Equal("// generated code", cs);
@@ -240,9 +279,9 @@ public class CSharpProjectGeneratorTests
     }
 
     /// <summary>
-    ///     The csproj has no &lt;Compile&gt; items, so the SDK globs every .cs under the
-    ///     project. With one file per module a renamed module would otherwise leave a source
-    ///     file behind that still compiles, and the build fails on duplicate definitions.
+    ///     The csproj names its sources, so a stale file would not compile — but it would
+    ///     sit in the tree looking like part of the project. Pruning keeps a renamed
+    ///     module's old file from lingering.
     /// </summary>
     [Fact]
     public void WriteProjectDirectory_Pruning_RemovesOnlyItsOwnStaleFiles()

@@ -133,6 +133,7 @@ internal static class BuildCommand
                     {
                         OutputType = csResult.IsExecutable ? "Exe" : "Library",
                         AssemblyReferences = csResult.PrecompiledAssemblyPaths,
+                        CompileItems = [Path.GetFileName(outputFile)],
                     };
                     File.WriteAllText(
                         csprojFile,
