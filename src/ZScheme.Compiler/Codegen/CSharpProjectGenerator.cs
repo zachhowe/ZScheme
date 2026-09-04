@@ -225,15 +225,17 @@ public static class CSharpProjectGenerator
     private static void PruneGeneratedCsFiles(string outputDir)
     {
         // Materialized: the enumeration is being deleted from as it runs. A file that is
-        // itself a link stays a candidate — it is as stale as any other, and deleting it
-        // removes the link, not its target — but a directory link is not
-        // descended into, so a symlink or junction under a user-named output directory
-        // cannot walk this into another tree's files, or into itself. Nor is bin/ or obj/
-        // at the root: build output, not source. obj/ holds the SDK's own generated .cs,
-        // which it rewrites on the next build. An unreadable directory is not skipped
-        // either: a stale file inside it has to fail the prune rather than be silently
-        // left behind (EnumerationOptions ignores inaccessible entries by default;
-        // SearchOption.AllDirectories never did).
+        // itself a link stays a candidate — if what it points at carries the marker it is
+        // as stale as any other, and deleting it removes the link, not its target. A link
+        // whose target is gone reads as no file at all and is left alone: with nothing to
+        // check the marker against it cannot be told from anything hand-placed. A
+        // directory link is not descended into, so a symlink or junction under a
+        // user-named output directory cannot walk this into another tree's files, or into
+        // itself. Nor is bin/ or obj/ at the root: build output, not source. obj/ holds
+        // the SDK's own generated .cs, which it rewrites on the next build. An unreadable
+        // directory is not skipped either: a stale file inside it has to fail the prune
+        // rather than be silently left behind (EnumerationOptions ignores inaccessible
+        // entries by default; SearchOption.AllDirectories never did).
         var candidates = new FileSystemEnumerable<string>(
             outputDir,
             (ref FileSystemEntry entry) => entry.ToFullPath(),
@@ -272,17 +274,18 @@ public static class CSharpProjectGenerator
     ///     Whether the file's first line carries <see cref="CSharpEmitter.GeneratedFileMarker" />.
     ///     A locked or unreadable file propagates: swallowing it would let the command report
     ///     success with the stale file still there and nothing saying a prune was attempted.
-    ///     A file gone since it was enumerated is simply nothing to prune.
+    ///     A file gone since it was enumerated is simply nothing to prune, and a link whose
+    ///     target is missing reads the same way.
     /// </summary>
     private static bool IsGeneratedFile(string path)
     {
         try
         {
             using var reader = new StreamReader(path);
-            return reader.ReadLine()?.StartsWith(
-                    CSharpEmitter.GeneratedFileMarker,
-                    StringComparison.Ordinal
-                ) == true;
+            return reader
+                    .ReadLine()
+                    ?.StartsWith(CSharpEmitter.GeneratedFileMarker, StringComparison.Ordinal)
+                == true;
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {

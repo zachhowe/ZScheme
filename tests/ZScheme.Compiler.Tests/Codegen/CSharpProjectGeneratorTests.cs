@@ -445,6 +445,39 @@ public class CSharpProjectGeneratorTests
     }
 
     /// <summary>
+    ///     A link whose target is gone has no first line to check the marker against, so
+    ///     it cannot be told from anything hand-placed and is left where it is.
+    /// </summary>
+    [Fact]
+    public void WriteProjectDirectory_Pruning_LeavesADanglingFileLinkAlone()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"zs-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var link = Path.Combine(tempDir, "gone.cs");
+            if (!TryCreateSymbolicLink(link, Path.Combine(tempDir, "missing.cs"), false))
+                return;
+
+            CSharpProjectGenerator.WriteProjectDirectory(
+                tempDir,
+                "TestProject",
+                [("fresh.cs", Marker + "\npublic class Fresh {}")],
+                new CSharpProjectOptions(),
+                pruneStaleGeneratedFiles: true
+            );
+
+            Assert.NotNull(new FileInfo(link).LinkTarget);
+            Assert.True(File.Exists(Path.Combine(tempDir, "fresh.cs")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    /// <summary>
     ///     A single-file write owns nothing but its own file: the directory it lands in may
     ///     hold another compile's output, which is not stale and not this writer's to remove.
     /// </summary>
