@@ -225,7 +225,10 @@ public static class CSharpProjectGenerator
     {
         // Materialized: the enumeration is being deleted from as it runs. Reparse points
         // are skipped so a symlink or junction under a user-named output directory cannot
-        // walk this into another tree's files, or into itself.
+        // walk this into another tree's files, or into itself. An unreadable directory is
+        // not skipped: the SDK still compiles from it, so a stale file inside it has to
+        // fail the prune rather than be silently left behind (EnumerationOptions ignores
+        // inaccessible entries by default; SearchOption.AllDirectories never did).
         var candidates = Directory
             .EnumerateFiles(
                 outputDir,
@@ -234,6 +237,7 @@ public static class CSharpProjectGenerator
                 {
                     RecurseSubdirectories = true,
                     AttributesToSkip = FileAttributes.ReparsePoint,
+                    IgnoreInaccessible = false,
                 }
             )
             .ToList();
