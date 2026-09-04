@@ -3,7 +3,6 @@
 name: ZScheme
 file_extensions:
   - zs
-  - zspkg
 scope: source.zscheme
 
 # Symbol character classes (from Lexer.cs):
@@ -29,10 +28,12 @@ contexts:
     - include: open-paren
     - include: close-paren
     - include: brackets
+    - include: flag-keywords
     - include: clr-qualifiers
     - include: colon
     - include: wildcard
     - include: ellipsis
+    - include: super-call
     - include: value-constructors
     - include: type-names
     - include: type-variables
@@ -80,6 +81,8 @@ contexts:
   boolean:
     - match: (?:#t|#f)(?!{{sym_continue}})
       scope: constant.language.boolean.zscheme
+    - match: \bnull\b
+      scope: constant.language.null.zscheme
 
   # ── Parentheses (S-expression structure) ──────────────────────────
 
@@ -99,8 +102,9 @@ contexts:
     - match: \)
       scope: punctuation.section.parens.end.zscheme
       pop: true
-    # Special forms — definition, control flow, pattern matching
-    - match: (?:define-syntax|define-async|define-record|define-struct|define-union|define-class|define-interface|define|define-type-alias|letrec|let\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|values)(?!{{sym_continue}})
+    # Special forms — the AstBuilder switch, plus the macro layer's
+    # define-syntax/syntax-rules and the type-expression keyword 'delegate'.
+    - match: (?:define-syntax|define-async|define-record|define-struct|define-union|define-class|define-interface|define-type-alias|define|letrec|let\*|let|use\*|use|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|values|quote)(?!{{sym_continue}})
       scope: keyword.control.zscheme
       set: paren-body
     # Module-related keywords
@@ -110,10 +114,6 @@ contexts:
     # Attribute marker
     - match: '@(?!{{sym_continue}})'
       scope: keyword.other.attribute.zscheme
-      set: paren-body
-    # Package manifest keywords
-    - match: (?:package|dependencies|test-dependencies|nuget|build|output|backend|stdlib|ref|name|version|entry)(?!{{sym_continue}})
-      scope: keyword.other.manifest.zscheme
       set: paren-body
     # Other keywords
     - match: (?:object|partial)(?!{{sym_continue}})
@@ -126,6 +126,18 @@ contexts:
     # Arithmetic and comparison operators in head position
     - match: (?:<=|>=|!=|[+\-*/%=<>])(?!{{sym_continue}})
       scope: keyword.operator.zscheme
+      set: paren-body
+    # Generic type constructors are applied, so they sit in head position —
+    # (List Int), (Hash String Long) — and must be claimed before the
+    # function-call catch-all below.
+    - match: (?:Mutable-TreeList|TreeList|List|Vector|Hash|Option|Result|Fn|Task)(?!{{sym_continue}})
+      scope: storage.type.zscheme
+      set: paren-body
+    # (super/MethodName arg ...)
+    - match: '(super/)({{sym_continue}}*)'
+      captures:
+        1: keyword.control.super.zscheme
+        2: variable.function.zscheme
       set: paren-body
     # Any other symbol in head position is a function call
     - match: '{{symbol}}'
@@ -168,19 +180,39 @@ contexts:
     - match: (?:Some|None|Ok|Err|Error)(?!{{sym_continue}})
       scope: constant.language.zscheme
 
+  # ── super/ method calls ───────────────────────────────────────────
+  # Also legal as a bare atom, not just in head position.
+
+  super-call:
+    - match: '(super/)({{sym_continue}}*)'
+      captures:
+        1: keyword.control.super.zscheme
+        2: variable.function.zscheme
+
   # ── Type names ────────────────────────────────────────────────────
+  # PrimitiveTypeNames.cs plus the stdlib generics. There is no 'Map' —
+  # packages/stdlib/src/map.zs is hash.zs and the type is Hash.
 
   type-names:
-    - match: (?:Int|Float|Bool|String|Unit|List|TreeList|Mutable-TreeList|Vector|Map|Option|Result|Fn)(?!{{sym_continue}})
+    - match: (?:Int|Long|Float|Double|Byte|Char|Bool|String|Unit|Symbol|List|TreeList|Mutable-TreeList|Vector|Hash|Option|Result|Fn|Task)(?!{{sym_continue}})
       scope: storage.type.zscheme
-    # User-defined types: capitalized identifiers
+    # User-defined types: capitalized identifiers. Scoped apart from the
+    # built-ins so the list above is load-bearing.
     - match: '[A-Z]{{sym_continue}}*'
-      scope: storage.type.zscheme
+      scope: entity.name.type.zscheme
+
+  # ── Flag keywords ─────────────────────────────────────────────────
+
+  flag-keywords:
+    - match: '#:(?:open|mutable|init)(?!{{sym_continue}})'
+      scope: keyword.other.flag.zscheme
 
   # ── import-clr qualifiers ─────────────────────────────────────────
+  # Longest alternatives first: ':instance-property' would otherwise shadow
+  # ':instance-property-set'.
 
   clr-qualifiers:
-    - match: ':(?:instance-property|instance-indexer|instance|where)(?!{{sym_continue}})'
+    - match: ':(?:instance-property-init|instance-property-set|instance-indexer-set|instance-property|instance-indexer|instance|where|from)(?!{{sym_continue}})'
       scope: keyword.other.clr-qualifier.zscheme
 
   # ── Ellipsis (macro repetition) ─────────────────────────────────

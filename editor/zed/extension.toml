@@ -7,9 +7,14 @@ schema_version = 1
 
 [language_servers.zscheme-lsp]
 name = "ZScheme Language Server"
-languages = ["ZScheme"]
+# Manifests are served too — AnalysisService dispatches on the .zspkg suffix.
+# "ZScheme Format" is deliberately absent: the server has no handler for .zsfmt.
+languages = ["ZScheme", "ZScheme Package"]
 
 [grammars.zscheme]
 repository = "https://github.com/zachhowe/ZScheme"
-rev = "155edd75aed17f5d1b859d79532094910634b97e"
+# Pinned to the commit that fixed clr_qualifier so it matches the -set/-init
+# and :from variants whole. Bump this whenever grammar.js changes — Zed fetches
+# the parser from the pinned rev, not from the working tree.
+rev = "6ad19cb8e1dd30ed607a64ea0d56be6eca1ac292"
 path = "editor/zed/tree-sitter-zscheme"

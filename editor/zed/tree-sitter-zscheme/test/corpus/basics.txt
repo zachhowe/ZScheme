@@ -361,3 +361,56 @@ Empty list
 
 (source_file
   (list))
+
+================================================================================
+CLR qualifiers
+================================================================================
+
+(import-clr System.Text.StringBuilder
+  [Append :instance "Append"]
+  [Length :instance-property "Length"]
+  [Capacity :instance-property-set "Capacity"]
+  [Seed :instance-property-init "Seed"]
+  [Item :instance-indexer "Item"]
+  [SetItem :instance-indexer-set "Item"]
+  [Create :from "System.Text.Encoding"]
+  [Widen :where notnull])
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (list
+    head: (symbol)
+    (symbol)
+    (bracket_list
+      (symbol)
+      (clr_qualifier)
+      (string))
+    (bracket_list
+      (symbol)
+      (clr_qualifier)
+      (string))
+    (bracket_list
+      (symbol)
+      (clr_qualifier)
+      (string))
+    (bracket_list
+      (symbol)
+      (clr_qualifier)
+      (string))
+    (bracket_list
+      (symbol)
+      (clr_qualifier)
+      (string))
+    (bracket_list
+      (symbol)
+      (clr_qualifier)
+      (string))
+    (bracket_list
+      (symbol)
+      (clr_qualifier)
+      (string))
+    (bracket_list
+      (symbol)
+      (clr_qualifier)
+      (symbol))))

@@ -48,9 +48,11 @@
 (symbol) @type
   (#match? @type "^[A-Z]")
 
-; Built-in type names (override generic type)
+; Built-in type names (override generic type).
+; PrimitiveTypeNames.cs plus the stdlib generics. There is no 'Map' —
+; packages/stdlib/src/map.zs is hash.zs and the type is Hash.
 (symbol) @type.builtin
-  (#match? @type.builtin "^(Int|Float|Bool|String|Unit|List|Vector|Map|Option|Result|Fn|Task)$")
+  (#match? @type.builtin "^(Int|Long|Float|Double|Byte|Char|Bool|String|Unit|Symbol|List|TreeList|Mutable-TreeList|Vector|Hash|Option|Result|Fn|Task)$")
 
 ; Value constructors (override type)
 (symbol) @constructor
@@ -80,10 +82,6 @@
 (list head: (symbol) @keyword
   (#match? @keyword "^(object|partial)$"))
 
-; Package manifest keywords
-(list head: (symbol) @keyword
-  (#match? @keyword "^(package|dependencies|test-dependencies|nuget|build|output|backend|stdlib|ref|name|version|entry|sources|main|test)$"))
-
 ; Attribute marker
 (list head: (symbol) @attribute
   (#eq? @attribute "@"))
@@ -92,6 +90,20 @@
 (list head: (symbol) @keyword
   (#match? @keyword "^(namespace|module|import|export|import-clr)$"))
 
-; Control flow keywords
+; Control flow keywords — the AstBuilder special-form switch, plus the macro
+; layer's define-syntax/syntax-rules and the type-expression keyword 'delegate'.
+; 'and'/'or'/'not' are deliberately absent: they are stdlib macros, not special
+; forms, and belong with ordinary function calls.
 (list head: (symbol) @keyword
-  (#match? @keyword "^(define-syntax|define-async|define-type-alias|define-record|define-struct|define-union|define-class|define-interface|define|letrec|let\\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|and|or|not|values)$"))
+  (#match? @keyword "^(define-syntax|define-async|define-type-alias|define-record|define-struct|define-union|define-class|define-interface|define|letrec|let\\*|let|use\\*|use|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|values|quote)$"))
+
+; Generic type constructors are applied, so they sit in head position —
+; (List Int), (Hash String Long) — where the head rules above would otherwise
+; claim them as function calls.
+(list head: (symbol) @type.builtin
+  (#match? @type.builtin "^(List|TreeList|Mutable-TreeList|Vector|Hash|Option|Result|Fn|Task)$"))
+
+; (super/MethodName arg ...) — the lexer reads 'super/Speak' as one symbol, so
+; the prefix cannot be captured apart from the method name.
+(list head: (symbol) @function
+  (#match? @function "^super/"))

@@ -359,6 +359,18 @@
             "members": [
               {
                 "type": "STRING",
+                "value": "instance-property-init"
+              },
+              {
+                "type": "STRING",
+                "value": "instance-property-set"
+              },
+              {
+                "type": "STRING",
+                "value": "instance-indexer-set"
+              },
+              {
+                "type": "STRING",
                 "value": "instance-property"
               },
               {
@@ -372,6 +384,10 @@
               {
                 "type": "STRING",
                 "value": "where"
+              },
+              {
+                "type": "STRING",
+                "value": "from"
               }
             ]
           }
