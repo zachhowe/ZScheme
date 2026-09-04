@@ -687,6 +687,9 @@ public class LibraryCompilerTests
     [InlineData("../escape", "mypkg", ".._EscapeModule.cs")]
     [InlineData("obj/generated", "mypkg", "Obj_GeneratedModule.cs")]
     [InlineData("bin/generated", "mypkg", "Bin_GeneratedModule.cs")]
+    // The SDK also excludes every dot-directory (**/.*/**), at any depth.
+    [InlineData(".internal/helpers", "mypkg", ".internal_HelpersModule.cs")]
+    [InlineData("util/.hidden/helpers", "mypkg", "Util_.hidden_HelpersModule.cs")]
     public void RelativePathForModule_MapsModuleNameToPath(
         string moduleName,
         string? importPrefix,
