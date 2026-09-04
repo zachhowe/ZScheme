@@ -5655,6 +5655,12 @@ public class CSharpEmitterTests
         foreach (var unit in units.Units)
         {
             Assert.DoesNotContain("namespace ", unit.Body);
+            // The blank line between two classes is the earlier unit's tail, not the later
+            // one's head, so header + module body never opens with a doubled blank line —
+            // on any platform's line ending. (The main unit keeps the single-file layout's
+            // blank after its inline type declarations; it is never written on its own.)
+            if (unit.ModuleClassName is not null)
+                Assert.StartsWith("public static class", unit.Body);
             // Top-level only: nested declarations are indented.
             var declarations = unit
                 .Body.Split('\n')
@@ -5674,7 +5680,7 @@ public class CSharpEmitterTests
         var units = MakeMultiModuleEmitter().EmitUnits(MultiModuleMain());
 
         RoslynCompileVerifier.AssertCompiles(
-            [.. units.Units.Select(u => units.Header + u.Body.TrimStart('\n'))]
+            [.. units.Units.Select(u => units.Header + u.Body)]
         );
     }
 
