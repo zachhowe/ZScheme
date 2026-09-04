@@ -89,7 +89,10 @@ public sealed partial class CSharpEmitter
 
         // Offsets into _sb at which each unit starts. Everything before the first mark is
         // the header; each unit body runs to the next mark, the last one to the end. The
-        // marks partition the buffer, so reassembling them is exact by construction.
+        // marks partition the buffer, so reassembling them is exact by construction. The
+        // blank line separating two classes belongs to the earlier unit's tail, so a unit
+        // body starts on its declaration and stands directly under the header in its own
+        // file without doubling the header's trailing blank line.
         var marks = new List<(string? ModuleClassName, int Start)> { (null, _sb.Length) };
 
         EmitTypeDeclarationsInline(node);
@@ -162,8 +165,8 @@ public sealed partial class CSharpEmitter
                 if (!hasContent)
                     continue;
 
-                marks.Add((moduleClassName, _sb.Length));
                 EmitLine();
+                marks.Add((moduleClassName, _sb.Length));
                 EmitLine($"public static class {moduleClassName}");
                 EmitLine("{");
                 _indent++;

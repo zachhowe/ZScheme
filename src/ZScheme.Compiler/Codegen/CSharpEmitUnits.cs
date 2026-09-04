@@ -3,7 +3,8 @@ namespace ZScheme.Compiler.Codegen;
 /// <summary>
 ///     One independently emittable piece of a C# compilation: the main program's class
 ///     (<see cref="ModuleClassName" /> null) or one module class. A unit is a complete
-///     namespace-scoped declaration, so prefixing it with
+///     namespace-scoped declaration that starts on its first line and ends with the blank
+///     line separating it from the next, so prefixing it with
 ///     <see cref="CSharpEmitUnits.Header" /> yields a valid standalone source file.
 /// </summary>
 public sealed record CSharpEmitUnit(string? ModuleClassName, string Body);

@@ -159,10 +159,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                     moduleName,
                     className,
                     RelativePathForModule(moduleName, className, manifest.ImportPrefix, taken),
-                    // A unit body opens with the blank line that separates it from whatever
-                    // preceded it in the single-file output. At the top of its own file that
-                    // would double the blank line the header already ends with.
-                    emitted.Header + unit.Body.TrimStart('\n')
+                    emitted.Header + unit.Body
                 )
             );
         }
