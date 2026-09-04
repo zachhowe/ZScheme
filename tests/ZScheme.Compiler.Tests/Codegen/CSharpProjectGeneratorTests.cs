@@ -441,9 +441,14 @@ public class CSharpProjectGeneratorTests
                 Directory.CreateSymbolicLink(Path.Combine(tempDir, "link"), otherDir);
                 Directory.CreateSymbolicLink(Path.Combine(tempDir, "self"), tempDir);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex)
+                when (OperatingSystem.IsWindows()
+                    && ex is IOException or UnauthorizedAccessException
+                )
             {
-                // Windows needs Developer Mode or elevation to create a symlink.
+                // Windows needs Developer Mode or elevation to create a symlink. Elsewhere a
+                // link that cannot be created is a real failure, not a reason to pass with
+                // nothing asserted.
                 return;
             }
 
