@@ -224,8 +224,6 @@ public static class CSharpProjectGenerator
     /// </summary>
     private static void PruneGeneratedCsFiles(string outputDir)
     {
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(outputDir));
-
         // Materialized: the enumeration is being deleted from as it runs. A file that is
         // itself a link stays a candidate — it is as stale as any other, and deleting it
         // removes the link, not its target — but a directory link is not
@@ -237,7 +235,7 @@ public static class CSharpProjectGenerator
         // left behind (EnumerationOptions ignores inaccessible entries by default;
         // SearchOption.AllDirectories never did).
         var candidates = new FileSystemEnumerable<string>(
-            root,
+            outputDir,
             (ref FileSystemEntry entry) => entry.ToFullPath(),
             new EnumerationOptions
             {
@@ -253,7 +251,7 @@ public static class CSharpProjectGenerator
             ShouldRecursePredicate = (ref FileSystemEntry entry) =>
                 (entry.Attributes & FileAttributes.ReparsePoint) == 0
                 && !(
-                    entry.Directory.SequenceEqual(root)
+                    entry.Directory.SequenceEqual(entry.RootDirectory)
                     && (
                         entry.FileName.Equals("bin", StringComparison.OrdinalIgnoreCase)
                         || entry.FileName.Equals("obj", StringComparison.OrdinalIgnoreCase)
