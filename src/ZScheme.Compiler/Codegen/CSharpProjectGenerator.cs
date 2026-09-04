@@ -190,9 +190,19 @@ public static class CSharpProjectGenerator
     /// </summary>
     private static void PruneGeneratedCsFiles(string outputDir)
     {
-        // Materialized: the enumeration is being deleted from as it runs.
+        // Materialized: the enumeration is being deleted from as it runs. Reparse points
+        // are skipped so a symlink or junction under a user-named output directory cannot
+        // walk this into another tree's files, or into itself.
         var candidates = Directory
-            .EnumerateFiles(outputDir, "*.cs", SearchOption.AllDirectories)
+            .EnumerateFiles(
+                outputDir,
+                "*.cs",
+                new EnumerationOptions
+                {
+                    RecurseSubdirectories = true,
+                    AttributesToSkip = FileAttributes.ReparsePoint,
+                }
+            )
             .ToList();
 
         foreach (var path in candidates)
