@@ -105,7 +105,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
             precompiledTypeRenames: precompiledTypeRenames
         );
         var emitted = emitter.EmitUnits(emptyIr);
-        var csOutput = emitted.Header + string.Concat(emitted.Units.Select(u => u.Body));
+        var csOutput = emitted.ToSingleFile();
 
         if (diagnostics.HasErrors)
             return null;
