@@ -53,20 +53,34 @@ internal static class GenerateProjectCommand
                 manifestPath = candidates[0];
         }
 
-        // Everything below is filesystem work in a user-named directory: the prune reads
-        // every .cs under it to check for the marker, hand-written ones included, and then
-        // the project tree is written. A file it cannot open or delete is the user's to
-        // sort out, reported by path, not a crash with a stack trace.
+        if (manifestPath is not null)
+            return RunPackageMode(manifestPath, outputDir);
+
+        return RunLegacyMode(outputDir, projectOutputType, langVersion, nugetPackages);
+    }
+
+    /// <summary>
+    ///     Runs one step that writes into the output directory. The directory is user-named:
+    ///     the prune opens every <c>.cs</c> under it to check for the marker, hand-written
+    ///     ones included, and the project tree is then written over whatever is there. A
+    ///     file the step cannot open, delete or overwrite is the user's to sort out, so it
+    ///     becomes an error naming the path — reported through
+    ///     <paramref name="diagnostics" /> alongside whatever the compile already had to
+    ///     say, on the same path every other failure takes — rather than a crash with a
+    ///     stack trace. Only the write is guarded: a compile that cannot read its own inputs
+    ///     is a different failure with a different message.
+    /// </summary>
+    private static bool TryWriteOutput(DiagnosticBag diagnostics, Action write)
+    {
         try
         {
-            if (manifestPath is not null)
-                return RunPackageMode(manifestPath, outputDir);
-
-            return RunLegacyMode(outputDir, projectOutputType, langVersion, nugetPackages);
+            write();
+            return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (CliHelpers.IsOutputFailure(ex))
         {
-            return CliHelpers.Error($"generate-project: {ex.Message}");
+            diagnostics.Error($"generate-project: {ex.Message}", SourceSpan.None);
+            return false;
         }
     }
 
@@ -86,9 +100,17 @@ internal static class GenerateProjectCommand
             NuGetPackages = nugetPackages,
         };
 
-        Directory.CreateDirectory(fullOutputDir);
         var csprojPath = Path.Combine(fullOutputDir, $"{projectName}.csproj");
-        File.WriteAllText(csprojPath, CSharpProjectGenerator.GenerateCsproj(options));
+        try
+        {
+            Directory.CreateDirectory(fullOutputDir);
+            File.WriteAllText(csprojPath, CSharpProjectGenerator.GenerateCsproj(options));
+        }
+        catch (Exception ex) when (CliHelpers.IsOutputFailure(ex))
+        {
+            return CliHelpers.Error($"generate-project: {ex.Message}");
+        }
+
         Console.WriteLine($"Generated: {csprojPath}");
         return 0;
     }
@@ -107,26 +129,26 @@ internal static class GenerateProjectCommand
         var parser = new ManifestParser(diagnostics);
         var manifest = parser.Parse(File.ReadAllText(fullManifestPath), fullManifestPath);
         if (manifest is null)
-        {
-            foreach (var d in diagnostics.Diagnostics)
-                Console.Error.WriteLine(d);
-            return 1;
-        }
+            return Fail();
 
         var context = PackageEmissionContext.Build(diagnostics, manifestDir, manifest);
         if (context is null || diagnostics.HasErrors)
-        {
-            foreach (var d in diagnostics.Diagnostics)
-                Console.Error.WriteLine(d);
-            return 1;
-        }
+            return Fail();
 
         var fullOutputDir = Path.GetFullPath(outputDir);
-        Directory.CreateDirectory(fullOutputDir);
-        File.WriteAllText(
-            Path.Combine(fullOutputDir, "Directory.Build.props"),
-            CSharpProjectGenerator.GenerateIsolatingDirectoryBuildProps()
+        var propsWritten = TryWriteOutput(
+            diagnostics,
+            () =>
+            {
+                Directory.CreateDirectory(fullOutputDir);
+                File.WriteAllText(
+                    Path.Combine(fullOutputDir, "Directory.Build.props"),
+                    CSharpProjectGenerator.GenerateIsolatingDirectoryBuildProps()
+                );
+            }
         );
+        if (!propsWritten)
+            return Fail();
 
         var mainProjectName = ResolveMainProjectName(manifest);
         var mainDir = Path.Combine(fullOutputDir, mainProjectName);
@@ -140,11 +162,7 @@ internal static class GenerateProjectCommand
             mainProjectName
         );
         if (mainResult is null)
-        {
-            foreach (var d in diagnostics.Diagnostics)
-                Console.Error.WriteLine(d);
-            return 1;
-        }
+            return Fail();
 
         var solutionEntries = new List<SolutionProjectEntry>
         {
@@ -174,11 +192,7 @@ internal static class GenerateProjectCommand
                         $"../{mainProjectName}/{mainProjectName}.csproj"
                     );
                     if (!testOk)
-                    {
-                        foreach (var d in diagnostics.Diagnostics)
-                            Console.Error.WriteLine(d);
-                        return 1;
-                    }
+                        return Fail();
 
                     solutionEntries.Add(
                         new SolutionProjectEntry(
@@ -191,10 +205,22 @@ internal static class GenerateProjectCommand
         }
 
         var slnxPath = Path.Combine(fullOutputDir, $"{mainProjectName}.slnx");
-        CSharpSolutionGenerator.WriteSlnx(slnxPath, solutionEntries);
+        var slnxWritten = TryWriteOutput(
+            diagnostics,
+            () => CSharpSolutionGenerator.WriteSlnx(slnxPath, solutionEntries)
+        );
+        if (!slnxWritten)
+            return Fail();
         Console.WriteLine($"Generated: {slnxPath}");
 
         return 0;
+
+        int Fail()
+        {
+            foreach (var d in diagnostics.Diagnostics)
+                Console.Error.WriteLine(d);
+            return 1;
+        }
     }
 
     private static string ResolveMainProjectName(PackageManifest manifest)
@@ -375,13 +401,19 @@ internal static class GenerateProjectCommand
         // mirrors its own. Pruned: this directory is the package's alone, so every generated
         // file under it is a module's, and a module renamed since the last run would
         // otherwise leave its old file behind.
-        CSharpProjectGenerator.WriteProjectDirectory(
-            mainDir,
-            mainProjectName,
-            [.. mainResult.Files.Select(f => (f.RelativePath, f.Source))],
-            projectOptions,
-            pruneStaleGeneratedFiles: true
+        var written = TryWriteOutput(
+            diagnostics,
+            () =>
+                CSharpProjectGenerator.WriteProjectDirectory(
+                    mainDir,
+                    mainProjectName,
+                    [.. mainResult.Files.Select(f => (f.RelativePath, f.Source))],
+                    projectOptions,
+                    pruneStaleGeneratedFiles: true
+                )
         );
+        if (!written)
+            return null;
 
         Console.WriteLine($"Generated: {Path.Combine(mainDir, $"{mainProjectName}.csproj")}");
         foreach (var file in mainResult.Files)
@@ -629,13 +661,19 @@ internal static class GenerateProjectCommand
             ),
         };
 
-        CSharpProjectGenerator.WriteProjectDirectory(
-            testDir,
-            testProjectName,
-            csFiles,
-            testProjectOptions,
-            pruneStaleGeneratedFiles: true
+        var written = TryWriteOutput(
+            diagnostics,
+            () =>
+                CSharpProjectGenerator.WriteProjectDirectory(
+                    testDir,
+                    testProjectName,
+                    csFiles,
+                    testProjectOptions,
+                    pruneStaleGeneratedFiles: true
+                )
         );
+        if (!written)
+            return false;
 
         Console.WriteLine($"Generated: {Path.Combine(testDir, $"{testProjectName}.csproj")}");
         foreach (var (fileName, _) in csFiles)

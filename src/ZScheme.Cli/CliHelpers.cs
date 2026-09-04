@@ -62,6 +62,17 @@ internal static class CliHelpers
         return 1;
     }
 
+    /// <summary>
+    ///     Whether <paramref name="ex" /> is the filesystem refusing a write into the output
+    ///     directory — a locked or read-only file, a directory that cannot be created — as
+    ///     opposed to a bug. Its message names the path, so it is reported as an error the
+    ///     user can act on rather than an unhandled-exception stack trace.
+    /// </summary>
+    public static bool IsOutputFailure(Exception ex)
+    {
+        return ex is IOException or UnauthorizedAccessException;
+    }
+
     public static IReadOnlyList<string> ResolveFrameworkRefDirs(
         IReadOnlyList<FrameworkDependency> frameworks,
         DiagnosticBag diagnostics
