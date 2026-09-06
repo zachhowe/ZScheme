@@ -102,7 +102,7 @@ public sealed class AuxModuleGenerator
             sb.AppendLine();
         }
 
-        sb.AppendLine($"(export {string.Join(" ", exportNames)})");
+        sb.AppendLine($"(provide {string.Join(" ", exportNames)})");
 
         return new AuxModule(moduleName, sb.ToString());
     }

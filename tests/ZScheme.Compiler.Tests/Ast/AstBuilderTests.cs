@@ -1306,14 +1306,14 @@ public class AstBuilderTests
     public void Record_NoName_ReportsError()
     {
         var (_, diag) = BuildWithDiagnostics("(define-record)");
-        AssertHasError(diag, "'define-record' requires a name");
+        AssertHasError(diag, "'record' requires a name");
     }
 
     [Fact]
     public void Struct_NoName_ReportsError()
     {
         var (_, diag) = BuildWithDiagnostics("(define-struct)");
-        AssertHasError(diag, "'define-struct' requires a name");
+        AssertHasError(diag, "'struct' requires a name");
     }
 
     // --- Union diagnostics ---
@@ -1374,14 +1374,14 @@ public class AstBuilderTests
     public void Export_NoNames_ReportsError()
     {
         var (_, diag) = BuildWithDiagnostics("(export)");
-        AssertHasError(diag, "'export' requires at least one name");
+        AssertHasError(diag, "'provide' requires at least one name");
     }
 
     [Fact]
     public void Export_NonNameEntry_ReportsError()
     {
         var (_, diag) = BuildWithDiagnostics("(export (foo))");
-        AssertHasError(diag, "'export' entries must be names");
+        AssertHasError(diag, "'provide' entries must be names");
     }
 
     // --- Object expression diagnostics ---
@@ -1578,10 +1578,7 @@ public class AstBuilderTests
         Assert.Null(cls.BaseClassName);
         Assert.Empty(cls.InterfaceNames);
         Assert.Single(cls.Fields);
-        Assert.Equal(
-            GenericConstraintKind.NotNull,
-            cls.TypeParamConstraints!["^a"]
-        );
+        Assert.Equal(GenericConstraintKind.NotNull, cls.TypeParamConstraints!["^a"]);
     }
 
     [Fact]
@@ -1590,10 +1587,7 @@ public class AstBuilderTests
         var prog = Build("(define-class (holder ^a) : base-thing :where (^a notnull) [v : ^a])");
         var cls = Assert.IsType<AstNode.ClassDecl>(prog.TopLevelForms[0]);
         Assert.Equal("base-thing", cls.BaseClassName);
-        Assert.Equal(
-            GenericConstraintKind.NotNull,
-            cls.TypeParamConstraints!["^a"]
-        );
+        Assert.Equal(GenericConstraintKind.NotNull, cls.TypeParamConstraints!["^a"]);
     }
 
     [Fact]
@@ -1611,10 +1605,7 @@ public class AstBuilderTests
         var prog = Build("(define-interface (i-holder ^a) :where (^a notnull) (Get [] : ^a))");
         var iface = Assert.IsType<AstNode.InterfaceDecl>(prog.TopLevelForms[0]);
         Assert.Empty(iface.BaseInterfaceNames);
-        Assert.Equal(
-            GenericConstraintKind.NotNull,
-            iface.TypeParamConstraints!["^a"]
-        );
+        Assert.Equal(GenericConstraintKind.NotNull, iface.TypeParamConstraints!["^a"]);
     }
 
     [Fact]

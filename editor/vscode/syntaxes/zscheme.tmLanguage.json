@@ -110,12 +110,12 @@
     },
 
     "head-keyword-control": {
-      "match": "(?<=\\()(?:define-syntax|define-async|define-type-alias|define-record|define-struct|define-union|define-class|define-interface|define|letrec|let\\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|values)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "match": "(?<=\\()(?:define-syntax|define-async|define-type-alias|define-record|define-struct|define-union|define-class|define-interface|define|record|struct|union|class|interface|letrec|let\\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|values)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
       "name": "keyword.control.zscheme"
     },
 
     "head-keyword-module": {
-      "match": "(?<=\\()(?:namespace|module|import|export|import-clr)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
+      "match": "(?<=\\()(?:namespace|module|import|provide|export|import-clr)(?![a-zA-Z_+\\-*/=<>!?&|%^~#@0-9.\\->])",
       "name": "keyword.control.module.zscheme"
     },
 
