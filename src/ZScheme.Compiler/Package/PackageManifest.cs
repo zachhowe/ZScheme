@@ -74,7 +74,12 @@ public sealed record MainBuildConfig(
     // accessors written with the deprecated `Type/member` spelling; null means "not
     // specified" (compiler default: on). The CLI's --no-warn-deprecated-accessor-syntax
     // wins over this.
-    bool? WarnDeprecatedAccessorSyntax = null
+    bool? WarnDeprecatedAccessorSyntax = null,
+    // (warn-deprecated-keyword "false") disables ZS0007 warnings about special forms
+    // written with a deprecated head (`export` for `provide`, a `define-`-prefixed type
+    // declaration for its bare replacement); null means "not specified" (compiler default:
+    // on). The CLI's --no-warn-deprecated-keyword wins over this.
+    bool? WarnDeprecatedKeyword = null
 );
 
 public sealed record TestBuildConfig(

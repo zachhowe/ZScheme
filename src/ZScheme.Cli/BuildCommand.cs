@@ -61,6 +61,9 @@ internal static class BuildCommand
                 case "--no-warn-deprecated-accessor-syntax":
                     overrides.WarnDeprecatedAccessorSyntax = false;
                     break;
+                case "--no-warn-deprecated-keyword":
+                    overrides.WarnDeprecatedKeyword = false;
+                    break;
             }
 
         Log.Debug(

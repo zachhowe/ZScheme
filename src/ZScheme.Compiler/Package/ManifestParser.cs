@@ -480,6 +480,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         bool? warnUnusedParams = null;
         bool? warnUnloopedRecursion = null;
         bool? warnDeprecatedAccessorSyntax = null;
+        bool? warnDeprecatedKeyword = null;
 
         for (var i = 1; i < section.Items.Count; i++)
         {
@@ -560,10 +561,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
 
                     break;
                 case "warn-deprecated-accessor-syntax":
-                    var warnAccStr = ExpectStringField(
-                        field,
-                        "warn-deprecated-accessor-syntax"
-                    );
+                    var warnAccStr = ExpectStringField(field, "warn-deprecated-accessor-syntax");
                     if (warnAccStr is not null)
                     {
                         if (warnAccStr is "true" or "false")
@@ -571,6 +569,20 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
                         else
                             diagnostics.Warning(
                                 "warn-deprecated-accessor-syntax must be \"true\" or \"false\"",
+                                field.Span
+                            );
+                    }
+
+                    break;
+                case "warn-deprecated-keyword":
+                    var warnKwStr = ExpectStringField(field, "warn-deprecated-keyword");
+                    if (warnKwStr is not null)
+                    {
+                        if (warnKwStr is "true" or "false")
+                            warnDeprecatedKeyword = warnKwStr == "true";
+                        else
+                            diagnostics.Warning(
+                                "warn-deprecated-keyword must be \"true\" or \"false\"",
                                 field.Span
                             );
                     }
@@ -594,7 +606,8 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             outputType,
             warnUnusedParams,
             warnUnloopedRecursion,
-            warnDeprecatedAccessorSyntax
+            warnDeprecatedAccessorSyntax,
+            warnDeprecatedKeyword
         );
     }
 

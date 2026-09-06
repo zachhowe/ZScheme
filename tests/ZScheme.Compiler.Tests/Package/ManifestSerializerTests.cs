@@ -323,6 +323,42 @@ public class ManifestSerializerTests
         Assert.Equal("zunit", parsed.TestDependencies.ZScheme[0].Name);
     }
 
+    /// <summary>
+    ///     The warn opt-outs are the only tri-state fields in the main block: null means "not
+    ///     specified", so a manifest that sets one has to survive a round trip as `false`
+    ///     rather than collapsing back to the compiler default.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SerializesWarnDeprecatedKeyword_RoundTrips(bool warn)
+    {
+        var build = new BuildConfig(
+            new MainBuildConfig(null, null, null, [], WarnDeprecatedKeyword: warn),
+            null
+        );
+        var manifest = MakeManifest(build: build);
+
+        var output = ManifestSerializer.Serialize(manifest);
+        Assert.Contains($"(warn-deprecated-keyword \"{(warn ? "true" : "false")}\")", output);
+
+        var parsed = RoundTrip(manifest);
+        Assert.Equal(warn, parsed!.Build!.Main!.WarnDeprecatedKeyword);
+    }
+
+    /// <summary>Left unset, it stays unset — the main block must not gain a stray field.</summary>
+    [Fact]
+    public void OmitsWarnDeprecatedKeyword_WhenUnset()
+    {
+        var manifest = MakeManifest(
+            build: new BuildConfig(new MainBuildConfig(null, null, "MyApp", []), null)
+        );
+
+        var output = ManifestSerializer.Serialize(manifest);
+        Assert.DoesNotContain("warn-deprecated-keyword", output);
+        Assert.Null(RoundTrip(manifest)!.Build!.Main!.WarnDeprecatedKeyword);
+    }
+
     [Fact]
     public void SerializesMainBuildConfig()
     {

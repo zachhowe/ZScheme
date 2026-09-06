@@ -125,14 +125,14 @@ directory is a toolchain on its own — links the result as `dev`, and makes it 
 ### Records and Unions
 
 ```scheme
-(define-record Point [x : Int] [y : Int])
+(record Point [x : Int] [y : Int])
 
 ;; Each field defines a `TypeName-fieldName` accessor.
 (define (magnitude-squared [p : Point]) : Int
   (+ (* (Point-x p) (Point-x p))
      (* (Point-y p) (Point-y p))))
 
-(define-union Shape
+(union Shape
   (Circle [radius : Int])
   (Rect [w : Int] [h : Int]))
 ```
@@ -190,7 +190,7 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 (define-syntax define-dto
   (syntax-rules ()
     [(define-dto name field ...)
-     (define-record name field ...)]))
+     (record name field ...)]))
 
 (define-dto UserInfo [name : String] [age : Int])
 ```
@@ -219,13 +219,13 @@ The compiler checks that all cases are covered and reports unmatched patterns.
 (import stdlib/string)
 
 ;; Base class must be marked #:open to allow subclassing
-(define-class #:open Animal
+(class #:open Animal
   [name : String]
   [sound : String]
   (define (Speak) : String
     (format "{0} says {1}" name sound)))
 
-(define-class #:open Dog : Animal
+(class #:open Dog : Animal
   [breed : String]
   (define (Speak) : String
     (format "{0} the {1}" name breed)))

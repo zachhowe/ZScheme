@@ -59,10 +59,7 @@ public sealed class CompletionTests
 
         Assert.Contains(items, i => i.Label == "define" && i.Kind == CompletionItemKind.Keyword);
         Assert.Contains(items, i => i.Label == "match" && i.Kind == CompletionItemKind.Keyword);
-        Assert.Contains(
-            items,
-            i => i.Label == "define-record" && i.Kind == CompletionItemKind.Keyword
-        );
+        Assert.Contains(items, i => i.Label == "record" && i.Kind == CompletionItemKind.Keyword);
         Assert.Contains(items, i => i.Label == "if" && i.Kind == CompletionItemKind.Keyword);
     }
 
@@ -225,7 +222,7 @@ public sealed class CompletionTests
         var items = await CompleteAsync(src, After(src, "defi"));
 
         Assert.Contains(items, i => i.Label == "define");
-        Assert.Contains(items, i => i.Label == "define-union");
+        Assert.Contains(items, i => i.Label == "define-async");
         Assert.DoesNotContain(items, i => i.Label == "match");
         Assert.DoesNotContain(items, i => i.Label == "my-func");
     }

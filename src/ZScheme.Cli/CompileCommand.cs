@@ -14,7 +14,7 @@ internal static class CompileCommand
         if (args.Length == 0)
         {
             Console.Error.WriteLine(
-                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--precompiled <path>] [--emit-project] [--output-type Exe|Library] [--lang-version <ver>] [--nuget <PackageId>:<Version>] [--no-warn-unused-params] [--no-warn-unlooped-recursion] [--no-warn-deprecated-accessor-syntax]"
+                "Usage: zs compile <file.zs> [--output <path>] [--backend cs|il] [--ref <dir>] [--module-path <dir>] [--package-path <dir>] [--precompiled <path>] [--emit-project] [--output-type Exe|Library] [--lang-version <ver>] [--nuget <PackageId>:<Version>] [--no-warn-unused-params] [--no-warn-unlooped-recursion] [--no-warn-deprecated-accessor-syntax] [--no-warn-deprecated-keyword]"
             );
             return 1;
         }
@@ -34,6 +34,7 @@ internal static class CompileCommand
         var warnUnusedParams = true;
         var warnUnloopedRecursion = true;
         var warnDeprecatedAccessorSyntax = true;
+        var warnDeprecatedKeyword = true;
 
         for (var i = 1; i < args.Length; i++)
             switch (args[i])
@@ -76,6 +77,9 @@ internal static class CompileCommand
                     break;
                 case "--no-warn-deprecated-accessor-syntax":
                     warnDeprecatedAccessorSyntax = false;
+                    break;
+                case "--no-warn-deprecated-keyword":
+                    warnDeprecatedKeyword = false;
                     break;
                 case "--no-warn-unlooped-recursion":
                     warnUnloopedRecursion = false;
@@ -149,6 +153,7 @@ internal static class CompileCommand
             WarnUnusedParameters = warnUnusedParams,
             WarnUnloopedRecursion = warnUnloopedRecursion,
             WarnDeprecatedAccessorSyntax = warnDeprecatedAccessorSyntax,
+            WarnDeprecatedKeyword = warnDeprecatedKeyword,
         };
         var sw = Stopwatch.StartNew();
         var compilation = new Compilation(options);

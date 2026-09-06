@@ -239,7 +239,7 @@ public abstract record AstNode(SourceSpan Span)
     // (import name)
     public sealed record Import(string ModuleName, SourceSpan Span) : AstNode(Span);
 
-    // (export name1 name2 ...)
+    // (provide name1 name2 ...)  — the C# name stays Export
     public sealed record Export(IReadOnlyList<string> Names, SourceSpan Span) : AstNode(Span);
 
     // (with-handlers ([ExType var] handler) ... body)

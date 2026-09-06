@@ -117,6 +117,16 @@ public sealed class CompilerOptions
     public bool WarnDeprecatedAccessorSyntax { get; set; } = true;
 
     /// <summary>
+    ///     Whether the AST builder emits <c>ZS0007</c> warnings for special forms written with
+    ///     a deprecated head — <c>export</c> for <c>provide</c>, or a <c>define-</c>-prefixed
+    ///     type declaration for its bare replacement. Defaults to on; disable via the CLI's
+    ///     <c>--no-warn-deprecated-keyword</c> or the manifest's
+    ///     <c>(build (main (warn-deprecated-keyword "false")))</c> — the CLI flag wins over the
+    ///     manifest. The old heads keep building either way.
+    /// </summary>
+    public bool WarnDeprecatedKeyword { get; set; } = true;
+
+    /// <summary>
     ///     When <c>true</c>, <see cref="Compilation.Compile" /> stops after type inference and
     ///     skips IR lowering and codegen. The typed program is exposed via
     ///     <see cref="Compilation.TypedProgram" />. Used by the language server to type-check

@@ -12,7 +12,7 @@ public sealed class UserTypeGenerator
     }
 
     // Emits a generic union like:
-    //   (define-union (FUn_0 ^a) (Wrap_0 [value : ^a]) (Empty_0))
+    //   (union (FUn_0 ^a) (Wrap_0 [value : ^a]) (Empty_0))
     //
     // Shape is chosen from a small set of 1-param or 2-param variants so the
     // match compiler, union codegen, and generic instantiation all get exercised.
@@ -27,7 +27,7 @@ public sealed class UserTypeGenerator
             var ctorWrap = $"Wrap_{index}";
             var ctorEmpty = $"Empty_{index}";
             var where = _where.MaybeEmit(["^a"], 0.04);
-            var def = $"(define-union ({name} ^a){where} ({ctorWrap} [value : ^a]) ({ctorEmpty}))";
+            var def = $"(union ({name} ^a){where} ({ctorWrap} [value : ^a]) ({ctorEmpty}))";
             return new UserUnionDecl(
                 name,
                 ["^a"],
@@ -42,8 +42,7 @@ public sealed class UserTypeGenerator
             var ctorL = $"Left_{index}";
             var ctorR = $"Right_{index}";
             var where = _where.MaybeEmit(["^a", "^b"], 0.04);
-            var def =
-                $"(define-union ({name} ^a ^b){where} ({ctorL} [lv : ^a]) ({ctorR} [rv : ^b]))";
+            var def = $"(union ({name} ^a ^b){where} ({ctorL} [lv : ^a]) ({ctorR} [rv : ^b]))";
             return new UserUnionDecl(
                 name,
                 ["^a", "^b"],
@@ -58,8 +57,7 @@ public sealed class UserTypeGenerator
             var ctorBoth = $"Both_{index}";
             var ctorNone = $"Neither_{index}";
             var where = _where.MaybeEmit(["^a"], 0.04);
-            var def =
-                $"(define-union ({name} ^a){where} ({ctorBoth} [a : ^a] [b : ^a]) ({ctorNone}))";
+            var def = $"(union ({name} ^a){where} ({ctorBoth} [a : ^a] [b : ^a]) ({ctorNone}))";
             return new UserUnionDecl(
                 name,
                 ["^a"],
@@ -81,7 +79,7 @@ public sealed class UserTypeGenerator
             // type may interact unpredictably with constraints; keep this shape
             // unconstrained as the safer fuzz path.
             var def =
-                $"(define-union ({name} ^a) ({ctorCons} [head : ^a] [tail : ({name} ^a)]) ({ctorNil}))";
+                $"(union ({name} ^a) ({ctorCons} [head : ^a] [tail : ({name} ^a)]) ({ctorNil}))";
             return new UserUnionDecl(
                 name,
                 ["^a"],
@@ -98,8 +96,8 @@ public sealed class UserTypeGenerator
     }
 
     // Emits a generic record or generic struct like:
-    //   (define-record (FRec_0 ^a ^b) [first : ^a] [second : ^b])
-    //   (define-struct (FRec_0 ^a ^b) [first : ^a] [second : ^b])
+    //   (record (FRec_0 ^a ^b) [first : ^a] [second : ^b])
+    //   (struct (FRec_0 ^a ^b) [first : ^a] [second : ^b])
     //
     // `struct` shares the AST path (IsValueType=true). The IL emitter has a known
     // bug producing invalid IL for generic structs (ilverify errors around
@@ -112,7 +110,7 @@ public sealed class UserTypeGenerator
         var name = $"FRec_{index}";
         var twoParams = _ctx.Rng.NextDouble() < 0.5;
         var isStruct = _ctx.Rng.NextDouble() < 0.25;
-        var keyword = isStruct ? "define-struct" : "define-record";
+        var keyword = isStruct ? "struct" : "record";
 
         if (twoParams)
         {
