@@ -106,8 +106,8 @@ restriction:
   one, call a sibling method — and still compiles to a loop. See the `letrec` limitation below
   for the two shapes that remain out of reach.
 
-Only `define` nests. `define-async` and the type-declaration forms (`define-record`,
-`define-struct`, `define-union`, `define-class`, `define-interface`, `define-type-alias`) are
+Only `define` nests. `define-async` and the type-declaration forms (`record`,
+`struct`, `union`, `class`, `interface`, `define-type-alias`) are
 top-level only. A `:where` clause is not allowed on a nested definition — the enclosing function's
 constraints already apply to its type parameters.
 
@@ -278,7 +278,7 @@ for exhaustiveness. Pattern types:
 A bare atom is the one place a name's spelling still carries meaning, because `None` and `x` are
 written identically. It is read as a constructor pattern when it starts with an upper-case letter
 *or* when it names a union case that takes no fields — so `(match c [red 1] [green 2])` matches
-the two cases of `(define-union color (red) (green))`, imported ones included. Any other bare
+the two cases of `(union color (red) (green))`, imported ones included. Any other bare
 atom binds a variable. Give a binder a name no nullary case in scope uses, or write `_` when the
 value is unused.
 
@@ -375,18 +375,21 @@ Returns a new function with some arguments pre-filled.
 
 ## Type Definitions
 
-### `define-record` — Product type (immutable record)
+### `record` — Product type (immutable record)
+
+> **Deprecated spelling:** `define-record`. It still builds, but reports
+> `ZS0007` — see [Deprecated spellings](#deprecated-spellings).
 
 ```scheme
-(define-record Name [field1 : Type1] [field2 : Type2] ...)
-(define-record (Name ^a ^b) [field : ^a] ...)              ;; generic
+(record Name [field1 : Type1] [field2 : Type2] ...)
+(record (Name ^a ^b) [field : ^a] ...)              ;; generic
 ```
 
 Defines an immutable record type with named fields. The record name is also its constructor.
 Supports generic type parameters (prefixed with `^`) and `: where` constraints.
 
 ```scheme
-(define-record Point [x : Int] [y : Int])
+(record Point [x : Int] [y : Int])
 
 ;; Usage: (Point 3 4)
 ```
@@ -397,7 +400,7 @@ Each field defines an accessor named `TypeName-fieldName`, taking the record as 
 argument. The type name keeps the exact spelling it was declared with.
 
 ```scheme
-(define-record HttpResponse [status-code : Int] [body : String])
+(record HttpResponse [status-code : Int] [body : String])
 
 (define (ok? [r : HttpResponse]) : Bool
   (= (HttpResponse-status-code r) 200))
@@ -410,43 +413,49 @@ argument. The type name keeps the exact spelling it was declared with.
 > quick fix that rewrites the name in place.
 >
 > Because the separator is now `-`, two different declarations can mint the same accessor —
-> `(define-record Foo-bar [baz])` and `(define-record Foo [bar-baz])` both produce
+> `(record Foo-bar [baz])` and `(record Foo [bar-baz])` both produce
 > `Foo-bar-baz`, and the later declaration wins. Rename one of them if that happens.
 
-### `define-struct` — Value type (.NET struct)
+### `struct` — Value type (.NET struct)
+
+> **Deprecated spelling:** `define-struct`. It still builds, but reports
+> `ZS0007` — see [Deprecated spellings](#deprecated-spellings).
 
 ```scheme
-(define-struct Name [field1 : Type1] [field2 : Type2] ...)
-(define-struct (Name ^a ^b) [field : ^a] ...)              ;; generic
+(struct Name [field1 : Type1] [field2 : Type2] ...)
+(struct (Name ^a ^b) [field : ^a] ...)              ;; generic
 ```
 
-Defines a .NET value type. Syntax and usage mirror `define-record` — constructor calls, field
+Defines a .NET value type. Syntax and usage mirror `record` — constructor calls, field
 accessors (`Name-field`), `(new ...)`, and `with` copy-updates all work the same way —
 but the emitted type is a `readonly record struct` with value semantics (assignment and
 parameter passing copy the value). Supports generic type parameters and `: where`
 constraints.
 
 ```scheme
-(define-struct Point [x : Int] [y : Int])
+(struct Point [x : Int] [y : Int])
 
 ;; Usage: (Point 3 4)
 ```
 
-### `define-union` — Sum type (discriminated union)
+### `union` — Sum type (discriminated union)
+
+> **Deprecated spelling:** `define-union`. It still builds, but reports
+> `ZS0007` — see [Deprecated spellings](#deprecated-spellings).
 
 ```scheme
-(define-union Name
+(union Name
   (Case1 [field1 : Type1] ...)
   (Case2 [field1 : Type1] ...)
   ...)
-(define-union (Name ^a) ...)                                ;; generic
+(union (Name ^a) ...)                                ;; generic
 ```
 
 Defines a tagged union. Each case is a constructor. Supports generic type parameters and
 `: where` constraints.
 
 ```scheme
-(define-union Shape
+(union Shape
   (Circle [radius : Int])
   (Rect [w : Int] [h : Int]))
 ```
@@ -502,11 +511,11 @@ import paths) is silently idempotent.
 ```
 
 Returns a new record (or struct) value with the listed fields replaced; the original is
-untouched. Works on any `define-record` or `define-struct` type and compiles to C#'s `with` expression.
+untouched. Works on any `record` or `struct` type and compiles to C#'s `with` expression.
 Chained `with` expressions evaluate inner-first.
 
 ```scheme
-(define-record Point [x : Int] [y : Int])
+(record Point [x : Int] [y : Int])
 
 (define (shift-x [p : Point] [new-x : Int]) : Point
   (with p [x new-x]))
@@ -517,13 +526,16 @@ Chained `with` expressions evaluate inner-first.
 
 ## Object-Oriented Programming
 
-### `define-class` — Define a mutable class
+### `class` — Define a mutable class
+
+> **Deprecated spelling:** `define-class`. It still builds, but reports
+> `ZS0007` — see [Deprecated spellings](#deprecated-spellings).
 
 ```scheme
-(define-class Name [field : Type] ... (define (Method [params]) : RetType body) ...)
-(define-class Name : BaseClass IFace1 IFace2 ...)           ;; inheritance
-(define-class #:open Name ...)                               ;; allow subclassing
-(define-class (Name ^a) ...)                                 ;; generic
+(class Name [field : Type] ... (define (Method [params]) : RetType body) ...)
+(class Name : BaseClass IFace1 IFace2 ...)           ;; inheritance
+(class #:open Name ...)                               ;; allow subclassing
+(class (Name ^a) ...)                                 ;; generic
 ```
 
 Defines a class with fields, methods, and optional inheritance. Classes are sealed by default;
@@ -532,13 +544,13 @@ Instance methods must be defined with `define` or `define-async`; the bare
 `(Name [params] ...)` form is not accepted inside class bodies.
 
 ```scheme
-(define-class #:open Animal
+(class #:open Animal
   [name : String]
   [sound : String]
   (define (Speak) : String
     (string-append name " says " sound)))
 
-(define-class #:open Dog : Animal
+(class #:open Dog : Animal
   [breed : String]
   (define (Speak) : String
     (string-append name " the " breed)))
@@ -551,7 +563,7 @@ from a base class — and `TypeName-MethodName` for each method, taking the inst
 first argument. Interfaces bind `InterfaceName-MethodName` the same way.
 
 ```scheme
-(define-class Animal
+(class Animal
   [name : String]
   (define (Speak) : String (string-append name " speaks")))
 
@@ -560,7 +572,7 @@ first argument. Interfaces bind `InterfaceName-MethodName` the same way.
 ```
 
 The deprecated `TypeName/member` spelling still resolves and reports `ZS0006` — see
-[`define-record`](#field-accessors).
+[`record`](#field-accessors).
 
 #### Field flags: `#:mutable` and `#:init`
 
@@ -572,30 +584,33 @@ type annotation to change that:
   initializers. Mutually exclusive with `#:mutable`.
 
 ```scheme
-(define-class Counter
+(class Counter
   [count : Int #:mutable])                              ;; reassignable
 
-(define-record Point [x : Int #:init] [y : Int #:init])        ;; init-only setters
+(record Point [x : Int #:init] [y : Int #:init])        ;; init-only setters
 ```
 
-### `define-interface` — Define an interface
+### `interface` — Define an interface
+
+> **Deprecated spelling:** `define-interface`. It still builds, but reports
+> `ZS0007` — see [Deprecated spellings](#deprecated-spellings).
 
 ```scheme
-(define-interface Name
+(interface Name
   (Method1 [params] : RetType)
   (Method2 [params] : RetType)
   ...)
-(define-interface Name : IBase1 IBase2 ...)                  ;; inheritance
-(define-interface (Name ^a) ...)                             ;; generic
+(interface Name : IBase1 IBase2 ...)                  ;; inheritance
+(interface (Name ^a) ...)                             ;; generic
 ```
 
 Defines method signatures without implementations.
 
 ```scheme
-(define-interface IGreeter
+(interface IGreeter
   (Greet [] : String))
 
-(define-interface IAdvancedCalculator : ICalculator
+(interface IAdvancedCalculator : ICalculator
   (Multiply [a : Int] [b : Int] : Int))
 ```
 
@@ -911,10 +926,13 @@ Makes definitions from another module available. Module paths use `/` separators
 (import stdlib/list)
 ```
 
-### `export` — Export definitions
+### `provide` — Export definitions
+
+> **Deprecated spelling:** `export`. It still builds, but reports
+> `ZS0007` — see [Deprecated spellings](#deprecated-spellings).
 
 ```scheme
-(export name1 name2 ...)
+(provide name1 name2 ...)
 ```
 
 Marks names as public exports from the current module.
@@ -927,13 +945,35 @@ Marks names as public exports from the current module.
 (@ AttributeName positional-args... [NamedKey value] ...)
 ```
 
-Applies a .NET attribute to the following declaration (`define`, `define-record`, `define-union`, `define-class`,
-or `define-interface`). Supports positional and named arguments.
+Applies a .NET attribute to the following declaration (`define`, `record`, `union`, `class`,
+or `interface`). Supports positional and named arguments.
 
 ```scheme
 (@ System.Obsolete "Use new-function instead")
 (define (old-function [x : Int]) : Int x)
 ```
+
+## Deprecated spellings
+
+Two renames are in flight. Both old spellings still build, and each reports `ZS0007` naming
+its replacement:
+
+| Deprecated | Write instead |
+|------------|---------------|
+| `export` | `provide` |
+| `define-record` | `record` |
+| `define-struct` | `struct` |
+| `define-union` | `union` |
+| `define-class` | `class` |
+| `define-interface` | `interface` |
+
+`define`, `define-async`, `define-syntax` and `define-type-alias` are **not** affected and
+keep their spellings. Neither is the `struct`/`class` pair of generic constraint keywords —
+those only ever appear inside a `: where` clause, never in head position.
+
+Silence the warning for one compilation with `--no-warn-deprecated-keyword`, or for a package
+with `(build (main (warn-deprecated-keyword "false")))`; the CLI flag wins over the manifest.
+The language server offers a quick fix that rewrites the head in place.
 
 ## Type System Notation
 

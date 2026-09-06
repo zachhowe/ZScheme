@@ -135,6 +135,8 @@ public sealed class TextDocumentSyncHandler(
     {
         [DiagnosticCodes.UnusedBinding] = [DiagnosticTag.Unnecessary],
         [DiagnosticCodes.RedundantTypeQualifier] = [DiagnosticTag.Unnecessary],
+        [DiagnosticCodes.DeprecatedAccessorSyntax] = [DiagnosticTag.Deprecated],
+        [DiagnosticCodes.DeprecatedKeyword] = [DiagnosticTag.Deprecated],
     };
 
     /// <summary>Test seam: the LSP diagnostics published for a document, including

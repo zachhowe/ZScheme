@@ -1,6 +1,6 @@
 namespace ZScheme.Fuzzer.Generation;
 
-// Emits an `(define-interface IName (M [params...] : RetType) ...)` declaration.
+// Emits an `(interface IName (M [params...] : RetType) ...)` declaration.
 //
 // Method params and returns range over the ground types {Int, Bool, Float},
 // Int-biased so most implementations stay on the well-trodden GenInt path while
@@ -50,7 +50,7 @@ public sealed class InterfaceGenerator
             );
         }
 
-        var def = $"(define-interface {name}\n{string.Join("\n", sigs)})";
+        var def = $"(interface {name}\n{string.Join("\n", sigs)})";
         return new UserInterfaceDecl(name, methods, def);
     }
 }

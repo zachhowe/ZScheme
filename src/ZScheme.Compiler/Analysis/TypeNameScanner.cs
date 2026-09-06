@@ -139,7 +139,9 @@ public static class TypeNameScanner
                     if (items.Count > 1)
                         ScanTypeExpr(items[1]);
                     return next;
-                case "define-class" or "define-interface":
+                // Both the modern heads and the deprecated `define-` spellings, since this
+                // scanner reads tokens directly and never goes through AstBuilder.
+                case "class" or "interface" or "define-class" or "define-interface":
                     start = ScanTypeDeclHeader(items);
                     break;
                 case "object":

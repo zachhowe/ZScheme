@@ -199,6 +199,8 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
                 options.WarnUnloopedRecursion = warnRecursion;
             if (main.WarnDeprecatedAccessorSyntax is { } warnAccessor)
                 options.WarnDeprecatedAccessorSyntax = warnAccessor;
+            if (main.WarnDeprecatedKeyword is { } warnKeyword)
+                options.WarnDeprecatedKeyword = warnKeyword;
         }
 
         // CLI overrides win
@@ -220,6 +222,9 @@ public sealed class PackageBuilder(DiagnosticBag diagnostics)
         // Likewise --no-warn-deprecated-accessor-syntax.
         if (!cliOverrides.WarnDeprecatedAccessorSyntax)
             options.WarnDeprecatedAccessorSyntax = false;
+        // Likewise --no-warn-deprecated-keyword.
+        if (!cliOverrides.WarnDeprecatedKeyword)
+            options.WarnDeprecatedKeyword = false;
 
         // Collection merging (assembly/module search paths, package paths, aliases,
         // precompiled paths) is handled in Build() so auto-resolved dependency inputs and

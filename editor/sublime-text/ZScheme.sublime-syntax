@@ -100,11 +100,11 @@ contexts:
       scope: punctuation.section.parens.end.zscheme
       pop: true
     # Special forms — definition, control flow, pattern matching
-    - match: (?:define-syntax|define-async|define-record|define-struct|define-union|define-class|define-interface|define|define-type-alias|letrec|let\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|values)(?!{{sym_continue}})
+    - match: (?:define-syntax|define-async|define-record|define-struct|define-union|define-class|define-interface|define|define-type-alias|record|struct|union|class|interface|letrec|let\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|values)(?!{{sym_continue}})
       scope: keyword.control.zscheme
       set: paren-body
     # Module-related keywords
-    - match: (?:namespace|module|import|export|import-clr)(?!{{sym_continue}})
+    - match: (?:namespace|module|import|provide|export|import-clr)(?!{{sym_continue}})
       scope: keyword.control.module.zscheme
       set: paren-body
     # Attribute marker
