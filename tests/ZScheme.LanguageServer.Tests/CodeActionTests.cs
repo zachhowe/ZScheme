@@ -582,4 +582,61 @@ public sealed class CodeActionTests
             ApplyEdits(source, [edit])
         );
     }
+
+    [Theory]
+    [InlineData("define-record", "record")]
+    [InlineData("define-struct", "struct")]
+    [InlineData("define-union", "union")]
+    [InlineData("define-class", "class")]
+    [InlineData("define-interface", "interface")]
+    [InlineData("export", "provide")]
+    public async Task Handler_DeprecatedKeyword_OffersReplacementWithModernHead(
+        string legacyHead,
+        string modernHead
+    )
+    {
+        // ZS0007 spans exactly the head atom, so the fix is a straight replacement of it.
+        var source = $"(module test)\n({legacyHead} Point [x : Int])\n";
+        var (svc, uri) = LspTestSession.Open(source);
+        var state = svc.GetDocument(uri)!;
+        var diag = Assert.Single(
+            state.Diagnostics.Diagnostics,
+            d => d.Code == DiagnosticCodes.DeprecatedKeyword
+        );
+        var range = TextDocumentSyncHandler.SpanToRange(diag.Span);
+        var handler = new CodeActionHandler(svc);
+
+        var result = await handler.Handle(
+            new CodeActionParams
+            {
+                TextDocument = new TextDocumentIdentifier(DocumentUri.Parse(uri)),
+                Range = range,
+                Context = new CodeActionContext
+                {
+                    Diagnostics = new Container<Diagnostic>(
+                        new Diagnostic
+                        {
+                            Range = range,
+                            Source = "zscheme",
+                            Message = diag.Message,
+                            Code = new DiagnosticCode(DiagnosticCodes.DeprecatedKeyword),
+                            Data = JArray.FromObject(diag.Data!),
+                        }
+                    ),
+                },
+            },
+            CancellationToken.None
+        );
+
+        Assert.NotNull(result);
+        var action = Assert.Single(result!).CodeAction!;
+        Assert.Equal(CodeActionKind.QuickFix, action.Kind);
+        Assert.Equal($"Replace '{legacyHead}' with '{modernHead}'", action.Title);
+
+        var edit = action.Edit!.Changes!.Values.Single().Single();
+        Assert.Equal(
+            $"(module test)\n({modernHead} Point [x : Int])\n",
+            ApplyEdits(source, [edit])
+        );
+    }
 }

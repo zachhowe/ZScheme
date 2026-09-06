@@ -63,4 +63,19 @@ public static class DiagnosticCodes
     ///     </para>
     /// </summary>
     public const string DeprecatedAccessorSyntax = "ZS0006";
+
+    /// <summary>
+    ///     A special form written with a deprecated head — <c>export</c> for <c>provide</c>,
+    ///     or a <c>define-</c>-prefixed type declaration for its bare replacement
+    ///     (<c>define-record</c> for <c>record</c>, and likewise struct, union, class and
+    ///     interface). Data: <c>[0]</c> = the head as written, <c>[1]</c> = the modern head;
+    ///     the span covers exactly the head atom, so the LSP quick fix is a straight
+    ///     replacement with <c>[1]</c>.
+    ///     <para>
+    ///         The old heads still build — see <c>Syntax/KeywordAliases.cs</c> — but are
+    ///         slated for removal. Silence the warning for a whole compilation with
+    ///         <c>CompilerOptions.WarnDeprecatedKeyword</c>.
+    ///     </para>
+    /// </summary>
+    public const string DeprecatedKeyword = "ZS0007";
 }

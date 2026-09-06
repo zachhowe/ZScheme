@@ -163,6 +163,11 @@ public static class ManifestSerializer
                 $"      (warn-deprecated-accessor-syntax \"{(warnAccessor ? "true" : "false")}\")"
             );
 
+        if (main.WarnDeprecatedKeyword is { } warnKeyword)
+            sb.AppendLine(
+                $"      (warn-deprecated-keyword \"{(warnKeyword ? "true" : "false")}\")"
+            );
+
         foreach (var refPath in main.RefPaths)
             sb.AppendLine($"      (ref \"{refPath}\")");
 
@@ -210,6 +215,7 @@ public static class ManifestSerializer
                 || main.WarnUnusedParameters is not null
                 || main.WarnUnloopedRecursion is not null
                 || main.WarnDeprecatedAccessorSyntax is not null
+                || main.WarnDeprecatedKeyword is not null
                 || main.RefPaths.Count > 0
             );
     }

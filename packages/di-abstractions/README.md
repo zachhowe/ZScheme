@@ -73,7 +73,7 @@ not, since a shared instance has no per-scope/per-resolve meaning.
 (import di-abstractions/services)
 (import di/provider)   ;; for services/build-provider
 
-(define-record Greeter [prefix : String])
+(record Greeter [prefix : String])
 
 (define (resolve-greeter) : Greeter
   (let* ([svcs (service-collection/new)]

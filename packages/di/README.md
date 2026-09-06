@@ -36,7 +36,7 @@ with `di-abstractions`' `services/get-required-service` / `services/get-service`
 (import di/provider)
 (import di-abstractions/services)
 
-(define-record Greeter [prefix : String])
+(record Greeter [prefix : String])
 
 (define (make-greeter) : Greeter
   (let ([svcs (service-collection/new)])

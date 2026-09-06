@@ -90,8 +90,8 @@
 
 ; Module keywords
 (list head: (symbol) @keyword
-  (#match? @keyword "^(namespace|module|import|export|import-clr)$"))
+  (#match? @keyword "^(namespace|module|import|provide|export|import-clr)$"))
 
 ; Control flow keywords
 (list head: (symbol) @keyword
-  (#match? @keyword "^(define-syntax|define-async|define-type-alias|define-record|define-struct|define-union|define-class|define-interface|define|letrec|let\\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|and|or|not|values)$"))
+  (#match? @keyword "^(define-syntax|define-async|define-type-alias|define-record|define-struct|define-union|define-class|define-interface|define|record|struct|union|class|interface|letrec|let\\*|let|if|lambda|match|with-handlers|with|set!|begin|new|raise|await|syntax-rules|typeof|delegate|and|or|not|values)$"))

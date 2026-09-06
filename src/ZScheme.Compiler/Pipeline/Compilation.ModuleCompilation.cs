@@ -153,7 +153,15 @@ public sealed partial class Compilation
             }
 
             // Build AST
-            var astBuilder = new AstBuilder(modDiag);
+            // ZS0007 goes straight to _diagnostics, like ZS0005 below and for the same
+            // reason: modDiag is copied out only when it has errors. And only for the module
+            // this compilation was asked to compile — a deprecated head in somebody else's
+            // installed package is not actionable.
+            var astBuilder = new AstBuilder(
+                modDiag,
+                _options.WarnDeprecatedKeyword && isAnalyzedModule,
+                _diagnostics
+            );
             var program = astBuilder.BuildProgram(sexprs);
             if (modDiag.HasErrors)
             {

@@ -604,6 +604,7 @@ public sealed class LibraryCompiler(DiagnosticBag diagnostics)
                 // anything.
                 WarnUnloopedRecursion = options.WarnUnloopedRecursion,
                 WarnDeprecatedAccessorSyntax = options.WarnDeprecatedAccessorSyntax,
+                WarnDeprecatedKeyword = options.WarnDeprecatedKeyword,
             };
             var compilation = new Compilation(subOptions);
 

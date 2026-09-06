@@ -21,8 +21,8 @@ import java.util.Map;
         // Keywords
         for (String kw : new String[]{
             "define", "define-async", "define-syntax", "let", "let*", "letrec", "lambda", "if", "match",
-            "define-record", "define-struct", "define-union", "with-handlers", "with", "set!", "begin", "new", "raise", "await",
-            "define-class", "define-interface", "syntax-rules", "object", "partial", "typeof", "delegate",
+            "define-record", "define-struct", "define-union", "record", "union", "with-handlers", "with", "set!", "begin", "new", "raise", "await",
+            "define-class", "define-interface", "interface", "syntax-rules", "object", "partial", "typeof", "delegate",
             "notnull", "struct", "class", "unmanaged", "default", "values"
         }) {
             SYMBOL_MAP.put(kw, ZSchemeTokenTypes.KEYWORD);
@@ -30,7 +30,7 @@ import java.util.Map;
 
         // Module keywords
         for (String kw : new String[]{
-            "namespace", "module", "import", "export", "import-clr"
+            "namespace", "module", "import", "provide", "export", "import-clr"
         }) {
             SYMBOL_MAP.put(kw, ZSchemeTokenTypes.MODULE_KEYWORD);
         }

@@ -765,7 +765,7 @@ public sealed partial class Compilation(CompilerOptions? options = null)
         CompilationResult? Failure
     ) CompileBuildAst(List<SExpr> sexprs, string defaultClassName, Stopwatch sw)
     {
-        var astBuilder = new AstBuilder(_diagnostics);
+        var astBuilder = new AstBuilder(_diagnostics, _options.WarnDeprecatedKeyword);
         var program = astBuilder.BuildProgram(sexprs);
         Log.Debug(
             "Stage 3 AST: {FormCount} top-level forms in {ElapsedMs}ms",
@@ -990,9 +990,9 @@ public sealed partial class Compilation(CompilerOptions? options = null)
     private static IEnumerable<string> NullaryUnionCaseNames(IEnumerable<IrNode.UnionDecl> unions)
     {
         foreach (var union in unions)
-            foreach (var unionCase in union.Cases)
-                if (unionCase.Fields.Count == 0)
-                    yield return unionCase.Name;
+        foreach (var unionCase in union.Cases)
+            if (unionCase.Fields.Count == 0)
+                yield return unionCase.Name;
     }
 
     internal static IEnumerable<string> OwnClrNamespaces(AstNode.Program program)

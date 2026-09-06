@@ -324,5 +324,5 @@ This example shows a typical pattern: import CLR bindings as internal helpers, t
   (treelist-add-raw xs x))
 
 ;; 3. Export the public API
-(export length list-ref append)
+(provide length list-ref append)
 ```

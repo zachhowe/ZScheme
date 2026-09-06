@@ -74,7 +74,8 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
                     AddSimplifyNameAction(actions, request, diagnostic);
                     break;
                 case DiagnosticCodes.DeprecatedAccessorSyntax:
-                    AddModernizeAccessorAction(actions, request, diagnostic);
+                case DiagnosticCodes.DeprecatedKeyword:
+                    AddReplaceWithAction(actions, request, diagnostic);
                     break;
             }
         }
@@ -163,9 +164,10 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
         );
     }
 
-    // ZS0006 carries [0] = the name as written, [1] = the modern spelling; the diagnostic
-    // spans exactly the accessor atom, so the fix is a straight replacement.
-    private static void AddModernizeAccessorAction(
+    // ZS0006 and ZS0007 share a contract: [0] = the text as written, [1] = the modern
+    // spelling, and the diagnostic spans exactly that text — so the fix is a straight
+    // replacement for both.
+    private static void AddReplaceWithAction(
         List<CommandOrCodeAction> actions,
         CodeActionParams request,
         Diagnostic diagnostic

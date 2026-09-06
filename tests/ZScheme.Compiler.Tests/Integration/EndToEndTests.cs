@@ -952,10 +952,14 @@ public class EndToEndTests
             typeof(System.Threading.Tasks.Task<Guid>),
             holder.GetMethod("Get")!.ReturnType
         );
-        var stateMachine = holder.GetNestedTypes(BindingFlags.NonPublic).Single(t => t.Name.Contains("Get"));
+        var stateMachine = holder
+            .GetNestedTypes(BindingFlags.NonPublic)
+            .Single(t => t.Name.Contains("Get"));
         Assert.Equal(
             typeof(System.Runtime.CompilerServices.AsyncTaskMethodBuilder<Guid>),
-            stateMachine.GetField("__builder", BindingFlags.Instance | BindingFlags.Public)!.FieldType
+            stateMachine
+                .GetField("__builder", BindingFlags.Instance | BindingFlags.Public)!
+                .FieldType
         );
     }
 
@@ -965,8 +969,7 @@ public class EndToEndTests
     [Fact]
     public void IlAsync_ClassMethodLoopingOverAValueTypedResult_RoundTripsTheResult()
     {
-        var source =
-            """
+        var source = """
             (namespace IlAsyncClassMethodBuilderTco)
             (module m)
 
@@ -7697,6 +7700,59 @@ public class EndToEndTests
 (define (compute) : Int (+ (Counter/count (Counter 9)) (Counter/Bump (Counter 9))))";
         Assert.Equal(19, CompileIlAndRunInt(source));
         Assert.Equal(19, CompileCSharpAndRunInt(source));
+    }
+
+    // ---- Deprecated keyword spellings (ZS0007) ----
+
+    [Fact]
+    public void ModernKeywords_RunOnBothBackends()
+    {
+        var source =
+            @"(module test)
+(record Point [x : Int] [y : Int])
+(struct Vec [a : Int])
+(union Shape (Circle [r : Int]) (Square [s : Int]))
+(interface Counter (Bump [] : Int))
+(class Dog : Counter [age : Int] (define (Bump) : Int (+ age 1)))
+(define (area [s : Shape]) : Int (match s [(Circle r) (* r r)] [(Square w) (* w w)]))
+(define (compute) : Int
+  (+ (Point-x (Point 3 4)) (+ (Vec-a (Vec 7)) (+ (area (Circle 2)) (Dog-Bump (Dog 5))))))";
+        Assert.Equal(20, CompileIlAndRunInt(source));
+        Assert.Equal(20, CompileCSharpAndRunInt(source));
+    }
+
+    [Fact]
+    public void DeprecatedKeywords_EmitSameCSharpAsModernSpelling()
+    {
+        // The head is normalized in the AST builder, so nothing downstream can tell which
+        // spelling was written.
+        const string body =
+            @"
+(#RECORD# Point [x : Int] [y : Int])
+(#STRUCT# Vec [a : Int])
+(#UNION# Shape (Circle [r : Int]))
+(#INTERFACE# Speaker (Speak [] : String))
+(#CLASS# Dog : Speaker [name : String] (define (Speak) : String name))
+(define (compute) : Int (+ (Point-x (Point 3 4)) (Vec-a (Vec 7))))";
+
+        var modern = Compile(
+            "(module test)"
+                + body.Replace("#RECORD#", "record")
+                    .Replace("#STRUCT#", "struct")
+                    .Replace("#UNION#", "union")
+                    .Replace("#INTERFACE#", "interface")
+                    .Replace("#CLASS#", "class")
+        );
+        var legacy = Compile(
+            "(module test)"
+                + body.Replace("#RECORD#", "define-record")
+                    .Replace("#STRUCT#", "define-struct")
+                    .Replace("#UNION#", "define-union")
+                    .Replace("#INTERFACE#", "define-interface")
+                    .Replace("#CLASS#", "define-class")
+        );
+
+        Assert.Equal(modern, legacy);
     }
 
     // ---- Type-name collision disambiguation (EmitNameResolver) ----

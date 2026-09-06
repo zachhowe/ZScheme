@@ -46,7 +46,9 @@ public sealed class SemanticTokensHandler(AnalysisService analysisService)
     };
 
     /// <summary>The special forms of <c>AstBuilder.BuildList</c>'s dispatch switch,
-    ///     highlighted as keywords when they appear in head position.</summary>
+    ///     highlighted as keywords when they appear in head position. The deprecated heads
+    ///     (<c>KeywordAliases.LegacyHeads</c>) are kept so code that still uses them keeps
+    ///     its highlighting while it reports ZS0007.</summary>
     private static readonly HashSet<string> SpecialForms =
     [
         "define",
@@ -58,16 +60,16 @@ public sealed class SemanticTokensHandler(AnalysisService analysisService)
         "if",
         "lambda",
         "match",
-        "define-record",
-        "define-struct",
-        "define-union",
+        "record",
+        "struct",
+        "union",
         "partial",
         "import-clr",
         "define-type-alias",
         "namespace",
         "module",
         "import",
-        "export",
+        "provide",
         "object",
         "begin",
         "new",
@@ -75,13 +77,20 @@ public sealed class SemanticTokensHandler(AnalysisService analysisService)
         "raise",
         "define-async",
         "await",
-        "define-class",
-        "define-interface",
+        "class",
+        "interface",
         "with-handlers",
         "with",
         "set!",
         "values",
         "quote",
+        // Deprecated heads — still highlighted, reported as ZS0007.
+        "export",
+        "define-record",
+        "define-struct",
+        "define-union",
+        "define-class",
+        "define-interface",
     ];
 
     protected override SemanticTokensRegistrationOptions CreateRegistrationOptions(

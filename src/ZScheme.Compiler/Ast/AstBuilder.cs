@@ -7,11 +7,48 @@ using ZScheme.Compiler.Types;
 
 namespace ZScheme.Compiler.Ast;
 
-public sealed class AstBuilder(DiagnosticBag diagnostics)
+/// <summary>
+///     Builds the typed <see cref="AstNode" /> tree from parsed s-expressions, recognizing the
+///     special forms in <c>BuildList</c>'s dispatch switch.
+/// </summary>
+/// <param name="diagnostics">Where errors, and by default ZS0007, are reported.</param>
+/// <param name="warnDeprecatedKeyword">Whether a deprecated form head reports ZS0007.</param>
+/// <param name="deprecationSink">
+///     Where ZS0007 goes, when that is not <paramref name="diagnostics" />. The module path
+///     builds into a bag it only copies out on error, and a deprecation warning has to
+///     survive a module that compiles cleanly.
+/// </param>
+public sealed class AstBuilder(
+    DiagnosticBag diagnostics,
+    bool warnDeprecatedKeyword = true,
+    DiagnosticBag? deprecationSink = null
+)
 {
     private static readonly ILogger _log = Log.ForContext<AstBuilder>();
 
     private int _freshCounter;
+
+    /// <summary>
+    ///     The modern spelling of <paramref name="head" />, warning once when it was written
+    ///     with a deprecated one. Every head goes through here before it is dispatched or
+    ///     matched, so the rest of the builder only ever deals in modern spellings.
+    /// </summary>
+    private string ModernizeHead(SExpr.Atom head)
+    {
+        if (KeywordAliases.TryModernize(head.Text) is not { } modern)
+            return head.Text;
+
+        if (warnDeprecatedKeyword)
+            (deprecationSink ?? diagnostics).Warning(
+                $"'{head.Text}' is deprecated. Write '{modern}' instead; '{head.Text}' will "
+                    + "be removed in a future release",
+                head.Span,
+                DiagnosticCodes.DeprecatedKeyword,
+                [head.Text, modern]
+            );
+
+        return modern;
+    }
 
     private string FreshName(string prefix)
     {
@@ -278,9 +315,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         if (list.Items.Count == 0)
             return new AstNode.UnitLit(list.Span);
 
-        // Check for special forms
+        // Check for special forms. A deprecated head is normalized first, so every case
+        // below is spelled the modern way and nothing downstream sees the old spelling.
         if (list.Items[0] is SExpr.Atom head)
-            switch (head.Text)
+            switch (ModernizeHead(head))
             {
                 case "define":
                     return BuildDefine(list);
@@ -300,11 +338,11 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     return BuildLambda(list);
                 case "match":
                     return BuildMatch(list);
-                case "define-record":
+                case "record":
                     return BuildRecord(list);
-                case "define-struct":
+                case "struct":
                     return BuildStruct(list);
-                case "define-union":
+                case "union":
                     return BuildUnion(list);
                 case "partial":
                     return BuildPartial(list);
@@ -318,7 +356,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     return BuildModule(list);
                 case "import":
                     return BuildImport(list);
-                case "export":
+                case "provide":
                     return BuildExport(list);
                 case "object":
                     return BuildObjectExpr(list);
@@ -334,9 +372,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                     return BuildDefineAsync(list);
                 case "await":
                     return BuildAwait(list);
-                case "define-class":
+                case "class":
                     return BuildClass(list);
-                case "define-interface":
+                case "interface":
                     return BuildInterface(list);
                 case "with-handlers":
                     return BuildWithHandlers(list);
@@ -922,18 +960,18 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
 
     private AstNode BuildRecord(SExpr.SList list)
     {
-        return BuildRecordLike(list, "define-record", false);
+        return BuildRecordLike(list, "record", false);
     }
 
     private AstNode BuildStruct(SExpr.SList list)
     {
-        return BuildRecordLike(list, "define-struct", true);
+        return BuildRecordLike(list, "struct", true);
     }
 
     private AstNode BuildRecordLike(SExpr.SList list, string keyword, bool isValueType)
     {
-        // (define-record Name [field : Type] ...)  or  (define-struct Name [field : Type] ...)
-        // (define-record (Name a b) [field : Type] ...)  or  (define-struct (Name a b) [field : Type] ...)
+        // (record Name [field : Type] ...)  or  (struct Name [field : Type] ...)
+        // (record (Name a b) [field : Type] ...)  or  (struct (Name a b) [field : Type] ...)
         if (list.Items.Count < 2)
         {
             diagnostics.Error($"'{keyword}' requires a name", list.Span);
@@ -1886,10 +1924,10 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
             if (list.Items[i] is SExpr.Atom atom)
                 names.Add(atom.Text);
             else
-                diagnostics.Error("'export' entries must be names", list.Items[i].Span);
+                diagnostics.Error("'provide' entries must be names", list.Items[i].Span);
 
         if (names.Count == 0)
-            diagnostics.Error("'export' requires at least one name", list.Span);
+            diagnostics.Error("'provide' requires at least one name", list.Span);
 
         return new AstNode.Export(names, list.Span);
     }
@@ -2163,10 +2201,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         {
             membersStart++;
             var allNames = new List<string>();
-            while (
-                membersStart < list.Items.Count
-                && IsBaseTypeNameAtom(list.Items[membersStart])
-            )
+            while (membersStart < list.Items.Count && IsBaseTypeNameAtom(list.Items[membersStart]))
             {
                 allNames.Add(((SExpr.Atom)list.Items[membersStart]).Text);
                 membersStart++;
@@ -2451,10 +2486,7 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         )
         {
             membersStart++;
-            while (
-                membersStart < list.Items.Count
-                && IsBaseTypeNameAtom(list.Items[membersStart])
-            )
+            while (membersStart < list.Items.Count && IsBaseTypeNameAtom(list.Items[membersStart]))
             {
                 baseInterfaceNames.Add(((SExpr.Atom)list.Items[membersStart]).Text);
                 membersStart++;
@@ -2655,7 +2687,9 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
         if (expr is not SExpr.SList { Items: [SExpr.Atom head, ..] })
             return;
 
-        switch (head.Text)
+        // Match on the modern head so a deprecated spelling is rejected just the same, but
+        // without warning here — Build() reaches the same form and reports it once.
+        switch (KeywordAliases.TryModernize(head.Text) ?? head.Text)
         {
             case "define-async":
                 diagnostics.Error(
@@ -2665,11 +2699,11 @@ public sealed class AstBuilder(DiagnosticBag diagnostics)
                 );
                 break;
 
-            case "define-record"
-            or "define-struct"
-            or "define-union"
-            or "define-class"
-            or "define-interface"
+            case "record"
+            or "struct"
+            or "union"
+            or "class"
+            or "interface"
             or "define-type-alias":
                 diagnostics.Error(
                     $"'{head.Text}' is only allowed at the top level, not inside a body. Types "

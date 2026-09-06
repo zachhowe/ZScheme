@@ -4,6 +4,30 @@ In development since 2026-08-13.
 
 ## Changed — language
 
+- **`export` is spelled `provide`, and type declarations dropped their `define-` prefix.**
+  Both moves follow Racket: it spells the module-export form `provide`, and it treats
+  `define-struct` as the legacy spelling of `struct`. So `(export foo)` is now
+  `(provide foo)`, and `define-record`, `define-struct`, `define-union`, `define-class` and
+  `define-interface` are now `record`, `struct`, `union`, `class` and `interface`. This
+  reverses the prefixing done in 0.2 — grouping the type declarations with the
+  `define`/`define-async` family read tidily in a list of special forms, but at a declaration
+  site the prefix is six characters of ceremony in front of the word that carries the meaning.
+  - `define`, `define-async`, `define-syntax` and `define-type-alias` are **unchanged** — they
+    declare values, macros and type *names*, not new types.
+  - `struct` and `class` remain generic-constraint keywords too (`(^a struct)`). A constraint
+    only ever appears inside a `: where` clause, never in head position, so the two uses never
+    collide — the same way `new` has always been both a constraint and a special form.
+  - The old heads still build, and report the new `ZS0007` warning naming the replacement.
+    Normalization happens once, in the AST builder, so module resolution, inference, IR
+    lowering and both backends only ever see the modern head — a program using the old heads
+    emits byte-identical C# to the same program using the new ones. Disable the warning with
+    `--no-warn-deprecated-keyword` or the manifest's
+    `(build (main (warn-deprecated-keyword "false")))`; the CLI flag wins. The language server
+    offers a quick fix that rewrites the head in place, and marks the head deprecated so
+    editors strike it through.
+  - The bundled packages and examples still use the old heads and so report `ZS0007` when
+    built from source. They keep working; nothing needs to be rewritten to upgrade.
+
 - **Member accessors are spelled `Type-member`, not `Type/member`.** Field access read as a
   namespace qualification rather than a field selection, and it did not match Racket, where a
   struct accessor is a plain hyphenated identifier. `/` was also the most overloaded character

@@ -187,8 +187,9 @@ depth-limit error). This powers the macro stepper GUI
 - **Driver:** [`AstBuilder.BuildProgram(exprs)`](../src/ZScheme.Compiler/Ast/AstBuilder.cs)
 
 The AST builder recognizes the special forms (`define`, `let`, `let*`, `letrec`, `use`,
-`use*`, `if`, `lambda`, `match`, `define-record`, `define-struct`, `define-union`,
-`define-class`, `define-interface`, `with`, `with-handlers`, `object`, etc.) and
+`use*`, `if`, `lambda`, `match`, `record`, `struct`, `union`, `class`, `interface`,
+`provide`, `with`, `with-handlers`, `object`, etc. — the deprecated `export` and
+`define-`-prefixed type-declaration heads are normalized here too, reporting ZS0007) and
 produces a strongly-typed `AstNode` tree. `use`/`use*` bind an `IDisposable`
 resource (validated at type-checking) and lower to an `IrNode.Use` that emits a
 native C# `using` statement or an IL try/finally so the resource is disposed when
@@ -275,7 +276,7 @@ as IR rather than AST); `InferMatch` uses them to rewrite a bare arm naming such
 constructor pattern it was meant to be. `AstBuilder` reads a bare atom in pattern position as a
 variable binder unless it starts with an upper-case letter, and type names are case-insensitive
 in ZScheme, so without this a lower-case or hyphenated case — `red` in
-`(define-union color (red) (green))` — would bind instead of match and silently swallow every
+`(union color (red) (green))` — would bind instead of match and silently swallow every
 later arm. The rewrite is purely structural and runs at every pattern depth, so exhaustiveness
 checking, IR lowering and both emitters see an ordinary constructor pattern.
 `PreBindTopLevelSignatures` comes last: it resolves
@@ -500,7 +501,7 @@ sub-passes over the whole program, in order:
   descends into the `IrNode.Closure` nodes `ClosureConverter` produced.
 
 The union registry `PatternResolver` reads is populated before `Lower` runs, from local
-`define-union`/`define-record` declarations plus imported `UnionDecl`/`RecordDecl` IR.
+`union`/`record` declarations plus imported `UnionDecl`/`RecordDecl` IR.
 Both compile paths inject the imported half through the one shared
 `Compilation.RegisterImportedTypeMetadata`, and both give it the **whole compiled-module
 closure** — not just the compilation unit's direct imports. A pattern may legitimately
