@@ -28,10 +28,25 @@ public class PackageAutoInstallerTests : IDisposable
         Directory.CreateDirectory(CacheDir);
     }
 
+    /// <summary>
+    ///     Best-effort cleanup. A package that depends on another is compiled against the
+    ///     dependency's assembly, and the IL emitter reflects over it through
+    ///     <see cref="System.Reflection.Assembly.LoadFrom" /> into the default load context, which
+    ///     never unloads. The dependency's .dll therefore stays mapped for the life of the test
+    ///     process and Windows refuses to delete it. Leaving a few KB under the temp directory
+    ///     beats failing an otherwise passing test on teardown.
+    /// </summary>
     public void Dispose()
     {
-        if (Directory.Exists(_tempDir))
-            Directory.Delete(_tempDir, true);
+        try
+        {
+            if (Directory.Exists(_tempDir))
+                Directory.Delete(_tempDir, true);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            // A package assembly built into the cache is still mapped into the process.
+        }
     }
 
     /// <summary>Plants a compilable single-module package under anchor/packages/<paramref name="dirName" />.</summary>
