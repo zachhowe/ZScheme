@@ -24,7 +24,23 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: dotnet build ZScheme.slnx --nologo
-      - run: dotnet test ZScheme.slnx --no-build --nologo
+      # A crashing test host otherwise fails the step with nothing but an exit code -- no test
+      # name, no reason. --blame-crash names the reason inline ("Test host process crashed :
+      # Stack overflow." -- the documented failure mode of a TCO regression, which takes the
+      # host down instead of failing) and records every test the host ran in a Sequence.xml,
+      # where the one left Completed="False" is the suspect. It costs nothing on a passing run:
+      # the results directory stays empty.
+      - run: dotnet test ZScheme.slnx --no-build --nologo --blame-crash --blame-crash-dump-type mini --results-directory TestResults
+      # Only the sequence files. The dumps land beside them but stay on the runner: the compiler
+      # test host peaks near 4 GB, so its minidump is far too big to be worth uploading, and the
+      # crash reason is already in the log above.
+      - name: Upload crash blame sequence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-blame-${{ matrix.os }}
+          path: TestResults/**/Sequence_*.xml
+          if-no-files-found: ignore
 
   # AOT is the one thing that cannot be validated by a normal build, and it is only exercised at
   # release time otherwise -- which is exactly when a failure is most expensive.
