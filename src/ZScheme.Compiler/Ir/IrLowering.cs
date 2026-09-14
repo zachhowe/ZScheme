@@ -2033,6 +2033,8 @@ public sealed class IrLowering
 
     private IrNode LowerInterfaceDecl(AstNode.InterfaceDecl n)
     {
+        _interfaceDecls[n.InterfaceName] = n;
+
         var methods = n
             .Methods.Select(m =>
             {
