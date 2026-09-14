@@ -174,6 +174,15 @@ public sealed partial class CSharpEmitter(
         .. importedModules ?? [],
         .. (externalModules ?? []).Select(m => (m.ClassName, m.Definitions)),
     ]);
+
+    // Names of record types emitted as .NET value types (define-struct). The set! receiver
+    // form needs this: a struct stored in a class field cannot be mutated in place through
+    // the property (csc rejects `this.H.F = v` with CS1612), so that one case reads the
+    // field, mutates a copy, and writes it back.
+    private readonly HashSet<string> _valueTypeRecordNames = BuildValueTypeRecordNames([
+        .. importedModules ?? [],
+        .. (externalModules ?? []).Select(m => (m.ClassName, m.Definitions)),
+    ]);
     private readonly StringBuilder _sb = new();
     private readonly TypeAliasRegistry _typeAliases = typeAliases ?? new TypeAliasRegistry();
 
@@ -218,6 +227,11 @@ public sealed partial class CSharpEmitter(
 
     private HashSet<string>? _currentClassFields;
     private HashSet<string>? _currentClassMethods;
+
+    // The mutable subset of _currentClassFields (own + inherited fields marked #:mutable).
+    // The set! receiver form consults it: a struct record stored in a class field is
+    // mutated by read-modify-write, which needs the field's setter.
+    private HashSet<string>? _currentClassMutableFields;
 
     /// <summary>
     ///     True while emitting anything inside a class nested in the module class — its
@@ -329,6 +343,20 @@ public sealed partial class CSharpEmitter(
         foreach (var (_, defs) in modules)
         foreach (var def in defs)
             if (def is IrNode.RecordDecl rec)
+                names.Add(rec.Name);
+        return names;
+    }
+
+    private static HashSet<string> BuildValueTypeRecordNames(
+        IReadOnlyList<(string ClassName, IReadOnlyList<IrNode> Definitions)>? modules
+    )
+    {
+        var names = new HashSet<string>();
+        if (modules is null)
+            return names;
+        foreach (var (_, defs) in modules)
+        foreach (var def in defs)
+            if (def is IrNode.RecordDecl { IsValueType: true } rec)
                 names.Add(rec.Name);
         return names;
     }
@@ -492,6 +520,8 @@ public sealed partial class CSharpEmitter(
                             break;
                         case IrNode.RecordDecl rec:
                             _recordTypeNames.Add(rec.Name);
+                            if (rec.IsValueType)
+                                _valueTypeRecordNames.Add(rec.Name);
                             break;
                     }
 

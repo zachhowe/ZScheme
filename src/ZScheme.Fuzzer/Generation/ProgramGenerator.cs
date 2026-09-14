@@ -28,6 +28,7 @@ public sealed class ProgramGenerator
     private readonly ObjectExprGenerator _object;
     private readonly PartialExprGenerator _partial;
     private readonly SequenceExprGenerator _sequence;
+    private readonly SetFieldExprGenerator _setField;
     private readonly SetMutationExprGenerator _setMutation;
     private readonly StdlibImportGenerator _stdlib;
     private readonly StdlibGenerators _stdlibGens;
@@ -66,6 +67,7 @@ public sealed class ProgramGenerator
         _sequence = new SequenceExprGenerator(_ctx, _exprs);
         _tuple = new TupleExprGenerator(_ctx, _exprs);
         _with = new WithExprGenerator(_ctx, _exprs);
+        _setField = new SetFieldExprGenerator(_ctx, _exprs);
         _partial = new PartialExprGenerator(_ctx, _exprs);
         _exception = new ExceptionExprGenerator(_ctx, _exprs);
         _string = new StringExprGenerator(_ctx, _exprs);
@@ -92,6 +94,7 @@ public sealed class ProgramGenerator
         _exprs.SetSequence(_sequence);
         _exprs.SetTuple(_tuple);
         _exprs.SetWith(_with);
+        _exprs.SetSetField(_setField);
         _exprs.SetPartial(_partial);
         _exprs.SetException(_exception);
         _exprs.SetString(_string);

@@ -227,7 +227,11 @@ public sealed class ObjectLifter
                 return fg with { Record = Transform(fg.Record, bound) };
 
             case IrNode.SetField sf:
-                return sf with { Value = Transform(sf.Value, bound) };
+                return sf with
+                {
+                    Value = Transform(sf.Value, bound),
+                    Receiver = sf.Receiver is { } r ? Transform(r, bound) : null,
+                };
 
             case IrNode.Throw th:
                 return th with { Expr = Transform(th.Expr, bound) };
@@ -520,6 +524,7 @@ public sealed class ObjectLifter
                 break;
 
             case IrNode.SetField sf:
+                if (sf.Receiver is { } r) CollectFree(r, bound, acc, seen);
                 CollectFree(sf.Value, bound, acc, seen);
                 break;
 

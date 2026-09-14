@@ -1394,20 +1394,37 @@ public sealed class AstBuilder(
 
     private AstNode BuildSetField(SExpr.SList list)
     {
-        // (set! field-name expr)
-        if (list.Items.Count != 3)
+        // (set! field-name expr) — inside a method body, targets the enclosing instance
+        if (list.Items.Count == 3)
         {
-            diagnostics.Error("'set!' requires a field name and a value expression", list.Span);
-            return new AstNode.UnitLit(list.Span);
+            if (list.Items[1] is not SExpr.Atom fieldAtom)
+            {
+                diagnostics.Error("'set!' field name must be an identifier", list.Span);
+                return new AstNode.UnitLit(list.Span);
+            }
+
+            return new AstNode.SetField(fieldAtom.Text, Build(list.Items[2]), list.Span);
         }
 
-        if (list.Items[1] is not SExpr.Atom fieldAtom)
+        // (set! record-expr field-name expr) — targets a record or struct value
+        if (list.Items.Count == 4)
         {
-            diagnostics.Error("'set!' field name must be an identifier", list.Span);
-            return new AstNode.UnitLit(list.Span);
+            if (list.Items[2] is not SExpr.Atom fieldAtom)
+            {
+                diagnostics.Error("'set!' field name must be an identifier", list.Span);
+                return new AstNode.UnitLit(list.Span);
+            }
+
+            return new AstNode.SetField(
+                fieldAtom.Text,
+                Build(list.Items[3]),
+                list.Span,
+                Receiver: Build(list.Items[1])
+            );
         }
 
-        return new AstNode.SetField(fieldAtom.Text, Build(list.Items[2]), list.Span);
+        diagnostics.Error("'set!' requires a field name and a value expression", list.Span);
+        return new AstNode.UnitLit(list.Span);
     }
 
     private AstNode BuildTupleNew(SExpr.SList list)

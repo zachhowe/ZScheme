@@ -46,6 +46,15 @@ public sealed class TypeInferer
     // interface inherits and the subtype walk in Unifier.IsZSchemeSubtype
     private readonly Dictionary<string, InterfaceInfo> _interfaceInfos = new();
 
+    // `(set! record field value)` needs to know which record fields are `#:mutable`. Maps a
+    // record/struct name to the field names marked `#:mutable` — every record appears (with
+    // an empty set when none are), so the type inferer can tell "not a record at all" from
+    // "record with no mutable fields". Populated by InferRecordDecl for this module's own
+    // declarations and by RegisterRecordFields for imported (source or precompiled) modules.
+    private readonly Dictionary<string, HashSet<string>> _recordMutableFields = new(
+        StringComparer.Ordinal
+    );
+
     // Track out-param metadata for CLR imports (keyed by alias)
     private readonly Dictionary<string, IReadOnlyList<ClrInterop.OutParamInfo>> _outParamsByAlias =
         new();
@@ -260,6 +269,27 @@ public sealed class TypeInferer
                 className,
                 string.Join(", ", canonical)
             );
+        }
+    }
+
+    /// <summary>
+    ///     Register record field mutability from imported modules so `(set! record field value)`
+    ///     type-checks across module boundaries. Records without `#:mutable` fields appear with
+    ///     an empty list — the entry itself marks the name as a record type.
+    /// </summary>
+    public void RegisterRecordFields(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> recordMutableFields
+    )
+    {
+        foreach (var (recordName, fieldNames) in recordMutableFields)
+        {
+            if (!_recordMutableFields.TryGetValue(recordName, out var set))
+            {
+                set = new HashSet<string>(StringComparer.Ordinal);
+                _recordMutableFields[recordName] = set;
+            }
+            foreach (var f in fieldNames)
+                set.Add(f);
         }
     }
 
@@ -1390,6 +1420,21 @@ public sealed class TypeInferer
             env.Define(AccessorNaming.Accessor(node.RecordName, node.Fields[i].Name), genAccessor);
         }
 
+        // Track #:mutable fields for the receiver form of set! (same-module records do not
+        // go through RegisterRecordFields). Every record is registered — with an empty set
+        // when none are mutable — so the inferer can distinguish record types from other
+        // named types in its diagnostics.
+        {
+            if (!_recordMutableFields.TryGetValue(node.RecordName, out var mutable))
+            {
+                mutable = new HashSet<string>(StringComparer.Ordinal);
+                _recordMutableFields[node.RecordName] = mutable;
+            }
+            foreach (var f in node.Fields)
+                if (f.IsMutable)
+                    mutable.Add(f.Name);
+        }
+
         return Assign(node, ZType.Unit);
     }
 
@@ -1494,6 +1539,16 @@ public sealed class TypeInferer
         return Assign(node, bodyType);
     }
 
+    /// <summary>
+    ///     Resolves a `RecordName/field` accessor's type. A same-module record registers its
+    ///     accessors as plain bindings (InferRecordDecl), but an imported module's
+    ///     function-typed exports join the overload set keyed by the bare name instead
+    ///     (TypeEnv.DefineImportedBinding), so consult both — the same route a direct
+    ///     `(Record/field value)` call takes through InferName.
+    /// </summary>
+    private ZType? LookupFieldAccessor(string accessorKey, TypeEnv env)
+        => env.Lookup(accessorKey) ?? env.LookupOverloads(accessorKey)?.Candidates.FirstOrDefault()?.Type;
+
     private ZType InferWith(AstNode.With node, TypeEnv env)
     {
         var recordType = Infer(node.Record, env);
@@ -1513,7 +1568,7 @@ public sealed class TypeInferer
         foreach (var (fieldName, valueExpr) in node.Updates)
         {
             var accessorKey = AccessorNaming.Accessor(named.Name, fieldName);
-            var accessorType = env.Lookup(accessorKey);
+            var accessorType = LookupFieldAccessor(accessorKey, env);
             if (accessorType is null)
             {
                 Diagnostics.Error(
@@ -1990,6 +2045,84 @@ public sealed class TypeInferer
 
     private ZType InferSetField(AstNode.SetField node, TypeEnv env)
     {
+        // (set! record-expr field-name expr) — mutate a #:mutable field of a record or struct
+        if (node.Receiver is { } receiverNode)
+        {
+            // The receiver must be a variable (a let-bound name, parameter, or class field).
+            // A computed receiver of a value type would only ever mutate a throwaway copy
+            // (both backends agree the effect is discarded), which is never what a set! wants;
+            // for a reference-type record it would also diverge between backends (the C#
+            // property-rvalue case does not compile at all). Bare names keep both backends on
+            // one well-defined storage slot.
+            if (receiverNode is not AstNode.Name)
+            {
+                Diagnostics.Error(
+                    "'set!' with a receiver requires a variable — a let-bound name, parameter, or class field",
+                    receiverNode.Span
+                );
+                Infer(node.Value, env);
+                return Assign(node, ZType.Unit);
+            }
+
+            var recType = Infer(receiverNode, env);
+            if (recType is not ZType.ZNamedType named)
+            {
+                Diagnostics.Error(
+                    "'set!' with a receiver requires a record or struct value",
+                    receiverNode.Span
+                );
+                return Assign(node, ZType.Unit);
+            }
+
+            if (!_recordMutableFields.ContainsKey(named.Name))
+            {
+                Diagnostics.Error(
+                    $"'set!' with a receiver requires a define-record or define-struct value (got '{named.Name}')",
+                    receiverNode.Span
+                );
+                return Assign(node, ZType.Unit);
+            }
+
+            // The field's type rides on the RecordName/field accessor InferRecordDecl
+            // registered (or the importing module's exports supply), so a cross-module or
+            // generic record resolves exactly like a direct accessor call.
+            var accessorKey = AccessorNaming.Accessor(named.Name, node.FieldName);
+            var accessorType = LookupFieldAccessor(accessorKey, env);
+            if (
+                accessorType is null
+                || Instantiate(accessorType)
+                    is not ZType.ZFuncType
+                    {
+                        Params: [var accParam],
+                        Return: var accReturn
+                    }
+            )
+            {
+                Diagnostics.Error(
+                    $"'{named.Name}' has no field '{node.FieldName}'",
+                    node.Span
+                );
+                return Assign(node, ZType.Unit);
+            }
+
+            if (!_recordMutableFields[named.Name].Contains(node.FieldName))
+            {
+                Diagnostics.Error(
+                    $"Cannot set! immutable field '{node.FieldName}' of '{named.Name}'. Mark it with #:mutable to allow mutation",
+                    node.Span
+                );
+                return Assign(node, ZType.Unit);
+            }
+
+            // The accessor's record parameter pins the receiver's type (substituting the
+            // record's type parameters into the field's), and the value must fit the field.
+            _unifier.Unify(accParam, recType, receiverNode.Span);
+            var valueExprType = Infer(node.Value, env);
+            _unifier.Unify(valueExprType, accReturn, node.Value.Span);
+
+            return Assign(node, ZType.Unit);
+        }
+
         if (_currentClassFieldDecls is null)
         {
             Diagnostics.Error("set! can only be used inside a method body", node.Span);

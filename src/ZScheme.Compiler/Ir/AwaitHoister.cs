@@ -317,13 +317,25 @@ public sealed class AwaitHoister
 
             case IrNode.SetField sf:
             {
+                var rec = sf.Receiver is { } r ? Rewrite(r) : null;
                 var val = Rewrite(sf.Value);
-                if (!AsyncStateMachineAnalyzer.ContainsAwait(val))
-                    return new IrNode.SetField(sf.FieldName, val) { Type = sf.Type };
+                if (
+                    (rec is null || !AsyncStateMachineAnalyzer.ContainsAwait(rec))
+                    && !AsyncStateMachineAnalyzer.ContainsAwait(val)
+                )
+                    return new IrNode.SetField(sf.FieldName, val, rec) { Type = sf.Type };
+                var children = new List<IrNode>();
+                if (rec is not null)
+                    children.Add(rec);
+                children.Add(val);
                 return Anf(
                     sf.Span,
-                    [val],
-                    vars => new IrNode.SetField(sf.FieldName, vars[0]) { Type = sf.Type }
+                    children,
+                    vars => new IrNode.SetField(
+                        sf.FieldName,
+                        vars[rec is null ? 0 : 1],
+                        rec is null ? null : vars[0]
+                    ) { Type = sf.Type }
                 );
             }
 

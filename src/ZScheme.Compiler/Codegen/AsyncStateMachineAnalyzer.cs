@@ -44,7 +44,8 @@ public static class AsyncStateMachineAnalyzer
             IrNode.TupleNew tn => tn.Elements.Any(ContainsAwait),
             IrNode.MutableArrayNew man => man.Elements.Any(ContainsAwait),
             IrNode.FieldGet fg => ContainsAwait(fg.Record),
-            IrNode.SetField sf => ContainsAwait(sf.Value),
+            IrNode.SetField sf => (sf.Receiver is { } r && ContainsAwait(r))
+                || ContainsAwait(sf.Value),
             IrNode.SuperMethodCall smc => smc.Args.Any(ContainsAwait),
             _ => false,
         };
@@ -506,6 +507,15 @@ public static class AsyncStateMachineAnalyzer
                 break;
 
             case IrNode.SetField sf:
+                if (sf.Receiver is { } rec)
+                    CollectInfo(
+                        rec,
+                        awaitPoints,
+                        hoistedLocals,
+                        seenLocals,
+                        tryBodyStack,
+                        typeAliases
+                    );
                 CollectInfo(
                     sf.Value,
                     awaitPoints,
