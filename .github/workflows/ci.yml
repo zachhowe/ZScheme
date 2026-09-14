@@ -30,7 +30,9 @@ jobs:
       # host down instead of failing) and records every test the host ran in a Sequence.xml,
       # where the one left Completed="False" is the suspect. It costs nothing on a passing run:
       # the results directory stays empty.
-      - run: dotnet test ZScheme.slnx --no-build --nologo --blame-crash --blame-crash-dump-type mini --results-directory TestResults
+      # The compiler test host can peak near 4 GB; running all solution test projects in
+      # parallel makes the hosted runners intermittently kill one of them under memory pressure.
+      - run: dotnet test ZScheme.slnx --no-build --nologo --no-restore -m:1 --blame-crash --blame-crash-dump-type mini --results-directory TestResults
       # Only the sequence files. The dumps land beside them but stay on the runner: the compiler
       # test host peaks near 4 GB, so its minidump is far too big to be worth uploading, and the
       # crash reason is already in the log above.
