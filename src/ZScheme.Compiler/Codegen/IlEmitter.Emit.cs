@@ -1348,14 +1348,21 @@ public sealed partial class IlEmitter
                 break;
 
             case IrNode.SetField setField:
-                EmitLoadClassThis(il, ctx);
-                EmitNode(setField.Value, il, outerParams, locals, ctx);
-                EmitNullableWrapIfNeeded(
-                    setField.Value,
-                    ctx.CurrentClassFields![setField.FieldName].Signature!.FieldType,
-                    il
-                );
-                il.Add(CilOpCodes.Stfld, ctx.CurrentClassFields![setField.FieldName]);
+                if (setField.Receiver is null)
+                {
+                    EmitLoadClassThis(il, ctx);
+                    EmitNode(setField.Value, il, outerParams, locals, ctx);
+                    EmitNullableWrapIfNeeded(
+                        setField.Value,
+                        ctx.CurrentClassFields![setField.FieldName].Signature!.FieldType,
+                        il
+                    );
+                    il.Add(CilOpCodes.Stfld, ctx.CurrentClassFields![setField.FieldName]);
+                }
+                else
+                {
+                    EmitRecordFieldSet(setField, il, outerParams, locals, ctx);
+                }
                 break;
 
             case IrNode.Closure closure:
@@ -4557,6 +4564,177 @@ public sealed partial class IlEmitter
             EmitNode(value, il, outerParams, locals, ctx);
             il.Add(CilOpCodes.Callvirt, ResolveMethod(setter));
         }
+    }
+
+    /// <summary>
+    ///     Emits <c>(set! receiver field value)</c> — the record/struct form of set!.
+    ///     Reference-type records load the object reference and <c>callvirt</c> the
+    ///     property's plain setter. Value-type records need an lvalue — the setter takes
+    ///     <c>this</c> by reference — so a receiver that names a storage slot (local, method
+    ///     parameter, or class field) is mutated in place, matching the C# backend's
+    ///     <c>slot.Field = value</c>; any other receiver (a compound expression) is copied
+    ///     into a scratch local and mutated there, the C# rvalue semantics of
+    ///     <c>expr.Field = value</c>, whose effect is discarded.
+    /// </summary>
+    private void EmitRecordFieldSet(
+        IrNode.SetField node,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
+    )
+    {
+        var receiver = node.Receiver!;
+        var fieldClrName = Sanitize(node.FieldName);
+
+        if (receiver.Type is not ZType.ZNamedType named)
+        {
+            diagnostics.Error("set!: the receiver must be a record or struct value", node.Span);
+            return;
+        }
+
+        if (!_userTypes.TryGetValue(named.Name, out var typeRef))
+        {
+            diagnostics.Error($"set!: type '{named.Name}' not found", node.Span);
+            return;
+        }
+
+        // Resolve the setter from the emitted type, or by reflection for precompiled types.
+        var isValueType = false;
+        var setterMethod = default(IMethodDefOrRef);
+        TypeSignature? setterParamType = null;
+        TypeSignature? valueTypeSig = null;
+        if (typeRef is TypeDefinition td)
+        {
+            var prop = td.Properties.FirstOrDefault(p => p.Name == fieldClrName);
+            var setterDef = prop
+                ?.Semantics.FirstOrDefault(s =>
+                    s.Attributes == MethodSemanticsAttributes.Setter
+                )
+                ?.Method;
+            if (setterDef is null)
+            {
+                diagnostics.Error(
+                    $"set!: type '{named.Name}' has no setter for field '{node.FieldName}'",
+                    node.Span
+                );
+                return;
+            }
+            isValueType = td.IsValueType;
+            setterParamType = setterDef.Signature!.ParameterTypes[0];
+            // For generic records, resolve the setter against the closed generic instance,
+            // the same way the FieldGet and `with` paths do.
+            if (td.GenericParameters.Count > 0 && named.TypeArgs.Count == td.GenericParameters.Count)
+            {
+                var mapped = named.TypeArgs.Select(ta => MapToClr(ta, ctx)).ToArray();
+                var closedSig = td.MakeGenericInstanceType(td.IsValueType, mapped);
+                valueTypeSig = closedSig;
+                setterMethod = new MemberReference(
+                    closedSig.ToTypeDefOrRef(),
+                    setterDef.Name!,
+                    setterDef.Signature!
+                );
+            }
+            else
+            {
+                valueTypeSig = td.ToTypeSignature();
+                setterMethod = setterDef;
+            }
+        }
+        else
+        {
+            var clrType = ResolveClrTypeForTypeRef(typeRef);
+            var clrSetter = clrType?.GetProperty(fieldClrName)?.GetSetMethod();
+            if (clrType is null || clrSetter is null)
+            {
+                diagnostics.Error(
+                    $"set!: type '{named.Name}' has no setter for field '{node.FieldName}'",
+                    node.Span
+                );
+                return;
+            }
+            isValueType = clrType.IsValueType;
+            setterMethod = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod((MethodBase)clrSetter);
+        }
+
+        if (!isValueType)
+        {
+            EmitNode(receiver, il, outerParams, locals, ctx);
+            EmitNode(node.Value, il, outerParams, locals, ctx);
+            if (setterParamType is not null)
+                EmitNullableWrapIfNeeded(node.Value, setterParamType, il);
+            il.Add(CilOpCodes.Callvirt, setterMethod!);
+            return;
+        }
+
+        // Value-type receiver: materialize an lvalue. Resolution mirrors EmitLoadVar's
+        // order — locals, then parameters, then class fields, then top-level statics — so
+        // the mutation lands in exactly the slot a read of the same name would load.
+        var emittedLvalue = false;
+        if (receiver is IrNode.Var { Name: var name })
+        {
+            if (locals.TryGetValue(name, out var local))
+            {
+                il.Add(CilOpCodes.Ldloca, local);
+                emittedLvalue = true;
+            }
+            else
+            {
+                for (var i = 0; i < outerParams.Count; i++)
+                {
+                    if (outerParams[i].Name != name)
+                        continue;
+                    var method = il.Owner!.Owner!;
+                    il.Add(CilOpCodes.Ldarga, method.Parameters[i]);
+                    emittedLvalue = true;
+                    break;
+                }
+
+                if (
+                    !emittedLvalue
+                    && ctx.CurrentClassFields is { } classFields
+                    && classFields.TryGetValue(name, out var classField)
+                )
+                {
+                    // An immutable (init-only) field yields no setter for the C# backend to
+                    // read-modify-write through, so it rejects this shape; reject it here too
+                    // so the backends agree on what compiles.
+                    if (classField.Attributes.HasFlag(FieldAttributes.InitOnly))
+                    {
+                        diagnostics.Error(
+                            $"Cannot set! a struct record stored in immutable class field '{name}': the field's value can only be read. Mark the field #:mutable to allow it",
+                            node.Span
+                        );
+                        return;
+                    }
+                    EmitLoadClassThis(il, ctx);
+                    il.Add(CilOpCodes.Ldflda, classField);
+                    emittedLvalue = true;
+                }
+
+                if (!emittedLvalue && _staticFields.TryGetValue(name, out var staticField))
+                {
+                    il.Add(CilOpCodes.Ldsflda, staticField);
+                    emittedLvalue = true;
+                }
+            }
+        }
+
+        if (!emittedLvalue)
+        {
+            var localSig = valueTypeSig
+                ?? _module
+                    .DefaultImporter.ImportType(ResolveClrTypeForTypeRef(typeRef)!)
+                    .ToTypeSignature(true);
+            var tmp = new CilLocalVariable(localSig);
+            il.Owner.LocalVariables.Add(tmp);
+            EmitNode(receiver, il, outerParams, locals, ctx);
+            il.Add(CilOpCodes.Stloc, tmp);
+            il.Add(CilOpCodes.Ldloca, tmp);
+        }
+
+        EmitNode(node.Value, il, outerParams, locals, ctx);
+        il.Add(CilOpCodes.Call, setterMethod!);
     }
 
     private void EmitFieldGet(

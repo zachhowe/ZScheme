@@ -459,7 +459,11 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
                 return new IrNode.Await(Rewrite(aw.Expr, scope)) { Type = aw.Type, Span = aw.Span };
 
             case IrNode.SetField sf:
-                return new IrNode.SetField(sf.FieldName, Rewrite(sf.Value, scope))
+                return new IrNode.SetField(
+                    sf.FieldName,
+                    Rewrite(sf.Value, scope),
+                    sf.Receiver is { } r ? Rewrite(r, scope) : null
+                )
                 {
                     Type = sf.Type,
                     Span = sf.Span,
@@ -934,9 +938,11 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
 
             // Checked first and unconditionally: `set!` on a field and a `super/` call name
             // their target implicitly, so neither reaches the free-variable set and neither
-            // depends on the name sets below. Both are instance-only by construction —
-            // IrNode.SetField has no receiver because there is only ever one — so finding
-            // either means this group needs a `this`, wherever it was written.
+            // depends on the name sets below. Both are instance-only by construction — a
+            // receiverless IrNode.SetField has no receiver because the enclosing instance is
+            // the only thing it can mean (the record form carries an explicit receiver and is
+            // free-variable analysis like any other) — so finding either means this group
+            // needs a `this`, wherever it was written.
             if (TouchesInstanceImplicitly(binding.Value))
                 return $"'letrec' binding '{binding.Name}' assigns a field or calls a 'super/' "
                     + "method: a recursive group is lifted to top-level static functions, which "
@@ -1000,9 +1006,9 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
     /// <summary>
     ///     Whether <paramref name="node" /> writes a field or makes a <c>super/</c> call — the
     ///     two IR shapes whose receiver is an implicit <c>this</c> and so cannot appear in
-    ///     <see cref="ClosureConverter.CollectFreeVars" />'s result. No field set is consulted:
-    ///     <see cref="IrNode.SetField" /> has no receiver because the enclosing instance is the
-    ///     only thing it can ever mean.
+    ///     <see cref="ClosureConverter.CollectFreeVars" />'s result. The receiverless
+    ///     <see cref="IrNode.SetField" /> is the field-write shape: the record form carries an
+    ///     explicit receiver and is not instance-implicit.
     ///     <para>
     ///         The default arm answers "no", which is only safe because every arm that can hold
     ///         one of the two is listed. <c>LetrecLifterInstanceScanTests</c> pins that by
@@ -1016,7 +1022,7 @@ public sealed class LetrecLifter(DiagnosticBag diagnostics, string? modulePrefix
 
         return node switch
         {
-            IrNode.SetField => true,
+            IrNode.SetField { Receiver: null } => true,
             IrNode.SuperMethodCall => true,
 
             IrNode.Let let => Any([let.Value, let.Body]),

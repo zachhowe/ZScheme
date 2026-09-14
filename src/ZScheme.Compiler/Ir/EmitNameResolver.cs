@@ -641,7 +641,12 @@ internal static class EmitNameResolver
                     return sm with { Args = sm.Args.Select(a => RewriteExpr(a, scope)).ToList() };
 
                 case IrNode.SetField sf:
-                    return sf with { Value = RewriteExpr(sf.Value, scope) };
+                    return sf with
+                    {
+                        Value = RewriteExpr(sf.Value, scope),
+                        Receiver =
+                            sf.Receiver is { } r ? RewriteExpr(r, scope) : sf.Receiver,
+                    };
 
                 case IrNode.MethodCall mc:
                     return mc with

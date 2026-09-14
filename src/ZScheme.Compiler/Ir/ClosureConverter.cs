@@ -249,7 +249,11 @@ public sealed class ClosureConverter
                 };
 
             case IrNode.SetField sf:
-                return new IrNode.SetField(sf.FieldName, Rewrite(sf.Value, locals))
+                return new IrNode.SetField(
+                    sf.FieldName,
+                    Rewrite(sf.Value, locals),
+                    sf.Receiver is { } r ? Rewrite(r, locals) : null
+                )
                 {
                     Type = sf.Type,
                     Span = sf.Span,
@@ -471,6 +475,7 @@ public sealed class ClosureConverter
                     Collect(aw.Expr, b);
                     break;
                 case IrNode.SetField sf:
+                    if (sf.Receiver is { } r) Collect(r, b);
                     Collect(sf.Value, b);
                     break;
                 case IrNode.FieldGet fg:

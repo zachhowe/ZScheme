@@ -741,6 +741,95 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void EmitRecordDecl_MutableField_BackingsFieldNotInitOnly()
+    {
+        // A #:mutable field gets a plain setter, so its backing field must not be
+        // init-only (an init-only field could never hold a post-construction write).
+        var recordDecl = new IrNode.RecordDecl(
+            "Point",
+            [],
+            [
+                new IrField("x", ZType.Int, IsMutable: true),
+                new IrField("y", ZType.Int),
+            ]
+        );
+
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(new IrNode.Seq([recordDecl]) { Type = ZType.Unit });
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var pointType = asm.GetTypes().First(t => t.Name == "Point");
+        var xBacking = pointType.GetField(
+            "<X>k__BackingField",
+            BindingFlags.NonPublic | BindingFlags.Instance
+        )!;
+        var yBacking = pointType.GetField(
+            "<Y>k__BackingField",
+            BindingFlags.NonPublic | BindingFlags.Instance
+        )!;
+        Assert.False(xBacking.IsInitOnly);
+        Assert.True(yBacking.IsInitOnly);
+    }
+
+    [Fact]
+    public void EmitRecordDecl_MutableField_SetterIsExternallyCallable()
+    {
+        // A plain setter is callable from outside the type; an init-only setter invoked
+        // via reflection throws, so a successful reflection call is the probe.
+        var recordDecl = new IrNode.RecordDecl(
+            "Point",
+            [],
+            [new IrField("x", ZType.Int, IsMutable: true)]
+        );
+
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter("TestAssembly", diag, "TestClass");
+        var bytes = emitter.Emit(new IrNode.Seq([recordDecl]) { Type = ZType.Unit });
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var pointType = asm.GetTypes().First(t => t.Name == "Point");
+        var ctor = pointType.GetConstructor([typeof(int)])!;
+        var point = ctor.Invoke([1]);
+        var prop = pointType.GetProperty("X")!;
+        Assert.NotNull(prop.GetSetMethod());
+        prop.SetValue(point, 42);
+        Assert.Equal(42, prop.GetValue(point));
+    }
+
+    [Fact]
+    public void EmitStructDecl_MutableField_SetterIsExternallyCallable()
+    {
+        var structDecl = new IrNode.RecordDecl(
+            "Point",
+            [],
+            [new IrField("x", ZType.Int, IsMutable: true)],
+            IsValueType: true
+        );
+
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter(
+            "TestAssembly",
+            diag,
+            "TestClass",
+            typeAliases: BuildStdlibRegistry()
+        );
+        var bytes = emitter.Emit(new IrNode.Seq([structDecl]) { Type = ZType.Unit });
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var pointType = asm.GetTypes().First(t => t.Name == "Point");
+        var ctor = pointType.GetConstructor([typeof(int)])!;
+        var point = ctor.Invoke([1]);
+        var prop = pointType.GetProperty("X")!;
+        Assert.NotNull(prop.GetSetMethod());
+        prop.SetValue(point, 42);
+        Assert.Equal(42, prop.GetValue(point));
+    }
+
+    [Fact]
     public void EmitRecordNewAndFieldGet()
     {
         var recordDecl = new IrNode.RecordDecl(

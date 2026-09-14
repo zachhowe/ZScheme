@@ -242,6 +242,21 @@ public static class MetadataSerializer
             obj["exportedRecordCtors"] = recordCtorsObj;
         }
 
+        // exportedMutableRecordFields
+        if (mod.ExportedMutableRecordFields is not null)
+        {
+            var mutableFieldsObj = new JsonObject();
+            foreach (var (recordName, fieldNames) in mod.ExportedMutableRecordFields)
+            {
+                var fieldsArray = new JsonArray();
+                foreach (var field in fieldNames)
+                    fieldsArray.Add(field);
+                mutableFieldsObj[recordName] = fieldsArray;
+            }
+
+            obj["exportedMutableRecordFields"] = mutableFieldsObj;
+        }
+
         // exportedClassInterfaces
         if (mod.ExportedClassInterfaces is not null)
         {
@@ -360,7 +375,13 @@ public static class MetadataSerializer
         var fieldsArray = new JsonArray();
         foreach (var f in record.Fields)
             fieldsArray.Add(
-                new JsonObject { ["name"] = f.Name, ["type"] = ZTypeSerializer.Serialize(f.Type) }
+                new JsonObject
+                {
+                    ["name"] = f.Name,
+                    ["type"] = ZTypeSerializer.Serialize(f.Type),
+                    ["isMutable"] = f.IsMutable,
+                    ["isInit"] = f.IsInit,
+                }
             );
 
         return new JsonObject
@@ -493,6 +514,23 @@ public static class MetadataSerializer
             }
         }
 
+        // exportedMutableRecordFields
+        Dictionary<string, IReadOnlyList<string>>? exportedMutableRecordFields = null;
+        if (obj["exportedMutableRecordFields"] is JsonObject mutableFieldsObj)
+        {
+            exportedMutableRecordFields = new Dictionary<string, IReadOnlyList<string>>();
+            foreach (var (recordName, fieldsNode) in mutableFieldsObj)
+            {
+                if (fieldsNode is not JsonArray fieldsArray)
+                    continue;
+                var fields = new List<string>();
+                foreach (var f in fieldsArray)
+                    if (f?.GetValue<string>() is { } s)
+                        fields.Add(s);
+                exportedMutableRecordFields[recordName] = fields;
+            }
+        }
+
         // exportedClassInterfaces
         Dictionary<string, IReadOnlyList<string>>? exportedClassInterfaces = null;
         if (obj["exportedClassInterfaces"] is JsonObject classInterfacesObj)
@@ -550,6 +588,7 @@ public static class MetadataSerializer
             exportedMacros ?? new Dictionary<string, MacroDefinition>(),
             exportedUnionCtors,
             exportedRecordCtors,
+            exportedMutableRecordFields,
             exportedClassInterfaces,
             assemblyPath,
             BuildNamespace: buildNamespace,
@@ -609,7 +648,14 @@ public static class MetadataSerializer
             var fieldType = typeNode is not null
                 ? ZTypeSerializer.Deserialize(typeNode)
                 : ZType.Unit;
-            fields.Add(new IrField(fieldName, fieldType));
+            fields.Add(
+                new IrField(
+                    fieldName,
+                    fieldType,
+                    IsMutable: fieldObj["isMutable"]?.GetValue<bool>() ?? false,
+                    IsInit: fieldObj["isInit"]?.GetValue<bool>() ?? false
+                )
+            );
         }
 
         return fields;

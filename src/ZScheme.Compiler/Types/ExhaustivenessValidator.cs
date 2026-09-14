@@ -159,6 +159,7 @@ public sealed class ExhaustivenessValidator(DiagnosticBag diagnostics)
                     Walk(a);
                 break;
             case AstNode.SetField sf:
+                if (sf.Receiver is { } rec) Walk(rec);
                 Walk(sf.Value);
                 break;
             // Remaining node types (literals, Name, Import/Export, decls without bodies, etc.)

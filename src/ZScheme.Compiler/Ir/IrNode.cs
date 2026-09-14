@@ -289,8 +289,10 @@ public abstract record IrNode
     // super/MethodName call (for codegen)
     public sealed record SuperMethodCall(string MethodName, IReadOnlyList<IrNode> Args) : IrNode;
 
-    // (set! field-name expr) — mutate a mutable field
-    public sealed record SetField(string FieldName, IrNode Value) : IrNode;
+    // (set! field-name expr) — mutate a mutable field. With Receiver == null the target is
+    // the enclosing instance (`this` in a class method body); with a receiver it targets a
+    // #:mutable field of a record or struct value.
+    public sealed record SetField(string FieldName, IrNode Value, IrNode? Receiver = null) : IrNode;
 
     // Interface declaration (for codegen)
     public sealed record InterfaceDecl(

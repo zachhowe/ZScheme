@@ -394,7 +394,11 @@ public sealed class IrLowering
                 Type = n.ResolvedType ?? ZType.Unit,
                 Span = n.Span,
             },
-            AstNode.SetField n => new IrNode.SetField(n.FieldName, Lower(n.Value))
+            AstNode.SetField n => new IrNode.SetField(
+                n.FieldName,
+                Lower(n.Value),
+                n.Receiver is { } rec ? Lower(rec) : null
+            )
             {
                 Type = ZType.Unit,
                 Span = n.Span,
@@ -1366,7 +1370,8 @@ public sealed class IrLowering
                 f.Name,
                 RemapTypeParams(f.TypeAnnotation, typeParamMap),
                 LowerAttributes(f.Attributes),
-                IsInit: f.IsInit
+                f.IsMutable,
+                f.IsInit
             ))
             .ToList();
         _recordCtors[n.RecordName] = n.Fields.Select(f => f.Name).ToList();

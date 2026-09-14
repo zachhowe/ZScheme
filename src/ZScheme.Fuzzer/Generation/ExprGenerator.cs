@@ -30,6 +30,7 @@ public sealed class ExprGenerator
     private UseExprGenerator? _use;
     private WidePrimitiveExprGenerator? _widePrim;
     private WithExprGenerator? _with;
+    private SetFieldExprGenerator? _setField;
     private TypeOfExprGenerator? _typeOf;
 
     public ExprGenerator(GeneratorContext ctx)
@@ -60,6 +61,11 @@ public sealed class ExprGenerator
     public void SetWith(WithExprGenerator with)
     {
         _with = with;
+    }
+
+    public void SetSetField(SetFieldExprGenerator setField)
+    {
+        _setField = setField;
     }
 
     public void SetPartial(PartialExprGenerator partial)
@@ -397,6 +403,8 @@ public sealed class ExprGenerator
 
         if (_with is not null && _ctx.UserRecords.Count > 0)
             weights.Add((1, () => _with.WithUpdateToInt(scope, depth)));
+        if (_setField is not null && SetFieldExprGenerator.HasEligible(_ctx))
+            weights.Add((1, () => _setField.SetFieldToInt(scope, depth)));
         if (_partial is not null && PartialExprGenerator.HasEligible(_ctx))
             weights.Add((1, () => _partial.PartialApplyToInt(scope, depth)));
         if (_exception is not null)

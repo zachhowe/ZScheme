@@ -924,6 +924,11 @@ public sealed partial class Compilation(CompilerOptions? options = null)
             )
         );
 
+        // Inject #:mutable record field info from imported modules for (set! record field value)
+        foreach (var mod in compiledModules)
+            if (mod.ExportedMutableRecordFields is not null)
+                inferer.RegisterRecordFields(mod.ExportedMutableRecordFields);
+
         var classIfaceCount = compiledModules.Count(m =>
             m.ExportedClassInterfaces is { Count: > 0 }
         );

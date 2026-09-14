@@ -154,7 +154,12 @@ public sealed class MetadataSerializerTests
                 [],
                 new Dictionary<string, MacroDefinition>(),
                 new Dictionary<string, string> { ["Some"] = "Option", ["None"] = "Option" },
-                new Dictionary<string, List<string>> { ["Point"] = ["x", "y"] }
+                new Dictionary<string, List<string>> { ["Point"] = ["x", "y"] },
+                new Dictionary<string, IReadOnlyList<string>>
+                {
+                    ["Point"] = ["x"],
+                    ["Other"] = [],
+                }
             ),
         };
 
@@ -168,6 +173,11 @@ public sealed class MetadataSerializerTests
         Assert.Equal("Option", optMod.ExportedUnionCtors["None"]);
         Assert.NotNull(optMod.ExportedRecordCtors);
         Assert.Equal(["x", "y"], optMod.ExportedRecordCtors["Point"]);
+        // The mutable-field map survives the round trip, and the empty entry (a record with
+        // no #:mutable fields) does too — its presence is what marks the name as a record.
+        Assert.NotNull(optMod.ExportedMutableRecordFields);
+        Assert.Equal(["x"], optMod.ExportedMutableRecordFields["Point"]);
+        Assert.Empty(optMod.ExportedMutableRecordFields["Other"]);
     }
 
     [Fact]

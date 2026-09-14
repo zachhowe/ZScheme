@@ -59,7 +59,7 @@ internal static class AstScopes
             AstNode.SuperMethodCall s => s.Args,
             AstNode.With w => [w.Record, .. w.Updates.Select(u => u.Value)],
             AstNode.WithHandlers wh => [wh.Body, .. wh.Handlers.Select(h => h.HandlerBody)],
-            AstNode.SetField sf => [sf.Value],
+            AstNode.SetField sf => sf.Receiver is null ? [sf.Value] : [sf.Receiver, sf.Value],
             AstNode.ObjectExpr oe => ObjectChildren(oe.Methods, oe.Constructor),
             AstNode.ClassDecl cd => ObjectChildren(cd.Methods, cd.Constructor),
             _ => [],

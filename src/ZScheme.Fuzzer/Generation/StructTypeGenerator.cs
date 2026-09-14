@@ -24,6 +24,11 @@ public sealed class StructTypeGenerator
         var name = $"SRec_{index}";
         var fieldCount = 2 + _ctx.Rng.Next(2); // 2 or 3 fields
 
+        // ~Half the structs carry one #:mutable field so SetFieldExprGenerator has
+        // a value-type target: struct set! exercises the lvalue materialization the
+        // record form never reaches.
+        var mutableAt = _ctx.Rng.NextDouble() < 0.5 ? _ctx.Rng.Next(fieldCount) : -1;
+
         var fields = new List<UserRecordField>(fieldCount);
         var defParts = new List<string>(fieldCount);
         for (var i = 0; i < fieldCount; i++)
@@ -34,8 +39,9 @@ public sealed class StructTypeGenerator
                         ? "x"
                         : "y"
                     : $"f{i}";
-            fields.Add(new UserRecordField(fieldName, "Int"));
-            defParts.Add($"[{fieldName} : Int]");
+            var isMutable = i == mutableAt;
+            fields.Add(new UserRecordField(fieldName, "Int", isMutable));
+            defParts.Add(isMutable ? $"[{fieldName} : Int #:mutable]" : $"[{fieldName} : Int]");
         }
 
         var def = $"(struct {name} {string.Join(" ", defParts)})";

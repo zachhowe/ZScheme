@@ -328,13 +328,25 @@ public sealed class WithHandlersHoister
 
             case IrNode.SetField sf:
             {
+                var rec = sf.Receiver is { } r ? Rewrite(r) : null;
                 var val = Rewrite(sf.Value);
-                if (!ContainsWithHandlers(val))
-                    return new IrNode.SetField(sf.FieldName, val) { Type = sf.Type };
+                if (
+                    (rec is null || !ContainsWithHandlers(rec))
+                    && !ContainsWithHandlers(val)
+                )
+                    return new IrNode.SetField(sf.FieldName, val, rec) { Type = sf.Type };
+                var children = new List<IrNode>();
+                if (rec is not null)
+                    children.Add(rec);
+                children.Add(val);
                 return Anf(
                     sf.Span,
-                    [val],
-                    vars => new IrNode.SetField(sf.FieldName, vars[0]) { Type = sf.Type }
+                    children,
+                    vars => new IrNode.SetField(
+                        sf.FieldName,
+                        vars[rec is null ? 0 : 1],
+                        rec is null ? null : vars[0]
+                    ) { Type = sf.Type }
                 );
             }
 
@@ -462,7 +474,8 @@ public sealed class WithHandlersHoister
             case IrNode.Await aw:
                 return ContainsWithHandlers(aw.Expr);
             case IrNode.SetField sf:
-                return ContainsWithHandlers(sf.Value);
+                return (sf.Receiver is { } r && ContainsWithHandlers(r))
+                    || ContainsWithHandlers(sf.Value);
             case IrNode.FieldGet fg:
                 return ContainsWithHandlers(fg.Record);
             case IrNode.Seq seq:

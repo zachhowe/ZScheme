@@ -5311,6 +5311,117 @@ public class CSharpEmitterTests
         Assert.DoesNotContain("List<T0> Cons<T0>(T0", cs);
     }
 
+    // --- (set! receiver field value) on #:mutable record/struct fields ---
+
+    [Fact]
+    public void EmitRecord_MutableField_EmitsNonPositionalRecordWithSettableProperty()
+    {
+        // A record with a #:mutable field cannot use the positional form — C# positional
+        // records synthesize properties that are not settable from outside.
+        var cs = Compile(
+            @"(module test)
+(define-record Point [x : Int #:mutable] [y : Int])
+(define (mk) : Point (Point 1 2))"
+        );
+        Assert.Contains("public sealed record Point", cs);
+        Assert.DoesNotContain("sealed record Point(int", cs);
+        Assert.Contains("public int X { get; set; }", cs);
+        Assert.Contains("public int Y { get; init; }", cs);
+        Assert.Contains(
+            "public Point(int X, int Y) { this.X = X; this.Y = Y; }",
+            cs
+        );
+        Assert.Contains("new Point(X: 1, Y: 2)", cs);
+    }
+
+    [Fact]
+    public void EmitStruct_MutableField_EmitsNonReadOnlyRecordStruct()
+    {
+        // A struct with setters must drop `readonly` — csc rejects property setters on
+        // readonly structs (CS8341).
+        var cs = Compile(
+            @"(module test)
+(define-struct Triple [a : Int] [b : Int #:mutable] [c : Int])
+(define (mk) : Triple (Triple 1 2 3))"
+        );
+        Assert.Contains("public record struct Triple", cs);
+        Assert.DoesNotContain("readonly record struct Triple", cs);
+        Assert.Contains("public int B { get; set; }", cs);
+        Assert.Contains("public int A { get; init; }", cs);
+        Assert.Contains("public Triple(int A, int B, int C)", cs);
+    }
+
+    [Fact]
+    public void EmitSetFieldReceiver_Record_EmitsPlainAssignment()
+    {
+        var cs = Compile(
+            @"(module test)
+(define-record Point [x : Int #:mutable] [y : Int])
+(define (nudge) : Int
+  (let ([p (Point 1 2)])
+    (begin (set! p x (+ (Point/x p) 10)) (Point/x p))))"
+        );
+        Assert.Contains("p.X = (p.X + 10)", cs);
+    }
+
+    [Fact]
+    public void EmitSetFieldReceiver_RecordInClassField_EmitsNestedAssignment()
+    {
+        var cs = Compile(
+            @"(module test)
+(define-record Point [x : Int #:mutable] [y : Int])
+(define-class Holder
+  [p : Point #:mutable]
+  (define (SetX [n : Int]) : Int
+    (begin (set! p x n) (Point/x p))))"
+        );
+        Assert.Contains("this.P.X = n", cs);
+    }
+
+    [Fact]
+    public void EmitSetFieldReceiver_StructInMutableClassField_EmitsReadModifyWrite()
+    {
+        // `this.T.B = v` is rejected by csc (CS1612) because the property yields a copy;
+        // the read-modify-write through the field's setter is the only legal shape.
+        var cs = Compile(
+            @"(module test)
+(define-struct Triple [a : Int] [b : Int #:mutable] [c : Int])
+(define-class Box
+  [t : Triple #:mutable]
+  (define (Bump [n : Int]) : Int
+    (begin (set! t b (+ (Triple/b t) n)) (Triple/b t))))"
+        );
+        Assert.DoesNotContain("this.T.B = ", cs);
+        Assert.Contains(
+            "this.T = ((System.Func<Triple, Triple>)(__setFieldVal => { __setFieldVal.B = ",
+            cs
+        );
+        Assert.Contains(
+            "return __setFieldVal; }))(this.T)",
+            cs
+        );
+    }
+
+    [Fact]
+    public void EmitSetFieldReceiver_StructInImmutableClassField_Errors()
+    {
+        // An init-only field yields no setter to read-modify-write through, so this shape
+        // is refused (the IL backend rejects it too — the backends agree on what compiles).
+        var result = CompileResult(
+            @"(module test)
+(define-struct Triple [a : Int] [b : Int #:mutable] [c : Int])
+(define-class Box
+  [t : Triple]
+  (define (Bump [n : Int]) : Int
+    (begin (set! t b (+ (Triple/b t) n)) (Triple/b t))))"
+        );
+        Assert.False(result.Success);
+        Assert.Contains(
+            result.Diagnostics.Diagnostics,
+            d => d.Message.Contains("Cannot set! a struct record stored in immutable class field")
+        );
+    }
+
     // Cross-module inheritance: module A declares a type, module B in the same
     // compilation inherits from / implements it. The declaring module's `.zs` is
     // written to a temp dir that is added to the search path, so `(import ...)`

@@ -151,7 +151,9 @@ public sealed partial class IlEmitter
             var sanitizedName = Sanitize(field.Name);
             var fb = new FieldDefinition(
                 $"<{sanitizedName}>k__BackingField",
-                FieldAttributes.Private | FieldAttributes.InitOnly,
+                field.IsMutable
+                    ? FieldAttributes.Private
+                    : FieldAttributes.Private | FieldAttributes.InitOnly,
                 new FieldSignature(fieldClrType)
             );
             typeDef.Fields.Add(fb);
@@ -179,11 +181,14 @@ public sealed partial class IlEmitter
             );
             prop.Semantics.Add(new MethodSemantics(getter, MethodSemanticsAttributes.Getter));
 
-            // Always emit an init setter for every record field so that C#'s `with`
+            // A #:mutable field gets a plain setter — the target of `(set! record field value)`.
+            // An immutable field gets an init setter instead, so that C#'s `with`
             // expression lowering (clone + init-set) can decompile cleanly.
-            var initSetter = CreateInitSetter(typeDef, sanitizedName, fieldClrType, fb);
-            typeDef.Methods.Add(initSetter);
-            prop.Semantics.Add(new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter));
+            var setter = field.IsMutable
+                ? CreateMutableSetter(typeDef, sanitizedName, fieldClrType, fb)
+                : CreateInitSetter(typeDef, sanitizedName, fieldClrType, fb);
+            typeDef.Methods.Add(setter);
+            prop.Semantics.Add(new MethodSemantics(setter, MethodSemanticsAttributes.Setter));
 
             typeDef.Properties.Add(prop);
 
@@ -289,7 +294,9 @@ public sealed partial class IlEmitter
             var sanitizedName = Sanitize(field.Name);
             var fb = new FieldDefinition(
                 $"<{sanitizedName}>k__BackingField",
-                FieldAttributes.Private | FieldAttributes.InitOnly,
+                field.IsMutable
+                    ? FieldAttributes.Private
+                    : FieldAttributes.Private | FieldAttributes.InitOnly,
                 new FieldSignature(fieldClrType)
             );
             typeDef.Fields.Add(fb);
@@ -314,10 +321,13 @@ public sealed partial class IlEmitter
             );
             prop.Semantics.Add(new MethodSemantics(getter, MethodSemanticsAttributes.Getter));
 
-            // Init setters work on structs too — needed for `with` lowering.
-            var initSetter = CreateInitSetter(typeDef, sanitizedName, fieldClrType, fb, true);
-            typeDef.Methods.Add(initSetter);
-            prop.Semantics.Add(new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter));
+            // Init setters work on structs too — needed for `with` lowering. A #:mutable
+            // field gets a plain setter instead, the target of `(set! record field value)`.
+            var setter = field.IsMutable
+                ? CreateMutableSetter(typeDef, sanitizedName, fieldClrType, fb, true)
+                : CreateInitSetter(typeDef, sanitizedName, fieldClrType, fb, true);
+            typeDef.Methods.Add(setter);
+            prop.Semantics.Add(new MethodSemantics(setter, MethodSemanticsAttributes.Setter));
 
             typeDef.Properties.Add(prop);
             fieldDefs.Add((fb, getter));

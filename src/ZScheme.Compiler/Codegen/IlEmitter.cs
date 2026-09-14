@@ -238,6 +238,44 @@ public sealed partial class IlEmitter(
     }
 
     /// <summary>
+    ///     Emits a plain (non-init-only) property setter for a <c>#:mutable</c> record or
+    ///     struct field — the shape <c>(set! record field value)</c> calls into. Mirrors
+    ///     <see cref="CreateInitSetter" /> except the return type is unmodified void, so
+    ///     the setter stays callable from outside the type (init setters are not).
+    /// </summary>
+    private MethodDefinition CreateMutableSetter(
+        TypeDefinition declaringType,
+        string propertyName,
+        TypeSignature fieldType,
+        FieldDefinition backingField,
+        bool isValueType = false
+    )
+    {
+        var attrs =
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
+        if (!isValueType)
+            attrs |= MethodAttributes.Virtual;
+        var setter = new MethodDefinition(
+            $"set_{propertyName}",
+            attrs,
+            new MethodSignature(
+                CallingConventionAttributes.HasThis,
+                _module.CorLibTypeFactory.Void,
+                [fieldType]
+            )
+        );
+        setter.ParameterDefinitions.Add(new ParameterDefinition(1, "value", 0));
+        var setBody = new CilMethodBody { InitializeLocals = true };
+        setter.MethodBody = setBody;
+        var setIl = setBody.Instructions;
+        setIl.Add(CilOpCodes.Ldarg_0);
+        setIl.Add(CilOpCodes.Ldarg_1);
+        setIl.Add(CilOpCodes.Stfld, ResolveSelfField(declaringType, backingField));
+        setIl.Add(CilOpCodes.Ret);
+        return setter;
+    }
+
+    /// <summary>
     ///     Returns a closed self-instantiation of <paramref name="typeDef" /> (the type
     ///     applied to its own generic parameters), or <c>null</c> if the type is non-generic.
     ///     Used as the declaring-type token for IL member references emitted inside the
@@ -1394,7 +1432,9 @@ public sealed partial class IlEmitter(
                 )
             ),
             IrNode.Await aw => FindFreeVars(aw.Expr, bound),
-            IrNode.SetField sf => FindFreeVars(sf.Value, bound),
+            IrNode.SetField sf => sf.Receiver is { } r
+                ? Merge(FindFreeVars(r, bound), FindFreeVars(sf.Value, bound))
+                : FindFreeVars(sf.Value, bound),
             IrNode.FieldGet fg => FindFreeVars(fg.Record, bound),
             IrNode.SuperMethodCall smc => smc.Args.Aggregate(
                 new HashSet<string>(),
@@ -1487,7 +1527,7 @@ public sealed partial class IlEmitter(
             IrNode.Throw th => [th.Expr],
             IrNode.WithHandlers wh => [wh.Body, .. wh.Handlers.Select(h => h.HandlerBody)],
             IrNode.Await aw => [aw.Expr],
-            IrNode.SetField sf => [sf.Value],
+            IrNode.SetField sf => sf.Receiver is null ? [sf.Value] : [sf.Receiver, sf.Value],
             IrNode.FieldGet fg => [fg.Record],
             IrNode.SuperMethodCall smc => smc.Args,
             IrNode.TcoJump tj => tj.NewArgs,
@@ -1509,7 +1549,8 @@ public sealed partial class IlEmitter(
     {
         return node switch
         {
-            IrNode.SetField sf => classFields.ContainsKey(sf.FieldName)
+            IrNode.SetField sf => (sf.Receiver is null && classFields.ContainsKey(sf.FieldName))
+                || (sf.Receiver is { } r && BodyContainsClassFieldSet(r, classFields))
                 || BodyContainsClassFieldSet(sf.Value, classFields),
             IrNode.Let let => BodyContainsClassFieldSet(let.Value, classFields)
                 || BodyContainsClassFieldSet(let.Body, classFields),

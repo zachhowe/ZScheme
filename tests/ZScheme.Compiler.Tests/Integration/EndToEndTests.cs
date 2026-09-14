@@ -8434,4 +8434,84 @@ public class EndToEndTests
     [Fact]
     public void AsyncNestedMatchArmBinder_SurvivesASuspension_CSharp() =>
         Assert.Equal(42, CompileCSharpAndAwaitInt(AsyncNestedMatchBinderAcrossAwait));
+
+    // ---- (set! receiver field value) on #:mutable record/struct fields ----
+    //
+    // Differential: the two backends lower the receiver form to different machines
+    // (C# member assignment vs. IL setter calls with lvalue materialization), so the
+    // executed value is the contract. Each source is self-contained and returns an Int.
+
+    private const string MutableRecordParameter =
+        @"(module test)
+(define-record Point [x : Int #:mutable] [y : Int])
+(define (bump [p : Point] [n : Int]) : Int
+  (begin (set! p x (+ (Point/x p) n)) (Point/x p)))
+(define (Compute) : Int
+  (let ([p (Point 1 2)])
+    (let ([moved (bump p 10)])
+      (+ moved (Point/x p) (Point/y p)))))";
+
+    [Fact]
+    public void MutableRecordField_MutationVisibleToCaller_Il() =>
+        Assert.Equal(24, CompileIlAndRunInt(MutableRecordParameter));
+
+    [Fact]
+    public void MutableRecordField_MutationVisibleToCaller_CSharp() =>
+        Assert.Equal(24, CompileCSharpAndRunInt(MutableRecordParameter));
+
+    private const string MutableStructParameter =
+        @"(module test)
+(define-struct Triple [a : Int] [b : Int #:mutable] [c : Int])
+(define (bump [t : Triple] [n : Int]) : Int
+  (begin (set! t b (+ (Triple/b t) n)) (Triple/b t)))
+(define (Compute) : Int
+  (let ([t (Triple 1 2 3)])
+    (let ([r (bump t 10)])
+      (+ r (Triple/b t)))))";
+
+    [Fact]
+    public void MutableStructField_ParameterIsACopy_Il() =>
+        Assert.Equal(14, CompileIlAndRunInt(MutableStructParameter));
+
+    [Fact]
+    public void MutableStructField_ParameterIsACopy_CSharp() =>
+        Assert.Equal(14, CompileCSharpAndRunInt(MutableStructParameter));
+
+    private const string MutableStructInClassField =
+        @"(module test)
+(define-struct Triple [a : Int] [b : Int #:mutable] [c : Int])
+(define-class Box
+  [t : Triple #:mutable]
+  (define (Bump [n : Int]) : Int
+    (begin (set! t b (+ (Triple/b t) n)) (Triple/b t))))
+(define (Compute) : Int
+  (let ([b (new Box (Triple 1 2 3))])
+    (let ([r (Box/Bump b 10)])
+      (+ r (Triple/b (Box/t b))))))";
+
+    [Fact]
+    public void MutableStructField_InMutableClassField_RoundTrips_Il() =>
+        Assert.Equal(24, CompileIlAndRunInt(MutableStructInClassField));
+
+    [Fact]
+    public void MutableStructField_InMutableClassField_RoundTrips_CSharp() =>
+        Assert.Equal(24, CompileCSharpAndRunInt(MutableStructInClassField));
+
+    private const string MutableRecordField_WithCopies =
+        @"(module test)
+(define-record Point [x : Int #:mutable] [y : Int])
+(define (Compute) : Int
+  (let ([p (Point 1 2)])
+    (let ([c (with p [y 5])])
+      (+ (Point/x c) (Point/y c) (Point/y p) (Point/x p)))))";
+
+    // `with` copy-updates: the clone gets y = 5, the original keeps y = 2 — a mutable
+    // field is one that can *also* be set, not one that `with` rewrites in place.
+    [Fact]
+    public void MutableRecordField_WithStillCopies_Il() =>
+        Assert.Equal(9, CompileIlAndRunInt(MutableRecordField_WithCopies));
+
+    [Fact]
+    public void MutableRecordField_WithStillCopies_CSharp() =>
+        Assert.Equal(9, CompileCSharpAndRunInt(MutableRecordField_WithCopies));
 }

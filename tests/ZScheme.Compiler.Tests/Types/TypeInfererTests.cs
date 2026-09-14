@@ -1062,6 +1062,154 @@ public class TypeInfererTests
         Assert.Single(named.TypeArgs);
     }
 
+    // --- (set! receiver field value) on #:mutable record/struct fields ---
+
+    [Fact]
+    public void SetFieldReceiver_MutableRecordField_Types()
+    {
+        var type = InferLastForm(
+            @"
+(define-record Point [x : Int #:mutable] [y : Int])
+(let ([p (Point 1 2)])
+  (begin (set! p x 10) (Point/x p)))"
+        );
+        Assert.Equal(ZType.Int, type);
+    }
+
+    [Fact]
+    public void SetFieldReceiver_MutableStructField_Types()
+    {
+        var type = InferLastForm(
+            @"
+(define-struct Triple [a : Int] [b : Int #:mutable] [c : Int])
+(let ([t (Triple 1 2 3)])
+  (begin (set! t b 9) (Triple/b t)))"
+        );
+        Assert.Equal(ZType.Int, type);
+    }
+
+    [Fact]
+    public void SetFieldReceiver_ParameterReceiver_Types()
+    {
+        var (_, _, diag) = InferProgram(
+            @"
+(define-record Point [x : Int #:mutable] [y : Int])
+(define (bump [p : Point] [n : Int]) : Int
+  (begin (set! p x (+ (Point/x p) n)) (Point/x p)))"
+        );
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void SetFieldReceiver_ClassFieldReceiver_Types()
+    {
+        var (_, _, diag) = InferProgram(
+            @"
+(define-record Point [x : Int #:mutable] [y : Int])
+(define-class Holder
+  [p : Point #:mutable]
+  (define (Bump [n : Int]) : Int
+    (begin (set! p x (+ (Point/x p) n)) (Point/x p))))"
+        );
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
+    public void SetFieldReceiver_GenericRecord_Types()
+    {
+        var type = InferLastForm(
+            @"
+(define-record (Box a) [value : a #:mutable])
+(let ([b (Box 42)])
+  (begin (set! b value 99) (Box/value b)))"
+        );
+        Assert.Equal(ZType.Int, type);
+    }
+
+    [Fact]
+    public void SetFieldReceiver_ImmutableField_Errors()
+    {
+        var (_, _, diag) = InferProgram(
+            @"
+(define-record Point [x : Int] [y : Int])
+(let ([p (Point 1 2)]) (set! p x 10))"
+        );
+        Assert.True(diag.HasErrors);
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("Cannot set! immutable field 'x' of 'Point'")
+        );
+    }
+
+    [Fact]
+    public void SetFieldReceiver_UnknownField_Errors()
+    {
+        var (_, _, diag) = InferProgram(
+            @"
+(define-record Point [x : Int #:mutable] [y : Int])
+(let ([p (Point 1 2)]) (set! p nope 10))"
+        );
+        Assert.True(diag.HasErrors);
+        Assert.Contains(
+            diag.Diagnostics, d => d.Message.Contains("'Point' has no field 'nope'")
+        );
+    }
+
+    [Fact]
+    public void SetFieldReceiver_NonRecordReceiver_Errors()
+    {
+        var (_, _, diag) = InferProgram("(let ([v 42]) (set! v x 1))");
+        Assert.True(diag.HasErrors);
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("'set!' with a receiver requires a record or struct value")
+        );
+    }
+
+    [Fact]
+    public void SetFieldReceiver_ClassTypeReceiver_Errors()
+    {
+        var (_, _, diag) = InferProgram(
+            @"
+(define-class Counter [count : Int #:mutable])
+(let ([c (new Counter 1)]) (set! c count 2))"
+        );
+        Assert.True(diag.HasErrors);
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("requires a define-record or define-struct value")
+        );
+    }
+
+    [Fact]
+    public void SetFieldReceiver_NonVariableReceiver_Errors()
+    {
+        // A computed receiver of a value type would mutate a throwaway copy, and for a
+        // reference type the C# rvalue form does not compile at all — both backends stay
+        // on one well-defined storage slot by requiring a bare variable.
+        var (_, _, diag) = InferProgram(
+            @"
+(define-record Point [x : Int #:mutable] [y : Int])
+(set! (Point 1 2) x 10)"
+        );
+        Assert.True(diag.HasErrors);
+        Assert.Contains(
+            diag.Diagnostics,
+            d => d.Message.Contains("'set!' with a receiver requires a variable")
+        );
+    }
+
+    [Fact]
+    public void SetFieldReceiver_ValueTypeMismatch_Errors()
+    {
+        var (_, _, diag) = InferProgram(
+            @"
+(define-record Point [x : Int #:mutable] [y : Int])
+(let ([p (Point 1 2)]) (set! p x ""hello""))"
+        );
+        Assert.True(diag.HasErrors);
+    }
+
     // --- (new ...) on user-defined types ---
 
     [Fact]
