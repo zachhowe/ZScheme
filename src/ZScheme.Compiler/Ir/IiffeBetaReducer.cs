@@ -210,7 +210,11 @@ public sealed class IiffeBetaReducer
                 return new IrNode.Await(Rewrite(aw.Expr)) { Type = aw.Type, Span = aw.Span };
 
             case IrNode.SetField sf:
-                return new IrNode.SetField(sf.FieldName, Rewrite(sf.Value))
+                return new IrNode.SetField(
+                    sf.FieldName,
+                    Rewrite(sf.Value),
+                    sf.Receiver is { } r ? Rewrite(r) : null
+                )
                 {
                     Type = sf.Type,
                     Span = sf.Span,
@@ -373,7 +377,8 @@ public sealed class IiffeBetaReducer
             case IrNode.Await aw:
                 return ReferencesAny(aw.Expr, names);
             case IrNode.SetField sf:
-                return ReferencesAny(sf.Value, names);
+                return (sf.Receiver is { } r && ReferencesAny(r, names))
+                    || ReferencesAny(sf.Value, names);
             case IrNode.SuperMethodCall smc:
                 return smc.Args.Any(a => ReferencesAny(a, names));
             case IrNode.Seq seq:

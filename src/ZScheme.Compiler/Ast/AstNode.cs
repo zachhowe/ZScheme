@@ -293,7 +293,14 @@ public abstract record AstNode(SourceSpan Span)
     ) : AstNode(Span);
 
     // (set! field-name expr) — mutate a mutable field in a method body
-    public sealed record SetField(string FieldName, AstNode Value, SourceSpan Span) : AstNode(Span);
+    // (set! record-expr field-name expr) — mutate a #:mutable field of a record or struct
+    // (Receiver is null for the method-body form, where the target instance is `this`)
+    public sealed record SetField(
+        string FieldName,
+        AstNode Value,
+        SourceSpan Span,
+        AstNode? Receiver = null
+    ) : AstNode(Span);
 
     // (define-interface Name (Method [params...] : RetType) ...)
     public sealed record InterfaceDecl(

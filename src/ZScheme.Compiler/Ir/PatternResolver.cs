@@ -207,7 +207,11 @@ public sealed class PatternResolver(UnionCaseRegistry registry, TypeAliasRegistr
                 return new IrNode.Await(Rewrite(aw.Expr)) { Type = aw.Type, Span = aw.Span };
 
             case IrNode.SetField sf:
-                return new IrNode.SetField(sf.FieldName, Rewrite(sf.Value))
+                return new IrNode.SetField(
+                    sf.FieldName,
+                    Rewrite(sf.Value),
+                    sf.Receiver is { } r ? Rewrite(r) : null
+                )
                 {
                     Type = sf.Type,
                     Span = sf.Span,

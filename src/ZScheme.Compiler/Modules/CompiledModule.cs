@@ -26,6 +26,12 @@ public sealed record CompiledModule(
     IReadOnlyDictionary<string, string>? ExportedUnionCtors = null,
     IReadOnlyDictionary<string, List<string>>? ExportedRecordCtors = null,
     /// <summary>
+    ///     Maps record/struct names to their `#:mutable` field names, so `(set! record field value)`
+    ///     type-checks across module boundaries. Every record appears, with an empty list when
+    ///     none are mutable — the entry marks the name as a record type.
+    /// </summary>
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? ExportedMutableRecordFields = null,
+    /// <summary>
     ///     Maps class names to their implemented interface names, so that cross-module
     ///     type checks (e.g., DashAbility implements IAbility) work during unification.
     /// </summary>

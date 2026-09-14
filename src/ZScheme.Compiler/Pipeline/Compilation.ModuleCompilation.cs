@@ -225,6 +225,10 @@ public sealed partial class Compilation
                     )
                 )
             );
+
+            foreach (var mod in transModules)
+                if (mod.ExportedMutableRecordFields is not null)
+                    inferer.RegisterRecordFields(mod.ExportedMutableRecordFields);
             inferer.Infer(program, env);
             inferer.Resolve(program);
             // Union declarations take the *transitive* closure, for the same reason the pattern
@@ -480,6 +484,16 @@ public sealed partial class Compilation
                 if (ifaceDecl.BaseInterfaceNames.Count > 0)
                     exportedClassInterfaces[ifaceDecl.InterfaceName] = ifaceDecl.BaseInterfaceNames;
 
+            // Collect #:mutable record fields for cross-module (set! record field value)
+            // type-checking. Every record appears — with an empty list when none are
+            // mutable — so consumers can distinguish record types from other named types.
+            var exportedMutableRecordFields = new Dictionary<string, IReadOnlyList<string>>();
+            foreach (var recDecl in AllTopLevelForms(program).OfType<AstNode.RecordDecl>())
+            {
+                var mutable = recDecl.Fields.Where(f => f.IsMutable).Select(f => f.Name).ToList();
+                exportedMutableRecordFields[recDecl.RecordName] = mutable;
+            }
+
             Log.Debug(
                 "Module {ModuleName}: compiled in {ElapsedMs}ms ({ExportCount} exports, {TypeCount} types, {ClrImportCount} CLR imports, {MacroCount} macros)",
                 moduleName,
@@ -501,6 +515,7 @@ public sealed partial class Compilation
                 exportedMacros,
                 exportedUnionCtors,
                 exportedRecordCtors,
+                exportedMutableRecordFields,
                 exportedClassInterfaces,
                 AllIrDefinitions: allIrDefs
             );

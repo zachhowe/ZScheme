@@ -759,7 +759,7 @@ public sealed partial class CSharpEmitter
             // assignment is valid both as a statement and as an expression in
             // the contexts where SetField can appear (function args, ternary
             // arms, lambda bodies — all permit unparenthesized assignment).
-            IrNode.SetField n => $"this.{Sanitize(n.FieldName)} = {EmitExpr(n.Value)}",
+            IrNode.SetField n => EmitSetField(n),
             _ => ErrorAndReturn(
                 $"C# emission not implemented for {node.GetType().Name}",
                 "default",
@@ -1568,6 +1568,58 @@ public sealed partial class CSharpEmitter
             n.Updates.Select(u => $"{Sanitize(u.FieldName)} = {EmitExpr(u.Value)}")
         );
         return $"({EmitExpr(n.Record)} with {{ {setters} }})";
+    }
+
+    /// <summary>
+    ///     Emits <c>(set! field value)</c> (method-body form, targets <c>this</c>) and
+    ///     <c>(set! receiver field value)</c> (record form). The receiver form is a plain
+    ///     member assignment — <c>rec.Field = v</c> — with the receiver parenthesized
+    ///     exactly as FieldGet parenthesizes its own. One shape needs special handling:
+    ///     a struct record stored in a class field. <c>this.H.Field = v</c> is rejected by
+    ///     csc (CS1612) because the property yields a copy, so that case reads the field,
+    ///     mutates the copy in a lambda, and writes it back through the field's setter —
+    ///     which is why an immutable field holding a struct is an error rather than a
+    ///     silent no-op (the IL backend rejects the same shape, so the backends agree on
+    ///     what compiles).
+    /// </summary>
+    private string EmitSetField(IrNode.SetField n)
+    {
+        if (n.Receiver is not { } rec)
+            return $"this.{Sanitize(n.FieldName)} = {EmitExpr(n.Value)}";
+
+        var fieldName = Sanitize(n.FieldName);
+        var valueStr = EmitExpr(n.Value);
+
+        if (
+            rec is IrNode.Var { Name: var name }
+            && rec.Type is ZType.ZNamedType named
+            && _valueTypeRecordNames.Contains(named.Name)
+            && !_localBindings.Contains(name)
+            && !_localRenames.ContainsKey(name)
+            && _currentClassFields is { } fields
+            && fields.Contains(name)
+        )
+        {
+            if (_currentClassMutableFields is null || !_currentClassMutableFields.Contains(name))
+                return ErrorAndReturn(
+                    $"Cannot set! a struct record stored in immutable class field '{name}': the field's value can only be read. Mark the field #:mutable to allow it",
+                    "0",
+                    n.Span
+                );
+
+            var csType = TypeToCs(named);
+            var lambdaParam = "__setFieldVal";
+            for (var i = 2; _localBindings.Contains(lambdaParam); i++)
+                lambdaParam = $"__setFieldVal{i}";
+            // No outer parens: like the plain forms, a parenthesized assignment is not a
+            // valid C# statement (CS0201), and set! commonly lands in statement position.
+            // The cast-lambda does need its own parens before the invocation — bare
+            // `(Func<T,T>)(x => ...)(arg)` parses as a method call and fails with CS0149.
+            var funcCast = $"(System.Func<{csType}, {csType}>)";
+            return $"this.{Sanitize(name)} = ({funcCast}({lambdaParam} => {{ {lambdaParam}.{fieldName} = {valueStr}; return {lambdaParam}; }}))(this.{Sanitize(name)})";
+        }
+
+        return $"{ParenthesizeReceiver(rec, EmitExpr(rec))}.{fieldName} = {valueStr}";
     }
 
     private string EmitUnionCaseNew(IrNode.UnionCaseNew n)
@@ -2460,6 +2512,8 @@ public sealed partial class CSharpEmitter
     private string EmitRecordDecl(IrNode.RecordDecl rec)
     {
         _recordTypeNames.Add(rec.Name);
+        if (rec.IsValueType)
+            _valueTypeRecordNames.Add(rec.Name);
         if (rec.TypeParamConstraints is { Count: > 0 })
             _typeParamConstraints[rec.Name] = (rec.TypeParams, rec.TypeParamConstraints);
         var sb = new StringBuilder();
@@ -2467,6 +2521,63 @@ public sealed partial class CSharpEmitter
             foreach (var attr in rec.Attributes)
                 sb.AppendLine(FormatAttribute(attr));
         var typeParams = rec.TypeParams.Count > 0 ? $"<{string.Join(", ", rec.TypeParams)}>" : "";
+        var whereClause = FormatWhereConstraints(rec.TypeParamConstraints);
+        var typeName = SanitizeType(rec.EmitName, rec.Name);
+
+        // A record with #:mutable fields cannot use the positional form — C# positional
+        // records synthesize properties that are not settable from outside. Emit a
+        // non-positional record with per-field accessors and an explicit constructor
+        // instead; `with` and named-argument construction behave the same on both shapes.
+        // Equality is synthesized by the `record` keyword either way, but `Deconstruct`
+        // (needed by match's tuple-decomposition patterns) only the positional form
+        // synthesizes — so it is emitted explicitly alongside the constructor. Immutable fields take `init` (the positional
+        // record's `private set` equivalent) so `(with r [f v])` can still update them
+        // while outside code stays read-only; mutable fields take `set`. A struct with
+        // setters must drop `readonly` — csc rejects property setters on readonly structs
+        // (CS8341).
+        if (rec.Fields.Any(f => f.IsMutable))
+        {
+            var keyword = rec.IsValueType ? "record struct" : "sealed record";
+            sb.Append($"public {keyword} {typeName}{typeParams}{whereClause}");
+            sb.AppendLine();
+            sb.AppendLine("{");
+            foreach (var f in rec.Fields)
+            {
+                var fieldAttrs = FormatFieldAttributes(f.Attributes);
+                var accessor = f.IsMutable ? " { get; set; }" : " { get; init; }";
+                sb.AppendLine(
+                    $"{fieldAttrs}public {TypeToCs(f.Type)} {Sanitize(f.Name)}{accessor}"
+                );
+            }
+
+            var ctorParams = string.Join(
+                ", ",
+                rec.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}")
+            );
+            // `this.` on the left: inside the constructor a parameter named like its property
+            // would shadow it, and `x = x` would assign the parameter to itself.
+            var assignments = string.Join(
+                "; ",
+                rec.Fields.Select(f => $"this.{Sanitize(f.Name)} = {Sanitize(f.Name)}")
+            );
+            sb.AppendLine($"public {typeName}({ctorParams}) {{ {assignments}; }}");
+
+            // The positional form synthesizes `Deconstruct`, which match's tuple-decomposition
+            // patterns (`case (X, Y) m:`) need; the non-positional shape must provide it.
+            // Equality is unaffected — the `record` keyword synthesizes it either way.
+            var deconParams = string.Join(
+                ", ",
+                rec.Fields.Select(f => $"out {TypeToCs(f.Type)} {Sanitize(f.Name)}")
+            );
+            var deconBody = string.Join(
+                "; ",
+                rec.Fields.Select(f => $"{Sanitize(f.Name)} = this.{Sanitize(f.Name)}")
+            );
+            sb.AppendLine($"public void Deconstruct({deconParams}) {{ {deconBody}; }}");
+            sb.Append("}");
+            return sb.ToString();
+        }
+
         var fields = string.Join(
             ", ",
             rec.Fields.Select(f =>
@@ -2475,8 +2586,6 @@ public sealed partial class CSharpEmitter
                 return $"{fieldAttrs}{TypeToCs(f.Type)} {Sanitize(f.Name)}";
             })
         );
-        var whereClause = FormatWhereConstraints(rec.TypeParamConstraints);
-        var typeName = SanitizeType(rec.EmitName, rec.Name);
         var header = rec.IsValueType
             ? $"public readonly record struct {typeName}{typeParams}({fields}){whereClause};"
             : $"public sealed record {typeName}{typeParams}({fields}){whereClause};";
@@ -2634,6 +2743,9 @@ public sealed partial class CSharpEmitter
 
         // Methods
         _currentClassFields = new HashSet<string>(classDecl.Fields.Select(f => f.Name));
+        _currentClassMutableFields = new HashSet<string>(
+            classDecl.Fields.Where(f => f.IsMutable).Select(f => f.Name)
+        );
         // Include inherited fields so they resolve to this.FieldName. Skipped for
         // object-lifted classes: an `(object ...)` body does not bring the base
         // class's fields into bare-name scope (TypeInferer.InferObjectExpr), so a
@@ -2642,7 +2754,11 @@ public sealed partial class CSharpEmitter
         // when the field is not invocable).
         if (!classDecl.IsObjectLifted)
             foreach (var f in inheritedFields)
+            {
                 _currentClassFields.Add(f.Name);
+                if (f.IsMutable)
+                    _currentClassMutableFields.Add(f.Name);
+            }
 
         // Track method names (including inherited ones) so self/sibling calls
         // resolve to this.MethodName rather than the bare lowercase identifier.
@@ -2693,6 +2809,7 @@ public sealed partial class CSharpEmitter
         }
 
         _currentClassFields = null;
+        _currentClassMutableFields = null;
         _currentClassMethods = null;
         _inNestedClassBody = savedInNestedClassBody;
 
