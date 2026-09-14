@@ -109,3 +109,14 @@ In development since 2026-08-13.
     name never contains `/` but very much can contain `-` (a struct named `s-v` yields
     `s-v-a`), so `IrLowering` now carries the member name alongside the accessor name instead
     of splitting at the first separator.
+
+- **Type names and case patterns no longer depend on capitalization.** The compiler now uses
+  the declaration and pattern context to distinguish type names from constructors, so a type
+  can be named with any casing without changing how its cases are resolved. Short CLR type
+  names and imported type metadata follow the same rule.
+
+- **Inheritance is resolved transitively.** Derived-class constructors now initialize every
+  inherited field, including fields several levels up the hierarchy, and both the C# and IL
+  backends implement all methods inherited through an interface chain. Interface and class
+  metadata also preserves the complete transitive inheritance information for downstream
+  modules.
