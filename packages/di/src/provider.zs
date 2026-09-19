@@ -26,4 +26,4 @@
   : System.IServiceProvider
   (clr-build-provider svcs))
 
-(export services/build-provider)
+(provide services/build-provider)
