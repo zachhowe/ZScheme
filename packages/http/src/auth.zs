@@ -22,4 +22,4 @@
 (define (bearer-auth [token : String]) : (TreeList String)
   (treelist "Authorization" (string-append "Bearer " token)))
 
-(export basic-auth bearer-auth)
+(provide basic-auth bearer-auth)

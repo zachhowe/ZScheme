@@ -23,7 +23,7 @@
 (test-suite ResponseTests
   (test-case response_fields_accessible
     (let ([resp (HttpResponse 200 "OK" "hello" #t)])
-      (check-equal? 200 (HttpResponse/status resp))
-      (check-equal? "OK" (HttpResponse/reason resp))
-      (check-equal? "hello" (HttpResponse/body resp))
-      (check-true (HttpResponse/success resp)))))
+      (check-equal? 200 (HttpResponse-status resp))
+      (check-equal? "OK" (HttpResponse-reason resp))
+      (check-equal? "hello" (HttpResponse-body resp))
+      (check-true (HttpResponse-success resp)))))
