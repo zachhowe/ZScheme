@@ -1010,14 +1010,22 @@ currently prints a message directing you to `compile` followed by `dotnet run`.
 
 ### `lint [paths...]`
 
-Reports — and with `--fix` applies — the style diagnostics that no compile path
-emits. Currently one rule: **ZS0004**, the redundant namespace qualifier
-(`RedundantTypeQualifierAnalyzer`).
+Reports — and with `--fix` applies — the diagnostics that have an automatic fix,
+across a whole package rather than one editor buffer at a time. Three rules:
+**ZS0004**, the redundant namespace qualifier
+(`RedundantTypeQualifierAnalyzer`), plus the two deprecation warnings the compile
+paths do emit — **ZS0006**, the legacy `Type/member` accessor spelling, and
+**ZS0007**, the deprecated form heads. All three carry the same contract: the
+diagnostic's span covers exactly the text to change, and the replacement is either
+nothing (ZS0004) or the diagnostic's own `Data[1]` (ZS0006/ZS0007) — so
+`zs lint --fix` applies exactly the edits the LSP offers as per-diagnostic quick
+fixes, but across the whole package at once.
 
 | Option | Description |
 | --- | --- |
 | `--manifest`, `-m <path>` | Package context for the files being linted |
-| `--fix` | Rewrite the files in place |
+| `--fix` | Rewrite the files in place (every fixable code) |
+| `--fix <codes>` | Rewrite only the listed codes (comma-separated, e.g. `ZS0006,ZS0007`) |
 | `--ref <dir>` | Directory containing CLR assemblies (repeatable) |
 | `--module-path <dir>` | Additional module search directory (repeatable) |
 | `--package-path <dir>` | Register a package for qualified imports (repeatable) |
@@ -1037,9 +1045,16 @@ language server checks the open document — the analyzer needs the compilation'
 that only exists once stage 4 has run. A file that fails before then is reported
 and skipped, never rewritten.
 
-The fix is a pure deletion: ZS0004's span covers exactly the redundant `Ns.`
-characters, so `RedundantTypeQualifierFixer` splices them out of the raw source
-(descending offset order, line endings preserved) with no re-parse.
+The fix is a raw-string splice: `DiagnosticFixer` rewrites each diagnostic's span
+with its code's replacement (a deletion for ZS0004, `Data[1]` for the rest) in
+descending offset order, line endings and everything outside the spans preserved
+byte-for-byte. A span that does not sit within a single line is declined and
+reported, never guessed at. The ZS0006/ZS0007 hints come from the compilation
+itself and are kept only when their span is in the file being linted — a module
+imported from source reports its deprecations with spans in its own file. With a
+scoped `--fix <codes>`, issues outside the scope are left in place and counted in
+the summary rather than treated as failures, and a code with no fix is a usage
+error.
 
 Exit codes: `0` clean, `1` when issues were found without `--fix`, or when any
 file could not be analyzed.

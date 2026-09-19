@@ -81,6 +81,19 @@ In development since 2026-08-13.
     inside the output directory is not followed. `zs compile --emit-project` does not prune:
     it owns only the one file it overwrites, and `-o` can point at a directory holding other
     compiles' output.
+
+- **`zs lint` fixes the deprecation warnings, across a whole package.** Lint has been the
+  package-wide counterpart of the LSP's quick fixes, but it applied only one rule — ZS0004,
+  the redundant namespace qualifier. It now also reports and rewrites the two deprecation
+  warnings the compile paths emit: ZS0006, the legacy `Type/member` accessor spelling, and
+  ZS0007, the deprecated form heads. All three codes carry the same contract — the
+  diagnostic's span covers exactly the text to change, and the replacement is either nothing
+  (ZS0004) or the diagnostic's own `Data[1]` (ZS0006/ZS0007) — so one `DiagnosticFixer`
+  applies them all as raw-string splices, exactly the edits the LSP offers one at a time,
+  and the two can never disagree about what a fix does. `--fix` rewrites every fixable
+  occurrence; `--fix ZS0006,ZS0007` restricts the rewrite to the listed codes, and issues
+  outside the scope are counted in the summary rather than treated as failures. A code with
+  no fix is a usage error, and a file that does not type-check is still never rewritten.
 ## Changed — language
 - **`export` is spelled `provide`, and type declarations dropped their `define-` prefix.**
   Both moves follow Racket: it spells the module-export form `provide`, and it treats
