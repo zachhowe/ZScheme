@@ -47,8 +47,8 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/get (string-append first-url "/logged") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "logged" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "logged" (HttpResponse-body (unwrap result))))
         (test-support/shutdown-test-server app))))
 
   ;; Middleware resolves a logger and logs a templated message, then the pipeline continues.
@@ -59,6 +59,6 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/get (string-append first-url "/hello") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "hello world" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "hello world" (HttpResponse-body (unwrap result))))
         (test-support/shutdown-test-server app)))))

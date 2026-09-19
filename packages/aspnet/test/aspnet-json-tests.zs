@@ -33,7 +33,7 @@
 
 ;; Exercises generic json/serialize<T>: the compiler resolves the concrete
 ;; instantiation from the record's type at the call site.
-(define-record JsonWidget [name : String] [count : Int])
+(record JsonWidget [name : String] [count : Int])
 
 (define-async (handle-widget [ctx : HttpContext]) : Task
   (await (response/write-json ctx (json/serialize (JsonWidget "gadget" 7)))))
@@ -44,8 +44,8 @@
   (let* ([body (await (request/read-body-string ctx))]
          [w (json/deserialize body)])
     (await (response/write-string ctx
-            (string-append (JsonWidget/name w)
-              (string-append ":" (json/serialize (JsonWidget/count w))))))))
+            (string-append (JsonWidget-name w)
+              (string-append ":" (json/serialize (JsonWidget-count w))))))))
 
 ;; ============================================================================
 ;; JSON Tests
@@ -59,8 +59,8 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/get (string-append first-url "/json") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "{\"status\":\"ok\"}" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "{\"status\":\"ok\"}" (HttpResponse-body (unwrap result))))
         (test-support/shutdown-test-server app))))
 
   (test-case-async write_json_with_complex_object
@@ -69,8 +69,8 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/get (string-append first-url "/complex") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-true (contains? (HttpResponse/body (unwrap result)) "test")))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-true (contains? (HttpResponse-body (unwrap result)) "test")))
         (test-support/shutdown-test-server app))))
 
   (test-case-async write_json_with_empty_object
@@ -79,8 +79,8 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/get (string-append first-url "/empty") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "{}" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "{}" (HttpResponse-body (unwrap result))))
         (test-support/shutdown-test-server app))))
 
   ;; Generic json/serialize over a user record produces the record's fields.
@@ -90,9 +90,9 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/get (string-append first-url "/widget") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-true (contains? (HttpResponse/body (unwrap result)) "gadget"))
-          (check-true (contains? (HttpResponse/body (unwrap result)) "7")))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-true (contains? (HttpResponse-body (unwrap result)) "gadget"))
+          (check-true (contains? (HttpResponse-body (unwrap result)) "7")))
         (test-support/shutdown-test-server app))))
 
   ;; Generic json/deserialize reconstructs a real record from a posted body.
@@ -103,6 +103,6 @@
              [first-url (app/first-url app)])
         (let ([result (await (http/post-json (string-append first-url "/widget/echo")
                              "{\"Name\":\"gadget\",\"Count\":7}" (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "gadget:7" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "gadget:7" (HttpResponse-body (unwrap result))))
         (test-support/shutdown-test-server app)))))

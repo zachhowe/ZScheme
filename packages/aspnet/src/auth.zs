@@ -60,4 +60,4 @@
             (response/status-set ctx 401)
             (response/write-string ctx "unauthorized"))))))
 
-(export auth/require-bearer auth/require-basic)
+(provide auth/require-bearer auth/require-basic)

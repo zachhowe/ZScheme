@@ -39,7 +39,7 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/get (string-append first-url "/protected") (treelist)))])
-          (check-equal? 401 (HttpResponse/status (unwrap result))))
+          (check-equal? 401 (HttpResponse-status (unwrap result))))
         (test-support/shutdown-test-server app))))
 
   (test-case-async authorized_with_valid_token
@@ -50,19 +50,19 @@
              [first-url (app/first-url app)])
         (let* ([headers (treelist (treelist "Authorization" "Bearer secret-token"))]
                [result (await (http/get (string-append first-url "/protected") headers))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "secret" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "secret" (HttpResponse-body (unwrap result))))
         (let* ([headers (treelist (treelist "Authorization" "Bearer wrong-token"))]
                [result (await (http/get (string-append first-url "/protected") headers))])
-          (check-equal? 401 (HttpResponse/status (unwrap result))))
+          (check-equal? 401 (HttpResponse-status (unwrap result))))
         (let* ([headers (treelist (treelist "Authorization" "Basic dXNlcjpwYXNz"))]
                [result (await (http/get (string-append first-url "/protected") headers))])
-          (check-equal? 401 (HttpResponse/status (unwrap result))))
+          (check-equal? 401 (HttpResponse-status (unwrap result))))
         (let* ([headers (treelist (treelist "Authorization" ""))]
                [result (await (http/get (string-append first-url "/protected") headers))])
-          (check-equal? 401 (HttpResponse/status (unwrap result))))
+          (check-equal? 401 (HttpResponse-status (unwrap result))))
         (let ([result (await (http/get (string-append first-url "/protected") (treelist)))])
-          (check-equal? 401 (HttpResponse/status (unwrap result))))
+          (check-equal? 401 (HttpResponse-status (unwrap result))))
         (test-support/shutdown-test-server app))))
 
   ;; require-basic accepts a valid Basic header (base64 of "user:pass") and
@@ -75,11 +75,11 @@
              [first-url (app/first-url app)])
         (let* ([headers (treelist (treelist "Authorization" "Basic dXNlcjpwYXNz"))]
                [result (await (http/get (string-append first-url "/protected") headers))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "secret" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "secret" (HttpResponse-body (unwrap result))))
         (let* ([headers (treelist (treelist "Authorization" "Basic d3Jvbmc6Y3JlZHM="))]
                [result (await (http/get (string-append first-url "/protected") headers))])
-          (check-equal? 401 (HttpResponse/status (unwrap result))))
+          (check-equal? 401 (HttpResponse-status (unwrap result))))
         (let ([result (await (http/get (string-append first-url "/protected") (treelist)))])
-          (check-equal? 401 (HttpResponse/status (unwrap result))))
+          (check-equal? 401 (HttpResponse-status (unwrap result))))
         (test-support/shutdown-test-server app)))))

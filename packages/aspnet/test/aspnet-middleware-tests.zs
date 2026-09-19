@@ -50,8 +50,8 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/get (string-append first-url "/hello") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "hello world" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "hello world" (HttpResponse-body (unwrap result))))
         (test-support/shutdown-test-server app))))
 
   (test-case-async middleware_chains_multiple
@@ -62,6 +62,6 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/get (string-append first-url "/hello") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "hello world" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "hello world" (HttpResponse-body (unwrap result))))
         (test-support/shutdown-test-server app)))))

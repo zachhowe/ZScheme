@@ -108,7 +108,7 @@
   (match (int-try-parse (request/route-value ctx key ""))
     [(values ok n) (if ok (Some n) None)]))
 
-(export request/method request/path
+(provide request/method request/path
         request/route-value request/query request/header
         request/read-body-string request/services
         request/query-int request/route-value-int)
