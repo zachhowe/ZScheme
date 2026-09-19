@@ -128,7 +128,7 @@
                       [args : System.Object ...]) : Unit
   (clr-log-critical logger msg args))
 
-(export logger/from-factory null-logger logger/enabled?
+(provide logger/from-factory null-logger logger/enabled?
         log-level/trace log-level/debug log-level/information log-level/warning
         log-level/error log-level/critical log-level/none
         log/trace log/debug log/info log/warning log/error log/critical)
