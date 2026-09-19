@@ -12,8 +12,8 @@
 (import di-abstractions/services)
 
 ;; Trivial services used as registration keys/values.
-(define-record Greeter [prefix : String])
-(define-record Counter [n : Int])
+(record Greeter [prefix : String])
+(record Counter [n : Int])
 
 ;; A no-op factory matching the (IServiceProvider -> Object) shape the *-factory verbs take.
 (define (make-greeter [_sp : System.IServiceProvider]) : System.Object (Greeter "made"))
