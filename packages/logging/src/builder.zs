@@ -52,5 +52,5 @@
   : ILoggingBuilder
   (clr-set-minimum-level builder level))
 
-(export logging/create-factory
+(provide logging/create-factory
         logging-builder/clear-providers logging-builder/set-minimum-level)
