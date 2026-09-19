@@ -62,8 +62,8 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/get (string-append first-url "/hello") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "hello world" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "hello world" (HttpResponse-body (unwrap result))))
         (test-support/shutdown-test-server app))))
 
   (test-case-async query_params_are_available
@@ -72,11 +72,11 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result1 (await (http/get (string-append first-url "/search?q=hello+world") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result1)))
-          (check-equal? "search: hello world" (HttpResponse/body (unwrap result1))))
+          (check-equal? 200 (HttpResponse-status (unwrap result1)))
+          (check-equal? "search: hello world" (HttpResponse-body (unwrap result1))))
         (let ([result2 (await (http/get (string-append first-url "/search") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result2)))
-          (check-equal? "search: " (HttpResponse/body (unwrap result2))))
+          (check-equal? 200 (HttpResponse-status (unwrap result2)))
+          (check-equal? "search: " (HttpResponse-body (unwrap result2))))
         (test-support/shutdown-test-server app))))
 
   (test-case-async route_params_are_available
@@ -85,11 +85,11 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result1 (await (http/get (string-append first-url "/users/42") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result1)))
-          (check-equal? "user 42" (HttpResponse/body (unwrap result1))))
+          (check-equal? 200 (HttpResponse-status (unwrap result1)))
+          (check-equal? "user 42" (HttpResponse-body (unwrap result1))))
         (let ([result2 (await (http/get (string-append first-url "/users/abc") (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result2)))
-          (check-equal? "user abc" (HttpResponse/body (unwrap result2))))
+          (check-equal? 200 (HttpResponse-status (unwrap result2)))
+          (check-equal? "user abc" (HttpResponse-body (unwrap result2))))
         (test-support/shutdown-test-server app))))
 
   (test-case-async query_int_parses_or_none
@@ -98,11 +98,11 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([r1 (await (http/get (string-append first-url "/count?n=42") (treelist)))])
-          (check-equal? "n=42" (HttpResponse/body (unwrap r1))))
+          (check-equal? "n=42" (HttpResponse-body (unwrap r1))))
         (let ([r2 (await (http/get (string-append first-url "/count?n=abc") (treelist)))])
-          (check-equal? "n=none" (HttpResponse/body (unwrap r2))))
+          (check-equal? "n=none" (HttpResponse-body (unwrap r2))))
         (let ([r3 (await (http/get (string-append first-url "/count") (treelist)))])
-          (check-equal? "n=none" (HttpResponse/body (unwrap r3))))
+          (check-equal? "n=none" (HttpResponse-body (unwrap r3))))
         (test-support/shutdown-test-server app))))
 
   (test-case-async post_with_body
@@ -111,8 +111,8 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/post (string-append first-url "/echo") "hello" "text/plain" (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "hello" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "hello" (HttpResponse-body (unwrap result))))
         (test-support/shutdown-test-server app))))
 
   (test-case-async post_with_json_body
@@ -121,8 +121,8 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/post-json (string-append first-url "/echo") "{\"name\":\"test\"}" (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "{\"name\":\"test\"}" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "{\"name\":\"test\"}" (HttpResponse-body (unwrap result))))
         (test-support/shutdown-test-server app))))
 
   (test-case-async put_method_works
@@ -131,8 +131,8 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/put (string-append first-url "/resource") "data" "text/plain" (treelist)))])
-          (check-equal? 200 (HttpResponse/status (unwrap result)))
-          (check-equal? "updated: data" (HttpResponse/body (unwrap result))))
+          (check-equal? 200 (HttpResponse-status (unwrap result)))
+          (check-equal? "updated: data" (HttpResponse-body (unwrap result))))
         (test-support/shutdown-test-server app))))
 
   (test-case-async delete_method_works
@@ -141,8 +141,8 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/delete (string-append first-url "/resource/5") (treelist)))])
-          (check-equal? 204 (HttpResponse/status (unwrap result)))
-          (check-equal? "" (HttpResponse/body (unwrap result))))
+          (check-equal? 204 (HttpResponse-status (unwrap result)))
+          (check-equal? "" (HttpResponse-body (unwrap result))))
         (test-support/shutdown-test-server app))))
 
   (test-case-async unknown_route_returns_404
@@ -151,5 +151,5 @@
       (let* ([app (await (test-support/start-test-app app))]
              [first-url (app/first-url app)])
         (let ([result (await (http/get (string-append first-url "/does-not-exist") (treelist)))])
-          (check-true (>= (HttpResponse/status (unwrap result)) 400)))
+          (check-true (>= (HttpResponse-status (unwrap result)) 400)))
         (test-support/shutdown-test-server app)))))

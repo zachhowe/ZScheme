@@ -22,4 +22,4 @@
   (let ([ab : IApplicationBuilder app])
     (clr-use ab middleware) ()))
 
-(export app/use)
+(provide app/use)

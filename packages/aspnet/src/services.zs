@@ -34,4 +34,4 @@
   : System.IServiceProvider
   (app-services app))
 
-(export services/builder-services services/app-services)
+(provide services/builder-services services/app-services)
