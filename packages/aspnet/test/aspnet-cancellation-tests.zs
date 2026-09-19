@@ -30,7 +30,7 @@
         (await (test-support/wait-for-server (app/first-url app)))
         (let* ([first-url (app/first-url app)]
                [result (await (http/get (string-append first-url "/ping") (treelist)))])
-          (check-equal? "pong" (HttpResponse/body (unwrap result))))
+          (check-equal? "pong" (HttpResponse-body (unwrap result))))
         (app/shutdown-with-token app (cancellation/token src))
         (cancellation/dispose! src))))
 

@@ -114,6 +114,6 @@
 (define (app/first-url [app : WebApplication]) : String
   (url-at (app-urls app) 0))
 
-(export app/create-builder app/build app/run app/run-async
+(provide app/create-builder app/build app/run app/run-async
         app/start app/shutdown app/url-add app/first-url
         app/start-with-token app/run-async-with-token app/shutdown-with-token)
