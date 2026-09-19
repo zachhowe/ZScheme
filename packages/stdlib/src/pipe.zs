@@ -1,7 +1,7 @@
 ;; pipe.zs — Pipe operator macro
 (module pipe)
 
-(export |>)
+(provide |>)
 
 (define-syntax |>
   (syntax-rules ()

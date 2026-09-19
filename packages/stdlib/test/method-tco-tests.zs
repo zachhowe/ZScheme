@@ -14,9 +14,9 @@
 
 (import zunit)
 
-(define-union Peano (PZero) (PSucc [n : Peano]))
+(union Peano (PZero) (PSucc [n : Peano]))
 
-(define-class Looper
+(class Looper
   [label : String]
 
   ;; The plain shape: a tail self-call in an `if` else-branch.
@@ -76,32 +76,32 @@
 
 (test-suite MethodTcoTests
   (test-case deep_method_recursion_runs_in_constant_stack
-    (check-equal? 200000 (Looper/CountDown (Looper "a") 200000 0)))
+    (check-equal? 200000 (Looper-CountDown (Looper "a") 200000 0)))
 
   (test-case deep_method_recursion_through_let_spine
-    (check-equal? 200000 (Looper/CountDownViaLet (Looper "a") 200000 0)))
+    (check-equal? 200000 (Looper-CountDownViaLet (Looper "a") 200000 0)))
 
   (test-case deep_method_recursion_in_match_arm
     (check-equal? 200000
-                  (Looper/CountDownMatch (Looper "a") (make-peano 200000 PZero) 0)))
+                  (Looper-CountDownMatch (Looper "a") (make-peano 200000 PZero) 0)))
 
   (test-case deep_method_recursion_returning_unit
     (begin
-      (Looper/Spin (Looper "a") 200000)
+      (Looper-Spin (Looper "a") 200000)
       (check-true #t)))
 
   ;; An odd count leaves the arguments swapped, an even count restores them: only correct if
   ;; each jump reads the pre-jump values.
   (test-case back_edge_stages_arguments_before_assigning
     (begin
-      (check-equal? -4 (Looper/Swap (Looper "a") 7 3 1))
-      (check-equal? 4 (Looper/Swap (Looper "a") 7 3 2)))))
+      (check-equal? -4 (Looper-Swap (Looper "a") 7 3 1))
+      (check-equal? 4 (Looper-Swap (Looper "a") 7 3 2)))))
 
 (test-suite-async MethodTcoAsyncTests
   (test-case-async deep_async_method_recursion_runs_in_constant_stack
-    (let ([r (await (Looper/SpinAsync (Looper "a") 200000 0))])
+    (let ([r (await (Looper-SpinAsync (Looper "a") 200000 0))])
       (check-equal? 200000 r)))
 
   (test-case-async deep_async_method_recursion_inside_state_machine
-    (let ([r (await (Looper/BumpAsync (Looper "a") 200000 0))])
+    (let ([r (await (Looper-BumpAsync (Looper "a") 200000 0))])
       (check-equal? 200000 r))))

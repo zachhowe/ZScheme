@@ -12,4 +12,4 @@
   [maxf Math/Max : (Float Float -> Float)]
   [minf Math/Min : (Float Float -> Float)])
 
-(export sqrt abs min max floor ceiling maxf minf)
+(provide sqrt abs min max floor ceiling maxf minf)

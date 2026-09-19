@@ -208,7 +208,7 @@
 (define (vector->immutable-vector [xs : (Mutable-Vector ^a)]) : (Vector ^a)
   (vector-create xs))
 
-(export vector make-vector build-vector
+(provide vector make-vector build-vector
         vector-length vector-ref vector-empty?
         vector-set/copy vector-append
         vector-map vector-filter vector-filter-not vector-foldl

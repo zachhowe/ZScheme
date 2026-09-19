@@ -102,7 +102,7 @@
   :where (^k notnull)
   (create-list-from (cd-values-raw d)))
 
-(export concurrent-dictionary/new length empty?
+(provide concurrent-dictionary/new length empty?
         put! try-add!
         get try-get try-remove! contains-key?
         clear! keys values)

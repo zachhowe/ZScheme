@@ -1,7 +1,7 @@
 ;; option.zs — Option type for values that may or may not exist
 (module option)
 
-(define-union (Option ^a)
+(union (Option ^a)
   (Some [value : ^a])
   (None))
 
@@ -35,4 +35,4 @@
     [(Some _) #f]
     [None #t]))
 
-(export Option Some None unwrap unwrap-or map flat-map some? none?)
+(provide Option Some None unwrap unwrap-or map flat-map some? none?)

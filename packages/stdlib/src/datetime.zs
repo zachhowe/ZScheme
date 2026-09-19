@@ -14,4 +14,4 @@
   [timespan-total-seconds TimeSpan.TotalSeconds
     :instance-property : (TimeSpan -> Double)])
 
-(export now utc-now millis datetime-subtract timespan-total-seconds)
+(provide now utc-now millis datetime-subtract timespan-total-seconds)

@@ -30,4 +30,4 @@
 (define (contains? [s : String] [substring : String]) : Bool
   (clr-contains s substring))
 
-(export format equals? empty? starts-with? ends-with? contains?)
+(provide format equals? empty? starts-with? ends-with? contains?)

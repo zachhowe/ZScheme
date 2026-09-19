@@ -1,7 +1,7 @@
 ;; attrs.zs — Attribute helper macros
 (module attrs)
 
-(export with-method-impl)
+(provide with-method-impl)
 
 (define-syntax with-method-impl
   (syntax-rules (aggressive-inlining no-inlining no-optimization)
