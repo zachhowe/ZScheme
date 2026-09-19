@@ -1,7 +1,7 @@
 ;; cond.zs — Cond macro (multi-branch conditional)
 (module cond)
 
-(export cond)
+(provide cond)
 
 (define-syntax cond
   (syntax-rules (else)

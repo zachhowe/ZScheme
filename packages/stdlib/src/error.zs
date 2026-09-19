@@ -4,7 +4,7 @@
 (import stdlib/option)
 
 ;; Structured error with an optional inner cause, forming a chain
-(define-record Error [message : String] [inner : (Option Error)])
+(record Error [message : String] [inner : (Option Error)])
 
 ;; Construct a leaf Error with no inner cause
 (define (make-error [msg : String]) : Error
@@ -14,4 +14,4 @@
 (define (make-error-with-inner [msg : String] [inner-err : Error]) : Error
   (Error msg (Some inner-err)))
 
-(export make-error make-error-with-inner Error)
+(provide make-error make-error-with-inner Error)

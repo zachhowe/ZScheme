@@ -64,7 +64,7 @@
 (define (cancellation/none) : CancellationToken
   (token-none))
 
-(export cancellation/new cancellation/new-with-timeout
+(provide cancellation/new cancellation/new-with-timeout
         cancellation/token cancellation/cancel! cancellation/cancel-after!
         cancellation/requested? cancellation/token-requested?
         cancellation/dispose! cancellation/none)
