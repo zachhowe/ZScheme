@@ -47,4 +47,4 @@
 (define (try-peek [s : (Concurrent-Stack ^a)]) : (ValueTuple Bool ^a)
   (cs-try-peek-raw s))
 
-(export concurrent-stack/new length empty? push! clear! try-pop! try-peek)
+(provide concurrent-stack/new length empty? push! clear! try-pop! try-peek)

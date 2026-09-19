@@ -232,7 +232,7 @@
 (define (vector->mutable-treelist [xs : (Vector ^a)]) : (Mutable-TreeList ^a)
   (ml-from-vector-raw xs))
 
-(export mutable-treelist make-mutable-treelist
+(provide mutable-treelist make-mutable-treelist
         mutable-treelist-length mutable-treelist-ref
         mutable-treelist-first mutable-treelist-last
         mutable-treelist-set! mutable-treelist-add! mutable-treelist-cons!
