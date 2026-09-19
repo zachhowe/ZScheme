@@ -9,7 +9,7 @@
   [check-false      Assert/False]
   [fail             Assert/Fail])
 
-(export check-equal? check-not-equal? check-true check-false
+(provide check-equal? check-not-equal? check-true check-false
         check-pred check-not-false fail test-case test-suite test-suite-async
         theory-case inline-data test-case-async theory-case-async)
 
