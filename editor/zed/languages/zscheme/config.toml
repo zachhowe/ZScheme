@@ -1,6 +1,6 @@
 name = "ZScheme"
 grammar = "zscheme"
-path_suffixes = ["zs", "zspkg"]
+path_suffixes = ["zs"]
 line_comments = ["; "]
 autoclose_before = "])"
 brackets = [

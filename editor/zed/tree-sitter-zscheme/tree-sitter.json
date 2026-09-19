@@ -5,7 +5,7 @@
       "camelcase": "ZScheme",
       "scope": "source.zscheme",
       "path": ".",
-      "file-types": ["zs", "zspkg"],
+      "file-types": ["zs"],
       "highlights": "../languages/zscheme/highlights.scm"
     }
   ],

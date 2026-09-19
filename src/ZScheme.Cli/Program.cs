@@ -56,6 +56,7 @@ public static class Program
                 "repl" => ReplCommand.Run(),
                 "package" => PackageCommand.Run(args[1..]),
                 "generate-project" => GenerateProjectCommand.Run(args[1..]),
+                "format" => FormatCommand.Run(args[1..]),
                 "--version" or "-v" => PrintVersion(),
                 "--help" or "-h" => PrintUsage(),
                 _ => CliHelpers.Error($"Unknown command: {command}"),
@@ -108,6 +109,12 @@ public static class Program
         Console.WriteLine("  repl                    Start interactive REPL");
         Console.WriteLine("  package <cmd>           Package management (init)");
         Console.WriteLine("  generate-project        Generate a .csproj project directory");
+        Console.WriteLine(
+            "  format <file.zs>        Format a ZScheme file (use --write to modify in place)"
+        );
+        Console.WriteLine(
+            "  format --init           Write a default .zsfmt config to the current directory"
+        );
         Console.WriteLine();
         Console.WriteLine("Options (compile):");
         Console.WriteLine("  --output, -o <path>     Output path (default: output)");

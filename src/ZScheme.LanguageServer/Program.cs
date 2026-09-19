@@ -57,6 +57,8 @@ var server = await LanguageServer.From(options =>
         .WithHandler<CallHierarchyHandler>()
         .WithHandler<TypeHierarchyHandler>()
         .WithHandler<WorkspaceFoldersHandler>()
+        .WithHandler<DocumentFormattingHandler>()
+        .WithHandler<DocumentRangeFormattingHandler>()
         .WithServices(services =>
         {
             services.AddSingleton<AnalysisService>();

@@ -470,7 +470,7 @@ public class ClrInteropTests
         var interop = new ClrInterop(diag);
 
         // OverloadDelegateFixture.Run has two same-arity overloads:
-        //   (string, System.Delegate) -> int      [base-delegate / minimal-API analogue]
+        //   (string, System.Delegate) -> int      [base-delegate / minimal-API analog]
         //   (string, MyHandler)       -> string   [concrete delegate]
         // The handler arg is a function (Int -> String). Without the delegate-specificity
         // tie-break this would be ambiguous (different return types); with it, the concrete
