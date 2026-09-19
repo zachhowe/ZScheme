@@ -162,7 +162,12 @@ public static class Program
         Console.WriteLine(
             "                          (default: the package owning each path, else auto-detect)"
         );
-        Console.WriteLine("  --fix                   Rewrite the files in place");
+        Console.WriteLine(
+            "  --fix                   Rewrite the files in place (every fixable code)"
+        );
+        Console.WriteLine(
+            "  --fix <codes>           Rewrite only the listed codes (comma-separated, e.g. ZS0006,ZS0007)"
+        );
         Console.WriteLine(
             "  --ref <dir>             Directory containing CLR assemblies (repeatable)"
         );
