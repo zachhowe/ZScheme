@@ -42,4 +42,4 @@
 (define (try-peek [q : (Concurrent-Queue ^a)]) : (ValueTuple Bool ^a)
   (cq-try-peek-raw q))
 
-(export concurrent-queue/new length empty? enqueue! try-dequeue! try-peek)
+(provide concurrent-queue/new length empty? enqueue! try-dequeue! try-peek)

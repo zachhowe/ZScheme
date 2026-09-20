@@ -8,4 +8,4 @@
 
 (thread-sleep 0)
 
-(export thread-sleep)
+(provide thread-sleep)

@@ -6,7 +6,7 @@
 (import stdlib/mutable/vector)
 (import stdlib/mutable/treelist)
 
-(define-union (List ^a)
+(union (List ^a)
   (Nil)
   (Cons [head : ^a] [tail : (List ^a)]))
 
@@ -158,7 +158,7 @@
 (define (list->mutable-vector [xs : (List ^a)]) : (Mutable-Vector ^a)
   (vector->mutable-vector (list->vector xs)))
 
-(export List Nil Cons list
+(provide List Nil Cons list
         cons car cdr
         list/empty list-head list-tail rest empty?
         length list-ref reverse

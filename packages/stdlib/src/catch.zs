@@ -9,7 +9,7 @@
   System
   [__ex-message Exception.Message :instance-property : (Exception -> String)])
 
-(export catch __ex-message)
+(provide catch __ex-message)
 
 (define-syntax catch
   (syntax-rules ()

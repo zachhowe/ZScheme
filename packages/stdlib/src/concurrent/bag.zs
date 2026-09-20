@@ -42,4 +42,4 @@
 (define (try-peek [bag : (Concurrent-Bag ^a)]) : (ValueTuple Bool ^a)
   (cb-try-peek-raw bag))
 
-(export concurrent-bag/new length empty? add! try-take! try-peek)
+(provide concurrent-bag/new length empty? add! try-take! try-peek)

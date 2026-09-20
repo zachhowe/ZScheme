@@ -106,6 +106,6 @@
 (define (vector->mutable-vector [xs : (Vector ^a)]) : (Mutable-Vector ^a)
   (vector-to-mutable-raw xs))
 
-(export vector-length vector-ref vector-empty?
+(provide vector-length vector-ref vector-empty?
         vector-set! vector-map! vector-fill! vector-copy! vector-sort!
         vector->mutable-vector)

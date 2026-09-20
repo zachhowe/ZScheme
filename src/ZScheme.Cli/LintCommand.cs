@@ -8,9 +8,14 @@ namespace ZScheme.Cli;
 
 /// <summary>
 ///     <c>zs lint</c> — style analysis that no compile path runs, reported (and optionally
-///     applied) over a whole package rather than one editor buffer at a time. Currently one
-///     rule: ZS0004, the redundant namespace qualifier
-///     (<see cref="RedundantTypeQualifierAnalyzer" />).
+///     applied) over a whole package rather than one editor buffer at a time. Three rules:
+///     ZS0004, the redundant namespace qualifier
+///     (<see cref="RedundantTypeQualifierAnalyzer" />), plus the two deprecation warnings the
+///     compile paths do emit — ZS0006, the legacy <c>Type/member</c> accessor spelling, and
+///     ZS0007, the deprecated form heads. Lint is where the latter two get fixed in bulk:
+///     all three share the span-rewrite contract behind <see cref="DiagnosticFixer" />, so
+///     <c>--fix</c> rewrites every occurrence in the package in one pass — the same edit the
+///     LSP offers as a per-diagnostic quick fix.
 ///     <para>
 ///         Each file is type-checked on its own with <c>StopAfterTypeInference</c>, the way the
 ///         language server checks the open document — the analyzer needs the compilation's
@@ -24,6 +29,7 @@ internal static class LintCommand
     {
         string? manifestPath = null;
         var fix = false;
+        HashSet<string>? fixCodes = null;
         var paths = new List<string>();
         var extra = new ExtraInputs();
 
@@ -35,6 +41,15 @@ internal static class LintCommand
                     break;
                 case "--fix":
                     fix = true;
+                    // Optional scope: `--fix ZS0006,ZS0007` applies only the listed codes.
+                    // The token after --fix is a scope only when it reads as a code list;
+                    // a path that merely starts with ZS is still a path.
+                    if (
+                        i + 1 < args.Length
+                        && LooksLikeCodeList(args[i + 1])
+                        && !ParseFixScope(args[++i], out fixCodes)
+                    )
+                        return 1;
                     break;
                 case "--module-path" when i + 1 < args.Length:
                     extra.ModuleSearchPaths.Add(Path.GetFullPath(args[++i]));
@@ -59,10 +74,11 @@ internal static class LintCommand
             }
 
         Log.Debug(
-            "lint: manifest={ManifestPath}, paths={PathCount}, fix={Fix}",
+            "lint: manifest={ManifestPath}, paths={PathCount}, fix={Fix}, fixCodes={FixCodes}",
             manifestPath ?? "(auto-detect)",
             paths.Count,
-            fix
+            fix,
+            fixCodes is null ? "(all)" : string.Join(",", fixCodes)
         );
 
         if (manifestPath is not null && !File.Exists(manifestPath))
@@ -76,7 +92,9 @@ internal static class LintCommand
 
         var totalIssues = 0;
         var totalFixed = 0;
+        var totalOutOfScope = 0;
         var filesWithIssues = 0;
+        var fixedFiles = 0;
         var failed = 0;
         var declined = 0;
 
@@ -114,11 +132,19 @@ internal static class LintCommand
                     continue;
                 }
 
-                var (text, applied) = RedundantTypeQualifierFixer.Apply(source, hints);
+                // Issues outside the requested scope are neither fixed nor failures — the
+                // summary says how many were left in place.
+                var inScope = fixCodes is null
+                    ? hints.Count
+                    : hints.Count(h => h.Code is { } code && fixCodes.Contains(code));
+                totalOutOfScope += hints.Count - inScope;
+
+                var (text, applied) = DiagnosticFixer.Apply(source, hints, fixCodes);
                 if (applied > 0)
                 {
                     File.WriteAllText(file, text);
                     totalFixed += applied;
+                    fixedFiles++;
                     Console.WriteLine(
                         $"{Display(file)}: {applied} fix{(applied == 1 ? "" : "es")} applied"
                     );
@@ -126,22 +152,28 @@ internal static class LintCommand
 
                 // The fixer only declines a span it cannot place in the source, which should not
                 // happen — say so rather than let a partial sweep read as a clean one.
-                if (applied < hints.Count)
+                if (applied < inScope)
                 {
-                    declined += hints.Count - applied;
+                    declined += inScope - applied;
                     Console.Error.WriteLine(
-                        $"{Display(file)}: {hints.Count - applied} hint(s) could not be applied"
+                        $"{Display(file)}: {inScope - applied} hint(s) could not be applied"
                     );
                 }
             }
         }
 
         if (fix)
+        {
             Console.WriteLine(
                 totalFixed == 0
                     ? "No fixes applied."
-                    : $"{totalFixed} fix{(totalFixed == 1 ? "" : "es")} applied in {filesWithIssues} file{(filesWithIssues == 1 ? "" : "s")}."
+                    : $"{totalFixed} fix{(totalFixed == 1 ? "" : "es")} applied in {fixedFiles} file{(fixedFiles == 1 ? "" : "s")}."
             );
+            if (totalOutOfScope > 0)
+                Console.WriteLine(
+                    $"{totalOutOfScope} issue(s) outside the fix scope were left in place."
+                );
+        }
         else if (totalIssues == 0)
             Console.WriteLine("No issues found.");
         else
@@ -159,8 +191,9 @@ internal static class LintCommand
         return !fix && totalIssues > 0 ? 1 : 0;
     }
 
-    /// <summary>Runs the analyzer over one file, or returns null when the file did not
-    ///     type-check far enough to analyze (its errors are printed).</summary>
+    /// <summary>Runs the analyzer over one file and collects the file's own deprecation
+    ///     warnings, or returns null when the file did not type-check far enough to analyze
+    ///     (its errors are printed).</summary>
     private static IReadOnlyList<Diagnostic>? Analyze(
         LintContext context,
         string file,
@@ -180,16 +213,78 @@ internal static class LintCommand
             return null;
         }
 
-        // A bag of its own: the compilation's own warnings are not lint's output.
+        // A bag of its own: the analyzer's ZS0004 hints are lint's own output.
         var hints = new DiagnosticBag();
         new RedundantTypeQualifierAnalyzer(hints).Analyze(source, file, canonicalizer);
-        return
-        [
-            .. hints
-                .Diagnostics.Where(d => d.Code == DiagnosticCodes.RedundantTypeQualifier)
-                .OrderBy(d => d.Span.Line)
-                .ThenBy(d => d.Span.Column),
-        ];
+
+        // The compilation's own warnings are otherwise not lint's output — except the two
+        // deprecation warnings, which lint is the bulk fixer for. Keep only the ones this
+        // file owns: a module imported from source reports its deprecations with spans in
+        // its own file, which is not the one being rewritten here.
+        var thisFile = Path.GetFullPath(file);
+        var deprecations = compilation
+            .GetDiagnostics()
+            .Diagnostics.Where(d =>
+                d.Code
+                    is DiagnosticCodes.DeprecatedAccessorSyntax
+                        or DiagnosticCodes.DeprecatedKeyword
+                && string.Equals(
+                    Path.GetFullPath(d.Span.File),
+                    thisFile,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            );
+
+        var found = new List<Diagnostic>(
+            hints.Diagnostics.Where(d => d.Code == DiagnosticCodes.RedundantTypeQualifier)
+        );
+        found.AddRange(deprecations);
+        return found.OrderBy(d => d.Span.Line).ThenBy(d => d.Span.Column).ToList();
+    }
+
+    /// <summary>Whether a token reads as a comma-separated list of diagnostic codes — the
+    ///     shape of <c>--fix</c>'s optional scope — rather than a path that happens to start
+    ///     with ZS.</summary>
+    private static bool LooksLikeCodeList(string arg)
+    {
+        foreach (var part in arg.Split(','))
+        {
+            var code = part.Trim();
+            if (!code.StartsWith("ZS", StringComparison.OrdinalIgnoreCase))
+                return false;
+            for (var i = 2; i < code.Length; i++)
+                if (!char.IsDigit(code[i]))
+                    return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    ///     Splits the code list after <c>--fix</c> and checks every code against
+    ///     <see cref="DiagnosticFixer.FixableCodes" /> — a typo must fail loudly rather than
+    ///     quietly fix nothing. Case-insensitive, matching the registry's comparer.
+    /// </summary>
+    private static bool ParseFixScope(string arg, out HashSet<string> codes)
+    {
+        codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var part in arg.Split(','))
+        {
+            var code = part.Trim();
+            if (!DiagnosticFixer.FixableCodes.Contains(code))
+            {
+                Console.Error.WriteLine(
+                    $"'{code}' has no automatic fix. Fixable codes: "
+                        + string.Join(
+                            ", ",
+                            DiagnosticFixer.FixableCodes.OrderBy(c => c, StringComparer.Ordinal)
+                        )
+                );
+                return false;
+            }
+            codes.Add(code);
+        }
+        return true;
     }
 
     private static string Format(Diagnostic hint)

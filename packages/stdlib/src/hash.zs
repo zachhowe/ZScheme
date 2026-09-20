@@ -103,5 +103,5 @@
   :where (^k notnull)
   (hash-from-mutable-raw h))
 
-(export pair hash hash-count hash-set hash-remove hash-has-key? hash-empty? hash-ref hash-keys hash-values
+(provide pair hash hash-count hash-set hash-remove hash-has-key? hash-empty? hash-ref hash-keys hash-values
         mutable-hash->hash)

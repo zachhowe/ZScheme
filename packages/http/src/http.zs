@@ -159,7 +159,7 @@
       (let ([raw (await (client-send-async http-client msg))])
         (await (raw->response raw))))))
 
-(export HttpResponse
+(provide HttpResponse
         http/get http/post http/post-json http/put http/patch
         http/delete http/head http/options
         basic-auth bearer-auth)

@@ -1,10 +1,10 @@
 ;; response.zs — HTTP response type
 (module response)
 
-(define-record HttpResponse
+(record HttpResponse
   [status : Int]
   [reason : String]
   [body : String]
   [success : Bool])
 
-(export HttpResponse)
+(provide HttpResponse)

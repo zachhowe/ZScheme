@@ -92,6 +92,6 @@
   :where (^k notnull)
   (new (Dictionary ^k ^v) h))
 
-(export make-hash hash-count hash-set! hash-ref hash-remove!
+(provide make-hash hash-count hash-set! hash-ref hash-remove!
         hash-has-key? hash-clear! hash-empty? hash-keys hash-values
         hash-copy)

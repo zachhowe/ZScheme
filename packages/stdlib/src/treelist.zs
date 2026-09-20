@@ -242,7 +242,7 @@
         (loop (+ i 1) (treelist-add-raw acc (vector-ref xs i)))))
     (loop 0 (treelist))))
 
-(export treelist make-treelist
+(provide treelist make-treelist
         treelist-length treelist-ref treelist-first treelist-last treelist-rest
         treelist-cons treelist-add treelist-insert treelist-delete treelist-set
         treelist-append treelist-append*

@@ -186,7 +186,7 @@
   : System.IServiceProvider
   (scope-service-provider scope))
 
-(export service-collection/new service-collection/count
+(provide service-collection/new service-collection/count
         services/add-singleton services/add-singleton-self
         services/add-singleton-instance services/add-singleton-factory
         services/add-scoped services/add-scoped-self services/add-scoped-factory

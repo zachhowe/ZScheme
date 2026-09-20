@@ -52,5 +52,5 @@
           (services/get-required-service (services/app-services app))])
     (logger/from-factory factory category)))
 
-(export logging/clear-providers
+(provide logging/clear-providers
         logging/request-logger logging/app-logger)

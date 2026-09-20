@@ -8,4 +8,4 @@
   [task-completed-task System.Threading.Tasks.Task/CompletedTask
     :instance-property : (-> System.Threading.Tasks.Task)])
 
-(export task-completed-task)
+(provide task-completed-task)

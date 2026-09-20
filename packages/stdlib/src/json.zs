@@ -21,4 +21,4 @@
   [json/serialize-typed JsonSerializer/Serialize
     : (Object Type -> String)])
 
-(export json/serialize json/deserialize json/serialize-typed)
+(provide json/serialize json/deserialize json/serialize-typed)

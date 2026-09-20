@@ -46,5 +46,5 @@
     (content-type-set! (http-response ctx) "application/json; charset=utf-8")
     (write-async (http-response ctx) json)))
 
-(export response/status-set response/header-set
+(provide response/status-set response/header-set
         response/write-string response/write-json)

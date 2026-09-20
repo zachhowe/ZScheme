@@ -3,7 +3,7 @@
 
 (import stdlib/option)
 
-(define-union (Result ^a ^e)
+(union (Result ^a ^e)
   (Ok [value : ^a])
   (Err [error : ^e]))
 
@@ -42,4 +42,4 @@
     [(Ok _) #f]
     [(Err _) #t]))
 
-(export Result Ok Err unwrap unwrap-or unwrap-or-none map flat-map ok? err?)
+(provide Result Ok Err unwrap unwrap-or unwrap-or-none map flat-map ok? err?)

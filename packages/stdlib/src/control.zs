@@ -6,7 +6,7 @@
 ;; will not type-check; use these forms for effects, like Racket's void result.
 (module control)
 
-(export when unless)
+(provide when unless)
 
 ;; (when test body ...) — evaluate body when test is true; () otherwise
 (define-syntax when

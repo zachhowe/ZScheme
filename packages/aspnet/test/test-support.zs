@@ -90,7 +90,7 @@
   (route/get app "/hello" test-support/hello-handler)
   (route/get app "/json" test-support/json-handler))
 
-(export test-support/build-test-app
+(provide test-support/build-test-app
         test-support/start-test-app
         test-support/shutdown-test-server
         test-support/wait-for-server

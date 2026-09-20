@@ -17,9 +17,9 @@
 
 (import zunit)
 
-(define-union Step (SDone) (SMore [rest : Step]))
+(union Step (SDone) (SMore [rest : Step]))
 
-(define-class Accum
+(class Accum
   [step : Int]
   [label : String]
 
@@ -75,7 +75,7 @@
 ;; A `#:mutable` field cannot be captured by value — that would freeze what the loop sees while
 ;; the source can still observe a write — so reading *or* writing one hosts the group on the
 ;; class. `#:open` on top of that: the helper must loop even though `Bump` itself does not.
-(define-class #:open Doubler
+(class #:open Doubler
   [total : Int #:mutable]
 
   (define (Bump [n : Int]) : Int
@@ -89,30 +89,30 @@
 (test-suite NestedDefineInstanceTcoTests
   ;; --- captured immutable field: the group lifts to a static ---
   (test-case deep_loop_reading_a_captured_field
-    (check-equal? 200000 (Accum/SumBySteps (Accum 1 "a") 200000)))
+    (check-equal? 200000 (Accum-SumBySteps (Accum 1 "a") 200000)))
 
   (test-case deep_loop_reading_a_captured_field_through_let_spine
-    (check-equal? 200000 (Accum/SumViaLet (Accum 1 "a") 200000)))
+    (check-equal? 200000 (Accum-SumViaLet (Accum 1 "a") 200000)))
 
   (test-case deep_loop_reading_a_captured_field_in_match_arm
     (check-equal? 200000
-                  (Accum/SumViaMatch (Accum 1 "a") (make-steps 200000 SDone) 0)))
+                  (Accum-SumViaMatch (Accum 1 "a") (make-steps 200000 SDone) 0)))
 
   (test-case deep_loop_returning_unit
     (begin
-      (Accum/Spin (Accum 1 "a") 200000)
+      (Accum-Spin (Accum 1 "a") 200000)
       (check-true #t)))
 
   ;; An odd count leaves the arguments swapped, an even count restores them: only correct if
   ;; each jump reads the pre-jump values rather than the ones it is assigning.
   (test-case back_edge_stages_arguments_before_assigning
     (begin
-      (check-equal? -5 (Accum/Swap (Accum 1 "a") 7 3 1))
-      (check-equal? 3 (Accum/Swap (Accum 1 "a") 7 3 2))))
+      (check-equal? -5 (Accum-Swap (Accum 1 "a") 7 3 1))
+      (check-equal? 3 (Accum-Swap (Accum 1 "a") 7 3 2))))
 
   ;; --- needs a real `this`: the group becomes a private method ---
   (test-case deep_loop_calling_a_sibling_method
-    (check-equal? 400000 (Accum/SumDoubled (Accum 1 "a") 200000)))
+    (check-equal? 400000 (Accum-SumDoubled (Accum 1 "a") 200000)))
 
   (test-case deep_loop_reading_and_writing_a_mutable_field_on_an_open_class
-    (check-equal? 200000 (Doubler/Bump (Doubler 0) 200000))))
+    (check-equal? 200000 (Doubler-Bump (Doubler 0) 200000))))
