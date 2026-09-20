@@ -18,6 +18,36 @@ crash already rewritten on disk and the rest of the run unrun.
 files trigger the crash.) Note the crash still happens in a `--fix` run started that way;
 the split runs just keep it from eating files after the crash.
 
+## Status (updated)
+
+**Not fully resolved — this issue stays open.** The *crash* (the primary symptom) is fixed;
+the open root cause and one of the two suggested fix layers are still outstanding.
+
+**Crash — FIXED.** The unhandled `TypeLoadException` no longer escapes `zs lint` / `zs build`.
+`ClrInterop` now guards the signature materialization with `TryGetParameters`, which catches
+`TypeLoadException` / `FileNotFoundException` / `ReflectionTypeLoadException` and treats the
+candidate as a non-match. `SelectOverload` then returns `null` and the backend's own
+reflection fallback runs, as designed.
+
+- Fix: `src/ZScheme.Compiler/Codegen/ClrInterop.cs` — `TryGetParameters`, used by
+  `ArgTypesMatchParams` and `DescribeCandidateForLog` (the rejected-candidate debug line).
+- Regression test:
+  `ClrInteropTests.OverloadResolution_UnreadableSignature_ReturnsNullInsteadOfCrashing`
+  (builds the version conflict in-memory with Roslyn + a collectible `AssemblyLoadContext`;
+  verified to throw the exact `TypeLoadException` with the fix reverted and to pass with it).
+- `zs lint` in `packages/di` now runs to completion (reports its deprecation hints) instead of
+dying.
+
+**Still open (why the issue is kept):**
+
+1. **Root identity (the open root cause).** Where the `6.0.0.0` Abstractions identity enters
+   the default load context is still unlocated (see "What is not yet established" under
+   *Root cause* below, and the follow-up on `InteropLoadContext`). Until it is pinned, the
+   `TryGetParameters` guard above is what keeps this class of bug from being a process death.
+2. **Fix layer 2 not done.** `LintCommand.Run` per-file hardening — route an unexpected
+   `Analyze` exception into the existing "could not be analyzed" bucket (message + exit 1),
+   and analyze-then-write for `--fix` — has not been added.
+
 ## Symptom
 
 ```
