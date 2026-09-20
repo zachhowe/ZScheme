@@ -341,12 +341,57 @@ public sealed class ClrInterop : IDisposable
     /// </summary>
     private static string DescribeCandidateForLog(MethodInfo candidate)
     {
-        var parameters = candidate
-            .GetParameters()
-            .Select(p =>
+        try
+        {
+            if (!TryGetParameters(candidate, out var parameters))
+                return $"({candidate.Name}: unreadable signature)";
+            var rendered = parameters.Select(p =>
                 $"{p.ParameterType.FullName}@{AssemblyLoadContext.GetLoadContext(p.ParameterType.Assembly)?.Name ?? "?"}"
             );
-        return $"({string.Join(", ", parameters)}) -> {candidate.ReturnType.FullName}";
+            return $"({string.Join(", ", rendered)}) -> {candidate.ReturnType.FullName}";
+        }
+        catch (Exception ex)
+            when (ex is TypeLoadException or FileNotFoundException or ReflectionTypeLoadException)
+        {
+            // A rejected candidate's signature may be unreadable in this process (an assembly
+            // version conflict); a debug line must never take down the run.
+            Log.Debug(
+                ex,
+                "ClrInterop: could not describe rejected candidate {Method}",
+                candidate.Name
+            );
+            return $"({candidate.Name}: unreadable signature)";
+        }
+    }
+
+    /// <summary>
+    ///     Reads <paramref name="candidate" /> 's parameter list, or reports failure when the
+    ///     signature cannot be materialized in this process. Materializing a signature makes the
+    ///     runtime resolve its parameter types, and an assembly version conflict in the loaded
+    ///     set makes <see cref="MethodInfo.GetParameters" /> throw (<see cref="TypeLoadException" />
+    ///     and kin) instead of returning the parameters. A candidate whose signature cannot be
+    ///     read is not a match — <see cref="SelectOverload" /> then falls back to the backend's
+    ///     own reflection — so the caller rejects it rather than letting the load failure take
+    ///     down the process (the <c>zs lint</c>/<c>zs build</c> crash this guards against).
+    /// </summary>
+    private static bool TryGetParameters(MethodInfo candidate, out ParameterInfo[] parameters)
+    {
+        try
+        {
+            parameters = candidate.GetParameters();
+            return true;
+        }
+        catch (Exception ex)
+            when (ex is TypeLoadException or FileNotFoundException or ReflectionTypeLoadException)
+        {
+            Log.Debug(
+                ex,
+                "ClrInterop: {Method}'s signature is unreadable in this process; treating it as a non-match",
+                candidate.Name
+            );
+            parameters = [];
+            return false;
+        }
     }
 
     /// <summary>
@@ -365,7 +410,8 @@ public sealed class ClrInterop : IDisposable
         if (argTypes is null)
             return true;
 
-        var ps = candidate.GetParameters();
+        if (!TryGetParameters(candidate, out var ps))
+            return false;
         if (argTypes.Count > ps.Length)
             return false;
         for (var i = argTypes.Count; i < ps.Length; i++)

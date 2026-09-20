@@ -1,5 +1,9 @@
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.Loader;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 using Xunit;
 using ZScheme.Compiler.Codegen;
 using ZScheme.Compiler.Diagnostics;
@@ -637,6 +641,35 @@ public class ClrInteropTests
     }
 
     [Fact]
+    public void OverloadResolution_UnreadableSignature_ReturnsNullInsteadOfCrashing()
+    {
+        // Regression: a candidate overload whose signature the runtime cannot materialize in
+        // this process used to make MethodInfo.GetParameters() throw TypeLoadException (or a
+        // kin) straight out of `zs lint` and `zs build`. The trigger is an assembly version
+        // conflict in the loaded set — e.g. a method referencing DI.Abstractions 8+'s
+        // IKeyedServiceProvider while only a 6.0.0.0 Abstractions that lacks the type can be
+        // satisfied — so materializing the signature resolves a type that is not there.
+        // Such a candidate must be treated as a non-match (SelectOverload then falls back to
+        // the backend's own reflection), not crash the process.
+        var diag = new DiagnosticBag();
+        var interop = new ClrInterop(diag);
+
+        // A single candidate whose parameter type (Ghost.Thing) is unresolvable in the
+        // process: GetMethods() is fine, but GetParameters() throws. The resolver must
+        // treat it as a non-match and return null rather than propagate the exception.
+        var call = new ZType.ZFuncType([ZType.Int], ZType.Unit);
+        var method = interop.ResolveInstanceOverloadCallSite(
+            UnreadableSignatureFixture.HolderType,
+            "M",
+            call,
+            SourceSpan.None
+        );
+
+        Assert.Null(method);
+        Assert.False(diag.HasErrors);
+    }
+
+    [Fact]
     public void FindTypeForMember_DisambiguatesSameNamedTypesByMember()
     {
         // Two loaded assemblies can declare a type with the SAME full name — e.g.
@@ -744,4 +777,147 @@ public class InstanceOverloadFixture
     public string M(string s) => s;
 
     public int N(int x, int y = 0) => x + y;
+}
+
+/// <summary>
+///     Builds a type whose single public method has a signature the runtime cannot
+///     materialize in the process: <c>Holder.M(Ghost.Thing)</c> references <c>Ghost.Thing</c>
+///     from <c>Ghost, Version=2.0.0.0</c>, but the load context can only satisfy <c>Ghost</c>
+///     with a 1.0.0.0 image that does not contain <c>Thing</c>. <see cref="MethodInfo.GetParameters" />
+///     on that method then throws <see cref="TypeLoadException" /> — the exact failure class that
+///     took down <c>zs lint</c> on a package whose test import graph carried a version-conflicting
+///     DI set (see issues/). Built with Roslyn (already a test dependency) so it needs no
+///     external toolchain; the non-collectible context and this static keep the type alive for
+///     the process.
+/// </summary>
+public static class UnreadableSignatureFixture
+{
+    private static readonly object Gate = new();
+    private static AssemblyLoadContext? _context;
+    private static Type? _holderType;
+
+    public static Type HolderType
+    {
+        get
+        {
+            lock (Gate)
+            {
+                if (_holderType is not null)
+                    return _holderType;
+
+                var dir = Path.Combine(
+                    Path.GetTempPath(),
+                    "zs-unreadable-" + Guid.NewGuid().ToString("N")
+                );
+                Directory.CreateDirectory(dir);
+
+                var ghost1 = Compile(
+                    "Ghost",
+                    "[assembly: System.Reflection.AssemblyVersion(\"1.0.0.0\")] namespace Ghost { public class Other { } }"
+                );
+                var ghost2 = Compile(
+                    "Ghost",
+                    "[assembly: System.Reflection.AssemblyVersion(\"2.0.0.0\")] namespace Ghost { public class Thing { } }"
+                );
+                var host = CompileHost(ghost2);
+
+                var ghost1Path = Path.GetFullPath(Path.Combine(dir, "Ghost.dll"));
+                var hostPath = Path.GetFullPath(Path.Combine(dir, "Host.dll"));
+                File.WriteAllBytes(ghost1Path, ghost1);
+                File.WriteAllBytes(hostPath, host);
+
+                // A non-collectible context so the type outlives the test; this static holds the
+                // reference so it is never collected while the process runs.
+                _context = new AssemblyLoadContext(
+                    "ZSchemeUnreadableSignature",
+                    isCollectible: false
+                );
+
+                // Satisfy every Ghost request with the v1 image (no Thing), so the referenced
+                // Ghost.Thing in Host.M is unresolvable -> TypeLoadException on GetParameters().
+                var ghost1Asm = _context.LoadFromAssemblyPath(ghost1Path);
+                _context.Resolving += (_, name) => name.Name == "Ghost" ? ghost1Asm : null;
+                var hostAsm = _context.LoadFromAssemblyPath(hostPath);
+
+                _holderType =
+                    hostAsm.GetType("Host.Holder")
+                    ?? throw new InvalidOperationException("Fixture failed to build Host.Holder");
+                return _holderType;
+            }
+        }
+    }
+
+    private static IReadOnlyList<MetadataReference> References
+    {
+        get
+        {
+            var refs = new List<MetadataReference>();
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (assembly.IsDynamic || string.IsNullOrEmpty(assembly.Location))
+                    continue;
+                try
+                {
+                    refs.Add(MetadataReference.CreateFromFile(assembly.Location));
+                }
+                catch
+                {
+                    // Some loaded assemblies are not readable as files; skip them.
+                }
+            }
+
+            return refs;
+        }
+    }
+
+    private static byte[] Compile(string name, string source)
+    {
+        using var ms = new MemoryStream();
+        var result = Compilation(name, source, extra: null).Emit(ms);
+        EnsureSuccess(result);
+        return ms.ToArray();
+    }
+
+    private static byte[] CompileHost(byte[] ghost2)
+    {
+        using var ms = new MemoryStream();
+        var result = Compilation(
+                "Host",
+                "namespace Host { public class Holder { public void M(Ghost.Thing t) { } } }",
+                extra: MetadataReference.CreateFromImage(ghost2)
+            )
+            .Emit(ms);
+        EnsureSuccess(result);
+        return ms.ToArray();
+    }
+
+    private static CSharpCompilation Compilation(
+        string name,
+        string source,
+        MetadataReference? extra
+    )
+    {
+        var references = References.Concat(extra is null ? [] : [extra]).ToList();
+        return CSharpCompilation.Create(
+            name,
+            [CSharpSyntaxTree.ParseText(source)],
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+        );
+    }
+
+    private static void EnsureSuccess(EmitResult result)
+    {
+        if (result.Success)
+            return;
+        throw new InvalidOperationException(
+            "Fixture compile failed: "
+                + string.Join(
+                    "\n",
+                    result.Diagnostics.Where(d =>
+                        d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error
+                    )
+                )
+        );
+    }
 }
