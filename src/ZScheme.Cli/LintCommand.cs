@@ -97,6 +97,9 @@ internal static class LintCommand
         var fixedFiles = 0;
         var failed = 0;
         var declined = 0;
+        // The --fix rewrites, held until the write phase below: every file must be analyzed
+        // (or failed) before any file is rewritten.
+        var pendingFixes = new List<PendingFix>();
 
         foreach (var group in groups)
         {
@@ -111,8 +114,26 @@ internal static class LintCommand
 
             foreach (var file in group.Files)
             {
-                var source = File.ReadAllText(file);
-                var hints = Analyze(context, file, source);
+                string source;
+                IReadOnlyList<Diagnostic>? hints = null;
+                try
+                {
+                    source = File.ReadAllText(file);
+                    hints = Analyze(context, file, source);
+                }
+                catch (Exception ex)
+                {
+                    // An unexpected exception from the per-file analysis — a
+                    // TypeLoadException surfacing out of the import graph's compilation, an
+                    // unreadable file — is a failure of this file, not of the run: bucket it
+                    // with the type-check failures and let the remaining files have their turn.
+                    Log.Debug(ex, "lint: {File} could not be analyzed", file);
+                    Console.Error.WriteLine($"{Display(file)}: could not be analyzed");
+                    Console.Error.WriteLine($"  {ex.GetType().Name}: {ex.Message}");
+                    failed++;
+                    continue;
+                }
+
                 if (hints is null)
                 {
                     failed++;
@@ -139,26 +160,38 @@ internal static class LintCommand
                     : hints.Count(h => h.Code is { } code && fixCodes.Contains(code));
                 totalOutOfScope += hints.Count - inScope;
 
+                // The rewrite is computed here but written only in the write phase below —
+                // after every file has been analyzed — so a failure partway through cannot
+                // leave the files analyzed so far rewritten on disk with the summary never
+                // printed.
                 var (text, applied) = DiagnosticFixer.Apply(source, hints, fixCodes);
-                if (applied > 0)
-                {
-                    File.WriteAllText(file, text);
-                    totalFixed += applied;
-                    fixedFiles++;
-                    Console.WriteLine(
-                        $"{Display(file)}: {applied} fix{(applied == 1 ? "" : "es")} applied"
-                    );
-                }
+                pendingFixes.Add(new PendingFix(file, text, applied, inScope));
+            }
+        }
 
-                // The fixer only declines a span it cannot place in the source, which should not
-                // happen — say so rather than let a partial sweep read as a clean one.
-                if (applied < inScope)
-                {
-                    declined += inScope - applied;
-                    Console.Error.WriteLine(
-                        $"{Display(file)}: {inScope - applied} hint(s) could not be applied"
-                    );
-                }
+        // Write phase: by now every file has been analyzed (or failed and reported), so the
+        // run can no longer die mid-sweep and leave the files written so far standing with
+        // the summary unprinted.
+        foreach (var pending in pendingFixes)
+        {
+            if (pending.Applied > 0)
+            {
+                File.WriteAllText(pending.File, pending.Text);
+                totalFixed += pending.Applied;
+                fixedFiles++;
+                Console.WriteLine(
+                    $"{Display(pending.File)}: {pending.Applied} fix{(pending.Applied == 1 ? "" : "es")} applied"
+                );
+            }
+
+            // The fixer only declines a span it cannot place in the source, which should not
+            // happen — say so rather than let a partial sweep read as a clean one.
+            if (pending.Applied < pending.InScope)
+            {
+                declined += pending.InScope - pending.Applied;
+                Console.Error.WriteLine(
+                    $"{Display(pending.File)}: {pending.InScope - pending.Applied} hint(s) could not be applied"
+                );
             }
         }
 
@@ -300,6 +333,12 @@ internal static class LintCommand
     }
 
     private sealed record LintGroup(string? ManifestPath, IReadOnlyList<string> Files);
+
+    /// <summary>A file's ready-to-write <c>--fix</c> rewrite: the fixed text plus the fixer's
+    ///     verdict (how many fixes were applied, how many were in scope). Held until the write
+    ///     phase, which runs only after every file has been analyzed, so a mid-run failure
+    ///     cannot leave some files rewritten with the summary never printed.</summary>
+    private sealed record PendingFix(string File, string Text, int Applied, int InScope);
 
     /// <summary>Resolution inputs from the command line, layered over whatever a group's
     ///     manifest resolves to. The only way to give a file outside any package the context it
