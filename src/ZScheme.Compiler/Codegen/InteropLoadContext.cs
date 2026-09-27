@@ -27,6 +27,16 @@ namespace ZScheme.Compiler.Codegen;
 ///         compiler compares against its own) stays unified and type identity holds.
 ///     </para>
 ///     <para>
+///         What this context never resolves by choice is a copy sitting in the host process's
+///         own base directory: on an installed toolchain that directory is the shared toolchain
+///         bin, which also carries <c>zs-lsp</c>'s OmniSharp closure — including
+///         <c>Microsoft.Extensions.DependencyInjection.Abstractions</c> 6.0.0.0. The directory
+///         probes behind <c>ClrInterop.FindType</c> and <c>ClrInterop.EnsureAssemblyLoaded</c>
+///         therefore check the compilation's search paths first and the base directory last;
+///         the probe-order note on <c>FindType</c> records the artifact-poisoning incident that
+///         established the order.
+///     </para>
+///     <para>
 ///         This context governs where assemblies <em>load</em>; <c>ClrInterop.FindInLoadContext</c>
 ///         is the matching half that makes it authoritative for <em>lookup</em>, by scanning
 ///         <see cref="AssemblyLoadContext.Assemblies" /> before falling back to <c>Type.GetType</c>

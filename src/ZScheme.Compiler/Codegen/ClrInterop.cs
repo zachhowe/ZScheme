@@ -1459,11 +1459,13 @@ public sealed class ClrInterop : IDisposable
             // Fall through to an explicit file probe.
         }
 
-        var probeDirs = new List<string> { AppDomain.CurrentDomain.BaseDirectory };
+        // Search paths first, the runtime directory second, the base directory last —
+        // see the probe-order note on FindType.
+        var probeDirs = new List<string>(_searchPaths);
         var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
         if (runtimeDir != AppDomain.CurrentDomain.BaseDirectory)
             probeDirs.Add(runtimeDir);
-        probeDirs.AddRange(_searchPaths);
+        probeDirs.Add(AppDomain.CurrentDomain.BaseDirectory);
 
         foreach (var dir in probeDirs)
         {
@@ -1525,6 +1527,34 @@ public sealed class ClrInterop : IDisposable
         return null;
     }
 
+    /// <summary>
+    ///     Resolves a CLR type name to a <see cref="Type" />, preferring the private
+    ///     <see cref="InteropLoadContext" /> and falling back to the host's loaded assemblies
+    ///     and then to probing unloaded assemblies by directory.
+    ///     <para>
+    ///         When the type is not already loaded anywhere, the directory probes at the end of
+    ///         this method run in a strict order: the compilation's own search paths, then the
+    ///         .NET runtime directory, then <c>AppContext.BaseDirectory</c> last. The order used
+    ///         to put the base directory first, and that poisoned package artifacts on installed
+    ///         toolchains. The installed layout ships <c>zs-lsp</c> — whose OmniSharp 0.19.9
+    ///         dependency closure includes <c>Microsoft.Extensions.DependencyInjection.Abstractions</c>
+    ///         6.0.0.0 — in the same bin directory as <c>zs</c> itself, so the base directory of a
+    ///         <c>zs</c> process carries a genuine 6.0.0.0 copy next to the compiler bits. The
+    ///         auto-install compile of <c>zscheme-di-abstractions</c> (whose own nuget search path
+    ///         held the right 10.0.0.0) missed on the loaded-assembly passes, hit the base
+    ///         directory first, and bound 6.0.0.0 into the private context; every later
+    ///         <c>:from</c> early-returned onto it and the emitter wrote
+    ///         <c>Abstractions, Version=6.0.0.0</c> into the cached artifact. At lint/test time
+    ///         that reference is what the default context is asked to resolve — and materializing
+    ///         <c>BuildServiceProvider</c>'s signature through it pulls <c>IKeyedServiceProvider</c>
+    ///         (added in 8.0) out of a 6.0.0.0 binary, the <see cref="TypeLoadException" /> the
+    ///         <c>TryGetParameters</c> guard absorbs. Search paths first keeps the bind inside
+    ///         the set this compilation resolved; the base directory stays probe-able only as a
+    ///         last resort for assemblies that genuinely ship with the compiler. The
+    ///         <c>:from</c> file probe in <see cref="EnsureAssemblyLoaded" /> uses the same order
+    ///         for the same reason.
+    ///     </para>
+    /// </summary>
     public Type? FindType(string typeName)
     {
         // C#-style generic names (e.g. System.Func<int,int>) cannot be parsed by
@@ -1564,22 +1594,9 @@ public sealed class ClrInterop : IDisposable
 
         var nsPrefix = typeName.Contains('.') ? typeName[..typeName.LastIndexOf('.')] : typeName;
 
-        // Probe unloaded assemblies by namespace prefix in the base directory
-        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        type = ProbeDirectory(baseDir, typeName, nsPrefix);
-        if (type is not null)
-            return type;
-
-        // Probe the .NET runtime directory (for framework assemblies like System.Net.Http)
-        var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
-        if (runtimeDir != baseDir)
-        {
-            type = ProbeDirectory(runtimeDir, typeName, nsPrefix);
-            if (type is not null)
-                return type;
-        }
-
-        // Probe additional search paths
+        // Probe unloaded assemblies on the compilation's own search paths first, so the
+        // versions this compilation resolved win over whatever happens to sit next to the
+        // compiler executable — see the probe-order note on this method's doc comment.
         foreach (var searchPath in _searchPaths)
         {
             if (!Directory.Exists(searchPath))
@@ -1590,7 +1607,20 @@ public sealed class ClrInterop : IDisposable
                 return type;
         }
 
-        return null;
+        // Probe the .NET runtime directory (for framework assemblies like System.Net.Http)
+        var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory();
+        if (runtimeDir != AppDomain.CurrentDomain.BaseDirectory)
+        {
+            type = ProbeDirectory(runtimeDir, typeName, nsPrefix);
+            if (type is not null)
+                return type;
+        }
+
+        // The base directory last: whatever ships next to the compiler is the fallback, not
+        // the answer — see the probe-order note on this method's doc comment.
+        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        type = ProbeDirectory(baseDir, typeName, nsPrefix);
+        return type;
     }
 
     /// <summary>
