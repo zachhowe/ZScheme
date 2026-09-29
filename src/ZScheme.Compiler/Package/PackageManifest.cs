@@ -39,7 +39,8 @@ public sealed record ZSchemeDependency(
 
 public abstract record ZSchemeDependencySource
 {
-    public sealed record Git(string Url, string VersionOrRef) : ZSchemeDependencySource;
+    public sealed record Git(string Url, string VersionOrRef, string? Subdirectory = null)
+        : ZSchemeDependencySource;
 
     public sealed record Local(string Path) : ZSchemeDependencySource;
 }
