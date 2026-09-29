@@ -8514,4 +8514,25 @@ public class EndToEndTests
     [Fact]
     public void MutableRecordField_WithStillCopies_CSharp() =>
         Assert.Equal(9, CompileCSharpAndRunInt(MutableRecordField_WithCopies));
+
+    // The receiver's type rides the method's generic parameter. Resolve must walk the
+    // receiver name too: IrLowering copies its ResolvedType verbatim into the IR Var, and
+    // an unsubstituted variable makes the IL emitter target `Box<object>::set_Value`,
+    // which fails verification (InvalidProgramException) while the C# backend runs fine.
+    private const string MutableRecordField_GenericFunctionParameter =
+        @"(module test)
+(define-record (Box a) [value : a #:mutable])
+(define (reset [b : (Box ^a)] [x : ^a]) : ^a
+  (begin (set! b value x) (Box/value b)))
+(define (Compute) : Int
+  (let ([b (Box 42)])
+    (+ (reset b 7) (Box/value b))))";
+
+    [Fact]
+    public void MutableRecordField_GenericFunctionParameter_Il() =>
+        Assert.Equal(14, CompileIlAndRunInt(MutableRecordField_GenericFunctionParameter));
+
+    [Fact]
+    public void MutableRecordField_GenericFunctionParameter_CSharp() =>
+        Assert.Equal(14, CompileCSharpAndRunInt(MutableRecordField_GenericFunctionParameter));
 }
