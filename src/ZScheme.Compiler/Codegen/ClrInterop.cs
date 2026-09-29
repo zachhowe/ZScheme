@@ -1491,6 +1491,38 @@ public sealed class ClrInterop : IDisposable
     }
 
     /// <summary>
+    ///     Assemblies for a bare/simple-name type scan: the private
+    ///     <see cref="InteropLoadContext" /> first — the versions this compilation's
+    ///     <c>:from</c> hints asked for, per <see cref="EnsureAssemblyLoaded" /> — then the
+    ///     default-context assemblies whose simple name has not already been yielded. A plain
+    ///     <c>AppDomain.CurrentDomain.GetAssemblies()</c> scan would answer first-loaded-wins
+    ///     across every context, so a host-loaded copy of the same name — at whatever version
+    ///     the host started with — would shadow the one this compilation resolved, the hazard
+    ///     the private context exists to prevent.
+    /// </summary>
+    public IReadOnlyList<Assembly> GetBareNameScanAssemblies()
+    {
+        var result = new List<Assembly>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var assembly in _loadContext.Assemblies)
+        {
+            var name = assembly.GetName().Name;
+            if (name is null || seen.Add(name))
+                result.Add(assembly);
+        }
+
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            var name = assembly.GetName().Name;
+            if (name is null || seen.Add(name))
+                result.Add(assembly);
+        }
+
+        return result;
+    }
+
+    /// <summary>
     ///     First pass for every lookup: the private <see cref="InteropLoadContext" /> holds the
     ///     assemblies this compilation's search paths named, at the versions it asked for. Both
     ///     <c>Type.GetType</c> and the <c>AppDomain.CurrentDomain.GetAssemblies()</c> scan that
