@@ -283,7 +283,7 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
     /// </summary>
     public static IReadOnlyDictionary<
         DocumentUri,
-        IReadOnlyList<TextEdit>
+        List<TextEdit>
     >? BuildRemoveUnusedParameterEdits(
         DocumentState state,
         WorkspaceIndex index,
@@ -309,7 +309,9 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
             return null;
         var items = DirectItems(source, paramList);
         var elementStart = ElementStartOffset(source, owner.Param);
-        var elementIndex = items.FindIndex(item => item.Start == elementStart);
+        if (elementStart is null)
+            return null;
+        var elementIndex = items.FindIndex(item => item.Start == elementStart.Value);
         if (elementIndex < 0)
             return null;
         // Delete the element plus the separator before it — or, when it is the list's
@@ -346,7 +348,7 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
         var qualifiedKey = index.DefinitionInFile(defFile, owner.FunctionName)?.QualifiedKey;
         var locallyBound = ScopeAnalysis.OccurrencesBoundLocally(state.Ast, owner.FunctionName);
 
-        var byUri = new Dictionary<DocumentUri, IReadOnlyList<TextEdit>>
+        var byUri = new Dictionary<DocumentUri, List<TextEdit>>
         {
             [fallbackUri] = paramEdits,
         };
@@ -398,7 +400,7 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
 
             if (!byUri.TryGetValue(refUri, out var edits))
                 byUri[refUri] = edits = new List<TextEdit>();
-            ((List<TextEdit>)edits).Add(deletion);
+            edits.Add(deletion);
         }
 
         return byUri;
@@ -447,14 +449,16 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
     }
 
     /// <summary>Source offset of the parameter element's first token — the <c>[</c> of a
-    ///     typed <c>[name : Type]</c> parameter, or the name atom itself when untyped.</summary>
-    private static int ElementStartOffset(string source, Param param)
+    ///     typed <c>[name : Type]</c> parameter, or the name atom itself when untyped — or
+    ///     null when no non-comment token starts at the parameter's position (the source
+    ///     no longer matches the AST).</summary>
+    private static int? ElementStartOffset(string source, Param param)
     {
         var token = LexicalStructure
             .Tokens(source)
             .Where(t => t.Kind != Compiler.Syntax.TokenKind.Comment)
-            .First(t => t.Span.Line == param.Span.Line && t.Span.Column == param.Span.Column);
-        return TokenStartOffset(source, token);
+            .FirstOrDefault(t => t.Span.Line == param.Span.Line && t.Span.Column == param.Span.Column);
+        return token is { } t ? TokenStartOffset(source, t) : null;
     }
 
     /// <summary>The bracket that has the span as one of its <em>direct</em> items (a child
