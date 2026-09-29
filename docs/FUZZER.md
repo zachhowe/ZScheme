@@ -45,7 +45,7 @@ invisible.
                                        │  one case
             ┌──────────────────────────▼───────────────────────────┐
             │  ProgramGenerator.Generate(caseSeed)                  │
-            │   ~37 sub-generators emit ZScheme SOURCE TEXT         │
+            │   ~38 sub-generators emit ZScheme SOURCE TEXT         │
             │   → GeneratedProgram { mainSource, aux modules }      │
             └──────────────────────────┬───────────────────────────┘
                                        │
@@ -138,7 +138,7 @@ depth budget.
 
 ### 4.2 Program structure
 
-`ProgramGenerator.Generate` wires ~37 sub-generators and emits, roughly in this
+`ProgramGenerator.Generate` wires ~38 sub-generators and emits, roughly in this
 order:
 
 - A `(namespace ZSchemeFuzzed)` and a `(module fuzz_<hex>)` header.
@@ -289,6 +289,16 @@ Later additions to the expression surface:
 - **Non-Int OO members** — interface methods over {Int, Bool, Float} params
   and returns, one optional Bool/Float `#:mutable` class field, with call
   sites reduced via the usual `ReduceToInt` idiom.
+- **Mutable record fields** (`SetFieldExprGenerator`) — `(set! x f v)` against a
+  `#:mutable` field of a generated record or struct, self-contained in its own
+  `let` (a `Fresh()` binder no subexpression can mention) with a read-back tail so
+  the write is observable — the result is the *new* value, catching
+  read-after-write codegen bugs the clone-semantics `with` form (WithExprGenerator)
+  never reaches. ~Half the generated structs and ~half the generic records carry
+  one `#:mutable` field (generic structs stay all-immutable so the known invalid-IL
+  bug there keeps its blast radius), so the receiver form exercises both the plain
+  reference write and the value-type lvalue materialization (`ldloca`/`ldarga`/
+  `ldflda`/`ldsflda` on IL vs. the C# `slot.Field = value`).
 - **String concatenation in all three shapes** — deep hand-nested binary chains
   (4–6 leaves, left- and right-leaning), n-ary calls that `AstBuilder` left-folds
   into that same chain, and the 1-arg identity form — spelled both as
