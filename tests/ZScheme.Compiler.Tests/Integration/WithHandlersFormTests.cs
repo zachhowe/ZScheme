@@ -437,4 +437,68 @@ public class WithHandlersFormTests
         Assert.Contains("((System.Func<int>)", ComputeBody(cs));
         Assert.Equal(1, InvokeInt(RoslynCompile(cs), "Compute"));
     }
+
+    // ---- Unit-typed with-handlers: the IL emitter used to store every branch's value into a
+    // result local unconditionally. Unit-typed nodes push nothing onto the evaluation stack
+    // (the emitter-wide convention — EmitLetBinding, the Seq pop guard, EmitArgNode), so the
+    // stloc underflowed the stack and building the PE image failed with a stack-imbalance
+    // error. In the fixed emit, a Unit-typed form stores nothing and leaves the stack
+    // unchanged, like every other Unit-typed node.
+
+    // The body calls a void CLR method on a path that cannot exist, so it throws, and the
+    // handler is the unit literal: every branch of the form leaves the stack empty. The
+    // trailing `42` is the observable — it is only reached when the handler actually
+    // swallowed the failure, and `cleanup`'s body puts the form in function-tail position
+    // while compute's `begin` puts the call in statement position.
+    private const string UnitResultSource =
+        "(module test)\n"
+        + "(import-clr\n"
+        + "  [temp-path System.IO.Path/GetTempPath : (-> String)]\n"
+        + "  [dir-delete System.IO.Directory/Delete : (String Bool -> Unit)])\n"
+        + @"(define (cleanup) : Unit
+  (with-handlers ([System.Exception _] ())
+    (dir-delete (string-append (temp-path) ""zs-wh-unit-regression-missing-dir"") #t)))
+(define (compute) : Int
+  (begin
+    (cleanup)
+    42))";
+
+    [Fact]
+    public void UnitResultWithHandlers_Compiles_Il()
+    {
+        // Building the PE image runs the real max-stack computation, so the
+        // stloc underflow used to surface right here as a StackImbalanceException.
+        var result = CompileWith(UnitResultSource, OutputMode.Il);
+        Assert.True(
+            result.Success,
+            "Compilation failed:\n" + string.Join("\n", result.Diagnostics.Diagnostics)
+        );
+    }
+
+    [Fact]
+    public void UnitResultWithHandlers_SwallowsAndContinues_Il()
+    {
+        Assert.Equal(42, CompileIlAndRunInt(UnitResultSource));
+    }
+
+    [Fact]
+    public void UnitResultWithHandlers_SwallowsAndContinues_CSharp()
+    {
+        Assert.Equal(42, CompileCSharpAndRunInt(UnitResultSource));
+    }
+
+    // A named binder stores the exception in a local before the (Unit) handler body runs;
+    // combined with the unit handler body this covers the binder path of the same fix.
+    [Fact]
+    public void UnitResultWithHandlers_NamedBinder_SwallowsAndContinues_Il()
+    {
+        var source =
+            "(module test)\n"
+            + @"(define (compute) : Int
+  (begin
+    (with-handlers ([System.Exception _e] ())
+      (raise (new System.InvalidOperationException ""boom"")))
+    7))";
+        Assert.Equal(7, CompileIlAndRunInt(source));
+    }
 }

@@ -4613,9 +4613,7 @@ public sealed partial class IlEmitter
         {
             var prop = td.Properties.FirstOrDefault(p => p.Name == fieldClrName);
             var setterDef = prop
-                ?.Semantics.FirstOrDefault(s =>
-                    s.Attributes == MethodSemanticsAttributes.Setter
-                )
+                ?.Semantics.FirstOrDefault(s => s.Attributes == MethodSemanticsAttributes.Setter)
                 ?.Method;
             if (setterDef is null)
             {
@@ -4629,7 +4627,10 @@ public sealed partial class IlEmitter
             setterParamType = setterDef.Signature!.ParameterTypes[0];
             // For generic records, resolve the setter against the closed generic instance,
             // the same way the FieldGet and `with` paths do.
-            if (td.GenericParameters.Count > 0 && named.TypeArgs.Count == td.GenericParameters.Count)
+            if (
+                td.GenericParameters.Count > 0
+                && named.TypeArgs.Count == td.GenericParameters.Count
+            )
             {
                 var mapped = named.TypeArgs.Select(ta => MapToClr(ta, ctx)).ToArray();
                 var closedSig = td.MakeGenericInstanceType(td.IsValueType, mapped);
@@ -4659,7 +4660,8 @@ public sealed partial class IlEmitter
                 return;
             }
             isValueType = clrType.IsValueType;
-            setterMethod = (IMethodDefOrRef)_module.DefaultImporter.ImportMethod((MethodBase)clrSetter);
+            setterMethod = (IMethodDefOrRef)
+                _module.DefaultImporter.ImportMethod((MethodBase)clrSetter);
         }
 
         if (!isValueType)
@@ -4727,7 +4729,8 @@ public sealed partial class IlEmitter
 
         if (!emittedLvalue)
         {
-            var localSig = valueTypeSig
+            var localSig =
+                valueTypeSig
                 ?? _module
                     .DefaultImporter.ImportType(ResolveClrTypeForTypeRef(typeRef)!)
                     .ToTypeSignature(true);
@@ -5018,8 +5021,14 @@ public sealed partial class IlEmitter
         }
 
         var resultSigType = MapToClr(node.Type, ctx);
-        var resultLocal = new CilLocalVariable(resultSigType);
-        il.Owner.LocalVariables.Add(resultLocal);
+        // Unit-typed branch bodies push nothing onto the evaluation stack (the
+        // emitter-wide convention: EmitNode for a Unit-typed node leaves the
+        // stack unchanged), so there is no value to store — and stloc would
+        // underflow the stack. Skip the result local entirely in that case.
+        var resultIsUnit = node.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
+        var resultLocal = resultIsUnit ? null : new CilLocalVariable(resultSigType);
+        if (resultLocal is not null)
+            il.Owner.LocalVariables.Add(resultLocal);
 
         var endLabel = new CilInstructionLabel();
 
@@ -5043,7 +5052,8 @@ public sealed partial class IlEmitter
         EmitTryBodyDispatch(node, il, tramp, ctx);
 
         EmitNode(node.Body, il, outerParams, locals, ctx);
-        il.Add(CilOpCodes.Stloc, resultLocal);
+        if (resultLocal is not null)
+            il.Add(CilOpCodes.Stloc, resultLocal);
         il.Add(CilOpCodes.Leave, endLabel);
 
         // Emit each catch handler. The CLR requires that catch handlers for the
@@ -5106,7 +5116,8 @@ public sealed partial class IlEmitter
                 EmitNode(handler.HandlerBody, il, outerParams, locals, ctx);
             }
 
-            il.Add(CilOpCodes.Stloc, resultLocal);
+            if (resultLocal is not null)
+                il.Add(CilOpCodes.Stloc, resultLocal);
             il.Add(CilOpCodes.Leave, endLabel);
 
             previousHandlerEnd = handlerEnd;
@@ -5133,8 +5144,10 @@ public sealed partial class IlEmitter
                 }
             );
 
-        // Load the result
-        il.Add(CilOpCodes.Ldloc, resultLocal);
+        // Load the result. A Unit-typed with-handlers leaves the stack unchanged,
+        // like every other Unit-typed node.
+        if (resultLocal is not null)
+            il.Add(CilOpCodes.Ldloc, resultLocal);
     }
 
     /// <summary>
@@ -5358,9 +5371,13 @@ public sealed partial class IlEmitter
     {
         var mnCtx = ctx.MoveNextCtx!;
 
+        // See EmitWithHandlers: Unit-typed branch bodies push nothing, so there
+        // is no value to store in a result local.
+        var resultIsUnit = node.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
         var resultSigType = MapToClr(node.Type, ctx);
-        var resultLocal = new CilLocalVariable(resultSigType);
-        il.Owner.LocalVariables.Add(resultLocal);
+        var resultLocal = resultIsUnit ? null : new CilLocalVariable(resultSigType);
+        if (resultLocal is not null)
+            il.Owner.LocalVariables.Add(resultLocal);
 
         var tagLocal = new CilLocalVariable(_module.CorLibTypeFactory.Int32);
         il.Owner.LocalVariables.Add(tagLocal);
@@ -5384,7 +5401,8 @@ public sealed partial class IlEmitter
 
         // Body: store result, leave to skip with tag=0 (no exception).
         EmitNode(node.Body, il, outerParams, locals, ctx);
-        il.Add(CilOpCodes.Stloc, resultLocal);
+        if (resultLocal is not null)
+            il.Add(CilOpCodes.Stloc, resultLocal);
         il.Add(CilOpCodes.Ldc_I4_0);
         il.Add(CilOpCodes.Stloc, tagLocal);
         il.Add(CilOpCodes.Leave, skipLabel);
@@ -5495,7 +5513,8 @@ public sealed partial class IlEmitter
             }
 
             EmitNode(handler.HandlerBody, il, outerParams, locals, ctx);
-            il.Add(CilOpCodes.Stloc, resultLocal);
+            if (resultLocal is not null)
+                il.Add(CilOpCodes.Stloc, resultLocal);
             il.Add(CilOpCodes.Br, endLabel);
 
             if (varLocal is not null)
@@ -5510,7 +5529,8 @@ public sealed partial class IlEmitter
         }
 
         endLabel.Instruction = il.Add(CilOpCodes.Nop);
-        il.Add(CilOpCodes.Ldloc, resultLocal);
+        if (resultLocal is not null)
+            il.Add(CilOpCodes.Ldloc, resultLocal);
     }
 
     private void EmitLoadVar(

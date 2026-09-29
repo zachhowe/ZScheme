@@ -6539,6 +6539,63 @@ public class EndToEndTests
         Assert.Equal(15, RunAsyncComputeFromBytes(bytes));
     }
 
+    // Unit-typed with-handlers on the async paths. The emitter used to store
+    // every branch's value into a result local unconditionally, but Unit-typed
+    // bodies push nothing onto the evaluation stack, so the stloc underflowed
+    // and the PE image failed to build with a stack-imbalance error. The
+    // trailing int in each `begin` is the observable: it is only reached when
+    // the handler actually swallowed the raise.
+
+    [Fact]
+    public void AsyncWithHandlersAwaitInHandler_UnitResult_Il()
+    {
+        // Handler awaits, so this takes the lifted-catch path; its Unit branch
+        // bodies flow through the same result-local store the lift uses.
+        var source =
+            @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) (+ x 1))
+
+(define-async (compute) : (Task Int)
+  (begin
+    (with-handlers ([System.Exception _e] (begin (await (g0 9)) ()))
+      (raise (new System.InvalidOperationException ""boom"")))
+    6))";
+        Assert.Equal(6, CompileIlAndAwaitInt(source));
+    }
+
+    [Fact]
+    public void AsyncWithHandlers_UnitResult_NoAwaitInHandler_Il()
+    {
+        // No await in the handler, so the plain (non-lifted) try/catch emit
+        // runs — inside a MoveNext body, which is its own stack-shape context.
+        var source =
+            @"(module test)
+(define-async (compute) : (Task Int)
+  (begin
+    (with-handlers ([System.Exception _] ())
+      (raise (new System.InvalidOperationException ""boom"")))
+    7))";
+        Assert.Equal(7, CompileIlAndAwaitInt(source));
+    }
+
+    [Fact]
+    public void AsyncWithHandlersAwaitInHandler_UnitResult_NoThrowUsesBody_Il()
+    {
+        // Unit-typed form whose body succeeds: the tag-dispatch must skip the
+        // handlers and land on the end label without loading a nonexistent
+        // result value.
+        var source =
+            @"(module test)
+(define-async (g0 [x : Int]) : (Task Int) x)
+
+(define-async (compute) : (Task Int)
+  (begin
+    (with-handlers ([System.Exception _e] (begin (await (g0 9)) ()))
+      (begin (await (g0 1)) ()))
+    8))";
+        Assert.Equal(8, CompileIlAndAwaitInt(source));
+    }
+
     private static byte[] CompileToIlBytes(string source)
     {
         var compilation = new Compilation(
