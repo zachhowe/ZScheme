@@ -375,7 +375,7 @@ Returns a new function with some arguments pre-filled.
 
 ## Type Definitions
 
-### `record` — Product type (immutable record)
+### `record` — Product type
 
 > **Deprecated spelling:** `define-record`. It still builds, but reports
 > `ZS0007` — see [Deprecated spellings](#deprecated-spellings).
@@ -385,7 +385,9 @@ Returns a new function with some arguments pre-filled.
 (record (Name ^a ^b) [field : ^a] ...)              ;; generic
 ```
 
-Defines an immutable record type with named fields. The record name is also its constructor.
+Defines a record type with named fields. The record name is also its constructor.
+Fields are immutable by default; a field marked `#:mutable` may be reassigned after
+construction with `set!` — see `set!` under [Record Operations](#record-operations).
 Supports generic type parameters (prefixed with `^`) and `: where` constraints.
 
 ```scheme
@@ -524,6 +526,27 @@ Chained `with` expressions evaluate inner-first.
   (with p [x nx] [y ny]))
 ```
 
+### `set!` — Mutate a mutable record field
+
+```scheme
+(set! record-expr field-name expr)
+```
+
+Assigns a value to a `#:mutable` field of a record or struct value. The receiver
+must be a variable — a `let`-bound name, a parameter, or a class field: a computed
+receiver of a struct would mutate a throwaway copy, so the compiler rejects it.
+
+```scheme
+(record Point [x : Int #:mutable] [y : Int])
+
+(let ([p (Point 1 2)])
+  (begin (set! p x 10) (Point-x p)))            ;; 10
+```
+
+Records stay immutable by default: `set!` on a field not marked `#:mutable` is a
+compile error, and `with` still copy-updates — a mutable field is one that can
+*also* be set, not one that `with` rewrites in place.
+
 ## Object-Oriented Programming
 
 ### `class` — Define a mutable class
@@ -579,7 +602,8 @@ The deprecated `TypeName/member` spelling still resolves and reports `ZS0006` �
 Fields default to immutable, read-only properties. Append a flag after the
 type annotation to change that:
 
-- `#:mutable` — field may be reassigned via `set!`.
+- `#:mutable` — field may be reassigned via `set!`: class fields via the bare
+  method-body form, record/struct fields via the receiver form.
 - `#:init` — field emits an init-only property setter, usable from C# object
   initializers. Mutually exclusive with `#:mutable`.
 
@@ -675,11 +699,15 @@ Calls the base class constructor. Only valid inside `constructor` blocks.
 (set! field-name expr)
 ```
 
-Assigns a value to a field. Only valid inside `constructor` blocks.
+Inside a `define-class` or `object` method or `constructor` body, `set!` with a field
+name targets the enclosing instance:
 
 ```scheme
 (set! name "Alice")
 ```
+
+To mutate a `#:mutable` field of a record or struct value instead, use the receiver
+form — see `set!` under [Record Operations](#record-operations).
 
 ## Error Handling
 
