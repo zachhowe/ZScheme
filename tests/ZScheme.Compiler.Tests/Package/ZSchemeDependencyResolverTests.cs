@@ -205,6 +205,135 @@ public class ZSchemeDependencyResolverTests
     }
 
     [Fact]
+    public void GitDependency_SubdirectoryRooted_ReportsError()
+    {
+        // A rooted subdirectory is an absolute path: Path.Combine would discard the clone
+        // dir entirely, so it must be rejected.
+        var overrideRoot = Path.Combine(Path.GetTempPath(), $"zs_cache_{Guid.NewGuid():N}");
+        var manifestDir = Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(manifestDir);
+
+        const string url = "https://example.com/repo.git";
+        const string versionOrRef = "master";
+        var urlHash = ComputeUrlHash(url);
+        var cloneDir = Path.Combine(overrideRoot, urlHash, versionOrRef);
+        Directory.CreateDirectory(cloneDir);
+        File.WriteAllText(Path.Combine(cloneDir, "lib.zs"), "(define (f x) x)");
+
+        try
+        {
+            var diag = new DiagnosticBag();
+            var resolver = new ZSchemeDependencyResolver(diag, manifestDir, overrideRoot);
+            var deps = new List<ZSchemeDependency>
+            {
+                new(
+                    "my-lib",
+                    new ZSchemeDependencySource.Git(url, versionOrRef, "/abs"),
+                    SourceSpan.None
+                ),
+            };
+
+            var paths = resolver.Resolve(deps);
+
+            Assert.Empty(paths);
+            Assert.True(diag.HasErrors);
+            Assert.Contains(diag.Diagnostics, d => d.Message.Contains("must be a relative path"));
+        }
+        finally
+        {
+            Directory.Delete(overrideRoot, true);
+            Directory.Delete(manifestDir, true);
+        }
+    }
+
+    [Fact]
+    public void GitDependency_SubdirectoryWindowsRooted_ReportsError()
+    {
+        // "C:\\abs" is rooted on Windows (Path.Combine would drop the clone dir); on
+        // other platforms it is not rooted, but it still names no directory in the clone.
+        // Either way, resolving must fail rather than escape the clone.
+        var overrideRoot = Path.Combine(Path.GetTempPath(), $"zs_cache_{Guid.NewGuid():N}");
+        var manifestDir = Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(manifestDir);
+
+        const string url = "https://example.com/repo.git";
+        const string versionOrRef = "master";
+        var urlHash = ComputeUrlHash(url);
+        var cloneDir = Path.Combine(overrideRoot, urlHash, versionOrRef);
+        Directory.CreateDirectory(cloneDir);
+        File.WriteAllText(Path.Combine(cloneDir, "lib.zs"), "(define (f x) x)");
+
+        try
+        {
+            var diag = new DiagnosticBag();
+            var resolver = new ZSchemeDependencyResolver(diag, manifestDir, overrideRoot);
+            var deps = new List<ZSchemeDependency>
+            {
+                new(
+                    "my-lib",
+                    new ZSchemeDependencySource.Git(url, versionOrRef, "C:\\abs"),
+                    SourceSpan.None
+                ),
+            };
+
+            var paths = resolver.Resolve(deps);
+
+            Assert.Empty(paths);
+            Assert.True(diag.HasErrors);
+        }
+        finally
+        {
+            Directory.Delete(overrideRoot, true);
+            Directory.Delete(manifestDir, true);
+        }
+    }
+
+    [Fact]
+    public void GitDependency_SubdirectoryTraversal_ReportsError()
+    {
+        // ".." segments walk out of the clone even when the subdirectory is relative; the
+        // resolved path must stay inside the clone dir.
+        var overrideRoot = Path.Combine(Path.GetTempPath(), $"zs_cache_{Guid.NewGuid():N}");
+        var manifestDir = Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(manifestDir);
+
+        const string url = "https://example.com/repo.git";
+        const string versionOrRef = "master";
+        var urlHash = ComputeUrlHash(url);
+        var cloneDir = Path.Combine(overrideRoot, urlHash, versionOrRef);
+        Directory.CreateDirectory(cloneDir);
+        File.WriteAllText(Path.Combine(cloneDir, "lib.zs"), "(define (f x) x)");
+
+        try
+        {
+            var diag = new DiagnosticBag();
+            var resolver = new ZSchemeDependencyResolver(diag, manifestDir, overrideRoot);
+            var deps = new List<ZSchemeDependency>
+            {
+                new(
+                    "my-lib",
+                    new ZSchemeDependencySource.Git(url, versionOrRef, "../outside"),
+                    SourceSpan.None
+                ),
+            };
+
+            var paths = resolver.Resolve(deps);
+
+            Assert.Empty(paths);
+            Assert.True(diag.HasErrors);
+            Assert.Contains(
+                diag.Diagnostics,
+                d => d.Message.Contains("escapes the cloned repository")
+            );
+        }
+        finally
+        {
+            Directory.Delete(overrideRoot, true);
+            Directory.Delete(manifestDir, true);
+        }
+    }
+
+    [Fact]
     public void GitDependency_UsesOverrideCacheRoot()
     {
         // Pre-populate a fake git cache under an override root so Resolve returns it without
