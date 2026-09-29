@@ -635,6 +635,37 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void EmitRecordDecl_FieldAttributes_OnProperty()
+    {
+        // (record Pt [(@ JsonPropertyName "x_coord") x : Int]) — field attributes must land
+        // on the emitted property. System.Text.Json reads JsonPropertyName from the property;
+        // the C# backend targets [property:], but the IL backend used to drop record field
+        // attributes entirely, silently changing the JSON contract of IL-built programs.
+        var attr = new IrAttribute("JsonPropertyName", ["x_coord"], []);
+        var record = new IrNode.RecordDecl("Pt", [], [new IrField("x", ZType.Int, [attr])]);
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter(
+            "RecAttrProbe",
+            diag,
+            "TestClass",
+            typeAliases: BuildStdlibRegistry()
+        );
+        // FindAttributeType scans loaded assemblies; in a real compile, import-clr
+        // processing has loaded the attribute's declaring assembly by codegen time.
+        // Mirror that here — System.Text.Json ships in the shared framework.
+        Assembly.Load(new AssemblyName("System.Text.Json"));
+        var bytes = emitter.Emit(new IrNode.Seq([record]) { Type = ZType.Unit });
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+
+        var asm = Assembly.Load(bytes!);
+        var pt = asm.GetTypes().First(t => t.Name == "Pt");
+        var prop = pt.GetProperties().Single();
+        var data = Assert.Single(prop.GetCustomAttributesData());
+        Assert.Equal("JsonPropertyNameAttribute", data.AttributeType.Name);
+        Assert.Equal("x_coord", Assert.Single(data.ConstructorArguments).Value);
+    }
+
+    [Fact]
     public void EmitStructDecl_EmitsValueTypeWithBaseSystemValueType()
     {
         var structDecl = new IrNode.RecordDecl(

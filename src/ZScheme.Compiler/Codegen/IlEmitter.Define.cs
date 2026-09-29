@@ -126,6 +126,7 @@ public sealed partial class IlEmitter
         else
             _module.TopLevelTypes.Add(typeDef);
         RegisterUserType(record.Name, typeDef);
+        EmitCustomAttributes(record.Attributes, typeDef);
 
         Dictionary<string, TypeSignature>? typeParamMap = null;
         if (record.TypeParams.Count > 0)
@@ -184,6 +185,8 @@ public sealed partial class IlEmitter
             var initSetter = CreateInitSetter(typeDef, sanitizedName, fieldClrType, fb);
             typeDef.Methods.Add(initSetter);
             prop.Semantics.Add(new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter));
+
+            EmitCustomAttributes(field.Attributes, prop);
 
             typeDef.Properties.Add(prop);
 
@@ -265,6 +268,7 @@ public sealed partial class IlEmitter
         else
             _module.TopLevelTypes.Add(typeDef);
         RegisterUserType(record.Name, typeDef);
+        EmitCustomAttributes(record.Attributes, typeDef);
 
         Dictionary<string, TypeSignature>? typeParamMap = null;
         if (record.TypeParams.Count > 0)
@@ -318,6 +322,8 @@ public sealed partial class IlEmitter
             var initSetter = CreateInitSetter(typeDef, sanitizedName, fieldClrType, fb, true);
             typeDef.Methods.Add(initSetter);
             prop.Semantics.Add(new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter));
+
+            EmitCustomAttributes(field.Attributes, prop);
 
             typeDef.Properties.Add(prop);
             fieldDefs.Add((fb, getter));
@@ -1124,6 +1130,7 @@ public sealed partial class IlEmitter
         baseCtorIl.Add(CilOpCodes.Ret);
 
         RegisterUserType(union.Name, baseType);
+        EmitCustomAttributes(union.Attributes, baseType);
 
         // Case types
         foreach (var @case in union.Cases)
@@ -1219,6 +1226,8 @@ public sealed partial class IlEmitter
                         new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter)
                     );
                 }
+
+                EmitCustomAttributes(field.Attributes, prop);
 
                 caseType.Properties.Add(prop);
 
