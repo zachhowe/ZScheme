@@ -40,7 +40,9 @@ closed them is in `docs/LSP_GAPS_PLAN.md`; tests live in
   request (null for full/on-type, an empty edit list for range — the OmniSharp range
   base models the result as non-nullable). When the ZScheme formatter lands from its
   branch, it implements `ISourceFormatter` and is swapped in via DI; no handler
-  changes are needed.
+  changes are needed. One seam limitation to remember: `ISourceFormatter` carries no
+  trigger character or position, so on-type formatting will need the interface to grow
+  when the formatter lands.
 
 ## Deliberately absent
 

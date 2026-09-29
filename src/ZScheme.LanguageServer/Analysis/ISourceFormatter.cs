@@ -9,7 +9,11 @@ namespace ZScheme.LanguageServer.Analysis;
 ///     lands, the registered <see cref="NullFormatter" /> makes every formatting request
 ///     decline (null), so clients keep the user's text untouched. When the formatter
 ///     lands, it implements this interface and is swapped in via DI — the handlers
-///     themselves need no changes.
+///     themselves need no changes. One known limitation of the seam: it carries no
+///     trigger character or position, so on-type formatting
+///     (<c>textDocument/onTypeFormatting</c>) cannot reach a real formatter through this
+///     signature — the interface will need to grow to carry the trigger before on-type
+///     support can land.
 /// </summary>
 public interface ISourceFormatter
 {

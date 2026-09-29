@@ -90,7 +90,10 @@ public sealed class DocumentRangeFormattingHandler(
 ///     <c>textDocument/onTypeFormatting</c>. Same contract as
 ///     <see cref="DocumentFormattingHandler" />, triggered while typing; the LSP result
 ///     is an edit list, so the formatter's edits flow through unchanged, and null
-///     declines.
+///     declines. Note the <see cref="ISourceFormatter" /> seam carries neither the trigger
+///     character nor the cursor position, so a real formatter cannot implement on-type
+///     behavior through this signature — the interface will need to grow to carry the
+///     trigger when the real formatter lands (the handler wiring itself stays as is).
 /// </summary>
 public sealed class DocumentOnTypeFormattingHandler(
     AnalysisService analysisService,
