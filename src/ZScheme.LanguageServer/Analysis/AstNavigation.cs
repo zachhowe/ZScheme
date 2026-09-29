@@ -10,8 +10,8 @@ namespace ZScheme.LanguageServer.Analysis;
 ///     Centralized here so hover, go-to-definition, and the reference collector all
 ///     agree on what an AST node's children are (and stay in sync when new node kinds
 ///     are added). The child enumeration synthesizes precise <see cref="AstNode.Name" />
-///     nodes for define-names and parameters so the cursor can land on them on
-///     multi-line forms.
+///     nodes for define-names, parameters, and match-pattern constructor names so the
+///     cursor can land on them on multi-line forms and in pattern position.
 /// </summary>
 internal static class AstNavigation
 {
@@ -131,7 +131,7 @@ internal static class AstNavigation
             AstNode.If i => [i.Condition, i.Then, i.Else],
             AstNode.Lambda l => ParamNames(l.Params).Append(l.Body),
             AstNode.Apply a => new[] { a.Function }.Concat(a.Args),
-            AstNode.Match m => new[] { m.Scrutinee }.Concat(m.Arms.Select(a => a.Body)),
+            AstNode.Match m => MatchChildren(m),
             AstNode.ModuleDecl m => m.Body,
             AstNode.Raise r => [r.Expr],
             AstNode.Await a => [a.Expr],
@@ -170,6 +170,46 @@ internal static class AstNavigation
         foreach (var c in ud.Cases)
             children.AddRange(DefineNameNode(c.Name, c.NameSpan, null));
         return children;
+    }
+
+    private static IEnumerable<AstNode> MatchChildren(AstNode.Match m)
+    {
+        yield return m.Scrutinee;
+        foreach (var arm in m.Arms)
+        {
+            yield return arm.Body;
+            foreach (var node in PatternNames(arm.Pattern))
+                yield return node;
+        }
+    }
+
+    private static IEnumerable<AstNode> PatternNames(Pattern pattern)
+    {
+        // Synthesize a Name node for every constructor name in an arm's pattern so case
+        // names in pattern position resolve like any other name (definition, hover,
+        // reference index). The name carries the pattern's resolved type so hover can
+        // format it. Pattern variables contribute nothing — they are not Name nodes;
+        // ScopeAnalysis's binder walk serves them.
+        switch (pattern)
+        {
+            case Pattern.Constructor c:
+                if (c.NameSpan.Length > 0)
+                {
+                    yield return new AstNode.Name(c.Name, c.NameSpan)
+                    {
+                        ResolvedType = c.ResolvedType,
+                    };
+                }
+                foreach (var field in c.Fields)
+                foreach (var node in PatternNames(field))
+                    yield return node;
+                break;
+            case Pattern.Tuple t:
+                foreach (var element in t.Elements)
+                foreach (var node in PatternNames(element))
+                    yield return node;
+                break;
+        }
     }
 
     private static IEnumerable<AstNode> ParamNames(IReadOnlyList<Param> params_)

@@ -68,7 +68,13 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
                     AddImportActions(actions, request, state, diagnostic);
                     break;
                 case DiagnosticCodes.UnusedBinding:
-                    AddUnusedBindingActions(actions, request, state, diagnostic);
+                    AddUnusedBindingActions(
+                        actions,
+                        request,
+                        state,
+                        diagnostic,
+                        analysisService.Index
+                    );
                     break;
                 case DiagnosticCodes.RedundantTypeQualifier:
                     AddSimplifyNameAction(actions, request, diagnostic);
@@ -191,7 +197,8 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
         List<CommandOrCodeAction> actions,
         CodeActionParams request,
         DocumentState state,
-        Diagnostic diagnostic
+        Diagnostic diagnostic,
+        WorkspaceIndex index
     )
     {
         var data = ReadData(diagnostic.Data);
@@ -229,6 +236,325 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
                     }
                 )
             );
+
+        // Removing a parameter changes the function's arity, so it is only offered when
+        // every call site can be rewritten too; otherwise only the fixes above apply.
+        if (
+            BuildRemoveUnusedParameterEdits(
+                state,
+                index,
+                diagnostic.Range,
+                request.TextDocument.Uri
+            ) is
+            { } parameterEdits
+        )
+            actions.Add(
+                new CommandOrCodeAction(
+                    new CodeAction
+                    {
+                        Title = $"Remove parameter '{name}' and update call sites",
+                        Kind = CodeActionKind.QuickFix,
+                        Diagnostics = new Container<Diagnostic>(diagnostic),
+                        Edit = new WorkspaceEdit
+                        {
+                            Changes = parameterEdits.ToDictionary(
+                                kv => kv.Key,
+                                kv => (IEnumerable<TextEdit>)kv.Value
+                            ),
+                        },
+                    }
+                )
+            );
+    }
+
+    /// <summary>
+    ///     Workspace edits that remove the unused parameter whose name starts at the
+    ///     diagnostic range: the parameter element disappears from the owning form's
+    ///     parameter list, and every indexed call site loses the corresponding argument.
+    ///     Only top-level <c>define</c>/<c>define-async</c> parameters are offered this —
+    ///     their call sites are in the reference index; lambda/method/constructor
+    ///     parameters keep the underscore fix, since their callers cannot be traced
+    ///     safely. The whole action declines (returns null) when any call site is not a
+    ///     plain call of the exact arity: variadic parameters, higher-order or
+    ///     <c>partial</c> uses, arity mismatches, unreadable referencing files, or source
+    ///     that doesn't re-lex into the expected shape — a broken edit is worse than no
+    ///     action. Cross-file sites are only rewritten when the function's qualified key
+    ///     is known or the name is unique to this file.
+    /// </summary>
+    public static IReadOnlyDictionary<
+        DocumentUri,
+        IReadOnlyList<TextEdit>
+    >? BuildRemoveUnusedParameterEdits(
+        DocumentState state,
+        WorkspaceIndex index,
+        Range diagnosticRange,
+        DocumentUri fallbackUri
+    )
+    {
+        if (state.Ast is null)
+            return null;
+
+        var line = diagnosticRange.Start.Line + 1;
+        var column = diagnosticRange.Start.Character + 1;
+        if (FindParamOwner(state.Ast, line, column) is not { } owner)
+            return null;
+        if (owner.Param.IsVariadic)
+            return null;
+
+        // Param-side edit: delete the parameter element (the [name : Type] bracket or
+        // bare atom) plus the separator before it, from the parameter list bracket.
+        var source = state.Source;
+        var tree = LexicalStructure.BuildTree(LexicalStructure.Tokens(source));
+        if (FindBracketWhoseDirectItemsContain(tree, owner.Param.Span) is not { } paramList)
+            return null;
+        var items = DirectItems(source, paramList);
+        var elementStart = ElementStartOffset(source, owner.Param);
+        var elementIndex = items.FindIndex(item => item.Start == elementStart);
+        if (elementIndex < 0)
+            return null;
+        // Delete the element plus the separator before it — or, when it is the list's
+        // first item (e.g. a lambda's only parameter), the one after it.
+        var deleteStart =
+            elementIndex > 0 ? items[elementIndex - 1].End : TokenEndOffset(source, paramList.Open);
+        var paramEdits = new List<TextEdit>
+        {
+            new()
+            {
+                Range = OffsetsToRange(source, deleteStart, items[elementIndex].End),
+                NewText = "",
+            },
+        };
+
+        // Call sites. Same-file references ride bare-name matching (with the usual
+        // shadowing subtraction); cross-file ones only when the function's qualified
+        // key is known — otherwise a same-named function elsewhere could be rewritten
+        // by mistake.
+        if (!state.NameToDefinition.TryGetValue(owner.FunctionName, out var local))
+            return null;
+        var defFile = local.DefinitionSpan.File;
+        var qualifiedKey = index.DefinitionInFile(defFile, owner.FunctionName)?.QualifiedKey;
+        var locallyBound = ScopeAnalysis.OccurrencesBoundLocally(state.Ast, owner.FunctionName);
+
+        var byUri = new Dictionary<DocumentUri, IReadOnlyList<TextEdit>>
+        {
+            [fallbackUri] = paramEdits,
+        };
+
+        foreach (var reference in index.FindReferences(qualifiedKey, owner.FunctionName, defFile))
+        {
+            if (reference.Span == local.DefinitionSpan)
+                continue;
+            if (locallyBound.Contains(reference.Span))
+                continue;
+
+            var sameFile =
+                string.IsNullOrEmpty(reference.Span.File)
+                || string.Equals(reference.Span.File, defFile, StringComparison.OrdinalIgnoreCase);
+            if (!sameFile && qualifiedKey is null)
+                continue;
+
+            string refSource;
+            DocumentUri refUri;
+            if (sameFile)
+            {
+                refSource = source;
+                refUri = fallbackUri;
+            }
+            else
+            {
+                try
+                {
+                    refSource = File.ReadAllText(reference.Span.File);
+                }
+                catch
+                {
+                    return null; // Cannot verify this call site — decline the action.
+                }
+                refUri = DocumentUri.FromFileSystemPath(reference.Span.File);
+            }
+
+            if (
+                BuildCallSiteArgumentDeletion(
+                    refSource,
+                    reference.Span,
+                    owner.FunctionName,
+                    owner.ParamIndex,
+                    owner.Params.Count
+                )
+                is not { } deletion
+            )
+                return null;
+
+            if (!byUri.TryGetValue(refUri, out var edits))
+                byUri[refUri] = edits = new List<TextEdit>();
+            ((List<TextEdit>)edits).Add(deletion);
+        }
+
+        return byUri;
+    }
+
+    private sealed record ParamOwner(
+        string FunctionName,
+        IReadOnlyList<Param> Params,
+        Param Param,
+        int ParamIndex
+    );
+
+    /// <summary>The top-level <c>define</c>/<c>define-async</c> owning the parameter whose
+    ///     name starts at this position, or null — lambda, method, and constructor
+    ///     parameters deliberately return null (see
+    ///     <see cref="BuildRemoveUnusedParameterEdits" />).</summary>
+    private static ParamOwner? FindParamOwner(AstNode node, int line, int column)
+    {
+        static bool At(Compiler.Diagnostics.SourceSpan span, int l, int c)
+        {
+            return span.Line == l && span.Column == c && span.Length > 0;
+        }
+
+        switch (node)
+        {
+            case AstNode.Define d:
+                for (var i = 0; i < d.Params.Count; i++)
+                    if (At(d.Params[i].NameSpan, line, column))
+                        return new ParamOwner(d.FnName, d.Params, d.Params[i], i);
+                break;
+            case AstNode.DefineAsync d:
+                for (var i = 0; i < d.Params.Count; i++)
+                    if (At(d.Params[i].NameSpan, line, column))
+                        return new ParamOwner(d.FnName, d.Params, d.Params[i], i);
+                break;
+        }
+
+        foreach (var child in AstNavigation.Children(node))
+        {
+            var found = FindParamOwner(child, line, column);
+            if (found is not null)
+                return found;
+        }
+
+        return null;
+    }
+
+    /// <summary>Source offset of the parameter element's first token — the <c>[</c> of a
+    ///     typed <c>[name : Type]</c> parameter, or the name atom itself when untyped.</summary>
+    private static int ElementStartOffset(string source, Param param)
+    {
+        var token = LexicalStructure
+            .Tokens(source)
+            .Where(t => t.Kind != Compiler.Syntax.TokenKind.Comment)
+            .First(t => t.Span.Line == param.Span.Line && t.Span.Column == param.Span.Column);
+        return TokenStartOffset(source, token);
+    }
+
+    /// <summary>The bracket that has the span as one of its <em>direct</em> items (a child
+    ///     bracket's extent or a direct atom), or null. For a typed parameter this is
+    ///     the parameter-list bracket; the parameter's own bracket is nested deeper.</summary>
+    private static BracketNode? FindBracketWhoseDirectItemsContain(
+        IReadOnlyList<BracketNode> nodes,
+        Compiler.Diagnostics.SourceSpan span
+    )
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Children.Any(child => TokenStartOffsetIs(child.Open.Span, span)))
+                return node;
+            if (
+                node.AtomTokens.Any(t =>
+                    t.Kind != Compiler.Syntax.TokenKind.Comment
+                    && t.Span.Line == span.Line
+                    && t.Span.Column == span.Column
+                )
+            )
+                return node;
+            if (FindBracketWhoseDirectItemsContain(node.Children, span) is { } nested)
+                return nested;
+        }
+        return null;
+    }
+
+    private static bool TokenStartOffsetIs(
+        Compiler.Diagnostics.SourceSpan tokenSpan,
+        Compiler.Diagnostics.SourceSpan target
+    )
+    {
+        return tokenSpan.Line == target.Line && tokenSpan.Column == target.Column;
+    }
+
+    /// <summary>Every direct item of a bracket in source order — plain atoms and nested
+    ///     brackets alike — as (start, end) offsets. Comments are skipped.</summary>
+    private static List<(int Start, int End)> DirectItems(string source, BracketNode bracket)
+    {
+        var items = new List<(int Start, int End)>();
+        var children = bracket.Children.OrderBy(c => TokenStartOffset(source, c.Open)).ToList();
+        var cursor = TokenEndOffset(source, bracket.Open);
+
+        void AddAtomsUpTo(int limit)
+        {
+            foreach (var t in bracket.AtomTokens)
+            {
+                if (t.Kind == Compiler.Syntax.TokenKind.Comment)
+                    continue;
+                var start = TokenStartOffset(source, t);
+                if (start >= cursor && TokenEndOffset(source, t) <= limit)
+                    items.Add((start, TokenEndOffset(source, t)));
+            }
+        }
+
+        foreach (var child in children)
+        {
+            var childStart = TokenStartOffset(source, child.Open);
+            AddAtomsUpTo(childStart);
+            items.Add((childStart, TokenEndOffset(source, child.Close)));
+            cursor = TokenEndOffset(source, child.Close);
+        }
+        AddAtomsUpTo(TokenStartOffset(source, bracket.Close));
+        return items.OrderBy(i => i.Start).ToList();
+    }
+
+    /// <summary>The edit deleting the <paramref name="argIndex" />-th argument at one call
+    ///     site, or null when the site is not a plain call of the expected arity — see
+    ///     <see cref="BuildRemoveUnusedParameterEdits" /> for the safety rules.</summary>
+    private static TextEdit? BuildCallSiteArgumentDeletion(
+        string source,
+        Compiler.Diagnostics.SourceSpan nameSpan,
+        string functionName,
+        int argIndex,
+        int paramCount
+    )
+    {
+        var tree = LexicalStructure.BuildTree(LexicalStructure.Tokens(source));
+        if (FindBracketWhoseDirectItemsContain(tree, nameSpan) is not { } call)
+            return null;
+
+        var items = DirectItems(source, call);
+        if (items.Count < 2)
+            return null;
+
+        // The function name must be the call's head atom — a bare-name reference in any
+        // other position (argument, higher-order use) cannot be rewritten safely.
+        var headText = source[items[0].Start..items[0].End];
+        if (headText != functionName || headText == "partial")
+            return null;
+
+        var args = items.Skip(1).ToList();
+        if (args.Count != paramCount || argIndex >= args.Count)
+            return null;
+
+        // A comment inside the deleted extent would be destroyed; bail out instead.
+        var start = argIndex == 0 ? items[0].End : args[argIndex - 1].End;
+        var end = args[argIndex].End;
+        if (
+            LexicalStructure
+                .Tokens(source)
+                .Any(t =>
+                    t.Kind == Compiler.Syntax.TokenKind.Comment
+                    && TokenStartOffset(source, t) > start
+                    && TokenEndOffset(source, t) < end
+                )
+        )
+            return null;
+
+        return new TextEdit { Range = OffsetsToRange(source, start, end), NewText = "" };
     }
 
     /// <summary>

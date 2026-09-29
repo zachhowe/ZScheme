@@ -51,6 +51,11 @@ public sealed class ReferencesHandler(AnalysisService analysisService) : Referen
     /// <summary>
     ///     Test seam: all references to the symbol under the cursor across the workspace.
     ///     Includes the declaration only when <paramref name="includeDeclaration" /> is set.
+    ///     Locals are scope-aware (binder + shadow-respecting uses, mirroring
+    ///     <see cref="RenameHandler.ResolveRename" />); top-level symbols exclude
+    ///     same-file occurrences bound by a shadowing local of the same name. A cursor on
+    ///     a type-annotation name targets the type declaration, whose reference set
+    ///     includes every indexed type use.
     /// </summary>
     public static IReadOnlyList<Location> ResolveReferences(
         DocumentState state,
@@ -61,14 +66,6 @@ public sealed class ReferencesHandler(AnalysisService analysisService) : Referen
         OmniSharp.Extensions.LanguageServer.Protocol.DocumentUri fallbackUri
     )
     {
-        var resolved = SymbolResolver.Resolve(state, index, line, col);
-        if (resolved is null)
-            return [];
-
-        var target = resolved.Value;
-        var defSpan = target.DefinitionSpan;
-        var references = index.FindReferences(target.QualifiedKey, target.BareName, defSpan.File);
-
         var locations = new List<Location>();
         var seen = new HashSet<(string, int, int, int)>();
 
@@ -84,13 +81,61 @@ public sealed class ReferencesHandler(AnalysisService analysisService) : Referen
                 );
         }
 
-        foreach (var reference in references)
-            if (includeDeclaration || reference.Span != defSpan)
-                Add(reference.Span);
+        // Locals first: scope-aware occurrences (binder + shadow-respecting uses) beat
+        // the index's file-wide bare-name matching, and cover binding-site cursors
+        // (let/use names, pattern variables) that have no Name node.
+        if (
+            state.Ast is not null
+            && ScopeAnalysis.LocalOccurrences(state.Ast, line, col) is { } localOccurrences
+        )
+        {
+            // The first occurrence is the binding site — the declaration for
+            // includeDeclaration filtering.
+            var binderSpan = localOccurrences[0];
+            foreach (var span in localOccurrences)
+                if (includeDeclaration || span != binderSpan)
+                    Add(span);
+            return locations;
+        }
+
+        // Type-annotation uses have no Name node, so SymbolResolver cannot reach them:
+        // resolve against the recorded type uses first.
+        ResolvedSymbol? maybeTarget = null;
+        if (state.Ast is not null)
+        {
+            if (TypeNavigation.Resolve(state, index, line, col) is { } typeTarget)
+                maybeTarget = typeTarget;
+            else
+                maybeTarget = SymbolResolver.Resolve(state, index, line, col);
+        }
+        if (maybeTarget is null)
+            return [];
+
+        var target = maybeTarget.Value;
+        var defSpan = target.DefinitionSpan;
+        // A type target's reference set is the declaration plus every indexed occurrence
+        // — Name uses (constructor calls, pattern case names) and type-annotation uses
+        // across files — whether the cursor started on the annotation, the declaration,
+        // or a constructor call.
+        var spans = TypeNavigation.IsTypeTarget(state, index, target)
+            ? TypeNavigation.TypeReferenceSpans(index, target)
+            : index
+                .FindReferences(target.QualifiedKey, target.BareName, defSpan.File)
+                .Select(r => r.Span);
+
+        // Same-file occurrences bound by a shadowing local of the same name belong to
+        // that local, not to the symbol being referenced.
+        var locallyBound = state.Ast is null
+            ? (IReadOnlySet<SourceSpan>)new HashSet<SourceSpan>()
+            : ScopeAnalysis.OccurrencesBoundLocally(state.Ast, target.BareName);
+
+        foreach (var span in spans)
+            if (!locallyBound.Contains(span) && (includeDeclaration || span != defSpan))
+                Add(span);
 
         // Some declarations aren't collected as a Name occurrence (records, unions,
         // classes, interfaces have no synthesized name node), so add it explicitly.
-        if (includeDeclaration)
+        if (includeDeclaration && !locallyBound.Contains(defSpan))
             Add(defSpan);
 
         return locations;

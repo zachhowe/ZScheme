@@ -322,4 +322,27 @@ public sealed class HoverTests
         Assert.Contains("System.Int32", hover.Value.Markdown);
         Assert.DoesNotContain("^", hover.Value.Markdown);
     }
+
+    [Fact]
+    public void Hover_OnTypeAnnotation_ShowsDeclarationType()
+    {
+        var src = """
+            (module test)
+            (define-record Point [x : Int] [y : Int])
+            (define (f [p : Point]) : Point p)
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // Cursor on the Point written in a type position: the hover shows the
+        // declaration's type, not the enclosing define's signature.
+        var (line, col) = LspTestSession.Locate(src, "Point", 2); // [p : Point]
+        var hover = HoverHandler.ResolveHover(state, line, col);
+
+        Assert.NotNull(hover);
+        Assert.Contains("Point", hover.Value.Markdown);
+        // The hover range is the annotation, not the whole enclosing form.
+        Assert.Equal(line, hover.Value.Node.Span.Line);
+        Assert.Equal("Point".Length, hover.Value.Node.Span.Length);
+    }
 }

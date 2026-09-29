@@ -38,10 +38,13 @@ public sealed record IndexedDefinition(
     public string File => Span.File;
 }
 
-/// <summary>A single <c>Name</c> occurrence in some file.</summary>
+/// <summary>A single name occurrence in some file — either a <c>Name</c> node in the
+///     typed AST or a type name written in a type position (<see cref="IsTypeUse" />).</summary>
 /// <param name="QualifiedKey">
 ///     The use-site's resolved qualified name (imported/overloaded functions), or null
-///     for uses that resolve locally / to non-function symbols.
+///     for uses that resolve locally / to non-function symbols. Always null for type
+///     uses — they are never <c>Name</c> nodes, so the inferer resolves no qualified
+///     name for them.
 /// </param>
 /// <param name="ContainingDefinition">
 ///     The qualified key of the top-level definition whose form encloses this
@@ -49,11 +52,18 @@ public sealed record IndexedDefinition(
 ///     expressions. Powers call-hierarchy derivation — the compiler records no call
 ///     graph, so caller→callee is reconstructed from references grouped by container.
 /// </param>
+/// <param name="IsTypeUse">
+///     True for occurrences collected from <see cref="ZScheme.Compiler.Ast.AstNode.Program.TypeNameUses" />
+///     (type-annotation sites) rather than from <c>Name</c> nodes. They match by bare
+///     name only — see <see cref="FindTypeReferences" /> — and never count as calls for
+///     call-hierarchy derivation.
+/// </param>
 public sealed record IndexedReference(
     string BareName,
     string? QualifiedKey,
     SourceSpan Span,
-    string? ContainingDefinition = null
+    string? ContainingDefinition = null,
+    bool IsTypeUse = false
 )
 {
     public string File => Span.File;
@@ -73,8 +83,12 @@ public sealed class WorkspaceIndex
     private readonly Dictionary<string, FileSlice> _files = new(StringComparer.OrdinalIgnoreCase);
 
     // Aggregate lookups, kept in sync incrementally with _files.
-    private readonly Dictionary<string, List<IndexedDefinition>> _byKey = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, List<IndexedDefinition>> _byName = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<IndexedDefinition>> _byKey = new(
+        StringComparer.Ordinal
+    );
+    private readonly Dictionary<string, List<IndexedDefinition>> _byName = new(
+        StringComparer.Ordinal
+    );
     private readonly Dictionary<string, List<IndexedReference>> _refsByName = new(
         StringComparer.Ordinal
     );
@@ -215,6 +229,24 @@ public sealed class WorkspaceIndex
     }
 
     /// <summary>
+    ///     All type-position occurrences of <paramref name="bareName" /> across the
+    ///     workspace — the cross-file half of a type's reference set. Type uses carry no
+    ///     qualified key, so a bare-name match is the only match available; the caller is
+    ///     responsible for the unique-bare-name guard (see
+    ///     <see cref="TypeNavigation" />), since two files declaring the same type name
+    ///     make a bare-name match ambiguous.
+    /// </summary>
+    public IReadOnlyList<IndexedReference> FindTypeReferences(string bareName)
+    {
+        lock (_lock)
+        {
+            if (!_refsByName.TryGetValue(bareName, out var candidates))
+                return [];
+            return [.. candidates.Where(r => r.IsTypeUse)];
+        }
+    }
+
+    /// <summary>
     ///     Definitions whose bare name starts with <paramref name="prefix" />
     ///     (case-insensitive) for completion — one entry per distinct bare name (first
     ///     definition wins), capped at <paramref name="limit" />. An empty prefix returns
@@ -277,7 +309,10 @@ public sealed class WorkspaceIndex
     ///     module-scope references (null container) are dropped — the latter have no
     ///     caller item to hang a hierarchy node on.
     /// </summary>
-    public IReadOnlyList<(IndexedDefinition Caller, IReadOnlyList<SourceSpan> FromSpans)> IncomingCalls(
+    public IReadOnlyList<(
+        IndexedDefinition Caller,
+        IReadOnlyList<SourceSpan> FromSpans
+    )> IncomingCalls(
         string? qualifiedKey,
         string bareName,
         string? definingFile,
@@ -298,7 +333,12 @@ public sealed class WorkspaceIndex
                         definingFile is not null
                         && string.Equals(r.File, definingFile, StringComparison.OrdinalIgnoreCase)
                     );
-                if (!matches || r.ContainingDefinition is null || r.Span == definitionSpan)
+                if (
+                    !matches
+                    || r.IsTypeUse
+                    || r.ContainingDefinition is null
+                    || r.Span == definitionSpan
+                )
                     continue;
                 if (!byCaller.TryGetValue(r.ContainingDefinition, out var spans))
                     byCaller[r.ContainingDefinition] = spans = [];
@@ -320,11 +360,10 @@ public sealed class WorkspaceIndex
     ///     constructors — those are calls in this language). Ambiguous names (several
     ///     workspace definitions, none in this file) are skipped rather than guessed.
     /// </summary>
-    public IReadOnlyList<(IndexedDefinition Target, IReadOnlyList<SourceSpan> FromSpans)> OutgoingCalls(
-        string qualifiedKey,
-        string file,
-        SourceSpan definitionSpan
-    )
+    public IReadOnlyList<(
+        IndexedDefinition Target,
+        IReadOnlyList<SourceSpan> FromSpans
+    )> OutgoingCalls(string qualifiedKey, string file, SourceSpan definitionSpan)
     {
         lock (_lock)
         {
@@ -336,7 +375,12 @@ public sealed class WorkspaceIndex
             );
             foreach (var r in slice.References)
             {
-                if (r.ContainingDefinition != qualifiedKey || r.Span == definitionSpan)
+                // Type uses are references to a type, not calls of a value.
+                if (
+                    r.IsTypeUse
+                    || r.ContainingDefinition != qualifiedKey
+                    || r.Span == definitionSpan
+                )
                     continue;
                 var target = ResolveTargetLocked(r.QualifiedKey, r.BareName, file);
                 if (target is null || !IsCallable(target.Kind))
@@ -367,13 +411,15 @@ public sealed class WorkspaceIndex
     {
         lock (_lock)
         {
-            return _byName.TryGetValue(bareName, out var defs) && defs.Count == 1
-                ? defs[0]
-                : null;
+            return _byName.TryGetValue(bareName, out var defs) && defs.Count == 1 ? defs[0] : null;
         }
     }
 
-    private IndexedDefinition? ResolveTargetLocked(string? qualifiedKey, string bareName, string file)
+    private IndexedDefinition? ResolveTargetLocked(
+        string? qualifiedKey,
+        string bareName,
+        string file
+    )
     {
         if (
             qualifiedKey is not null
@@ -395,8 +441,11 @@ public sealed class WorkspaceIndex
 
     private static bool IsCallable(SymbolKind kind)
     {
-        return kind is SymbolKind.Function or SymbolKind.UnionCase or SymbolKind.Record
-            or SymbolKind.Class;
+        return kind
+            is SymbolKind.Function
+                or SymbolKind.UnionCase
+                or SymbolKind.Record
+                or SymbolKind.Class;
     }
 
     /// <summary>Fuzzy (case-insensitive subsequence) search over all definitions for

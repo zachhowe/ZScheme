@@ -1236,11 +1236,16 @@ public sealed class TypeInferer
         switch (pattern)
         {
             case Pattern.Variable v when _nullaryUnionCaseNames.Contains(v.Name):
-                return new Pattern.Constructor(v.Name, [], v.Span);
+                // A bare case-name atom is its own name span, mirroring AstBuilder.ParsePattern.
+                return new Pattern.Constructor(v.Name, [], v.Span, v.Span);
             case Pattern.Constructor c:
             {
                 var fields = Rewrite(c.Fields);
-                return fields is null ? c : new Pattern.Constructor(c.Name, fields, c.Span);
+                // Carry NameSpan through the field rewrite; synthesized constructors keep it
+                // empty, so an empty span in stays an empty span out.
+                return fields is null
+                    ? c
+                    : new Pattern.Constructor(c.Name, fields, c.Span, c.NameSpan);
             }
             case Pattern.Tuple t:
             {

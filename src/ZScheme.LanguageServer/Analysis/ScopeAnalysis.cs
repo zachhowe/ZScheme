@@ -9,12 +9,13 @@ internal sealed record LocalBinding(string Name, ZType? Type, SymbolKind Kind);
 
 /// <summary>
 ///     Scope-aware resolution of local bindings (<c>let</c>/<c>use</c> variables,
-///     parameters, match-pattern variables). Unlike the workspace index — which matches
-///     same-file references by bare name and therefore conflates shadowed locals — this
-///     walks the binding structure of the AST, so rename and document-highlight touch
-///     exactly the occurrences bound by one binder. The shadowing rules mirror the
-///     compiler's <c>UnusedBindingAnalyzer.IsUsed</c> (Types/UnusedBindingAnalyzer.cs);
-///     keep the two in sync when new binder kinds are added.
+///     parameters, match-pattern variables, <c>with-handlers</c> exception variables).
+///     Unlike the workspace index — which matches same-file references by bare name and
+///     therefore conflates shadowed locals — this walks the binding structure of the AST,
+///     so rename and document-highlight touch exactly the occurrences bound by one
+///     binder. The shadowing rules mirror the compiler's <c>UnusedBindingAnalyzer.IsUsed</c>
+///     (Types/UnusedBindingAnalyzer.cs) — which likewise treats handler-clause bindings as
+///     shadowing binders —; keep the two in sync when new binder kinds are added.
 /// </summary>
 internal static class ScopeAnalysis
 {
@@ -51,8 +52,8 @@ internal static class ScopeAnalysis
     /// <summary>
     ///     The binder owning the cursor position, whether it sits on the binding site
     ///     itself or on a use. Returns null when the cursor is not on a local (top-level
-    ///     symbols fall through to <see cref="SymbolResolver" />) or when the binder has
-    ///     no source span (handler-clause variables, desugared forms) — a caller that
+    ///     symbols and pattern-constructor names fall through to <see cref="SymbolResolver" />
+    ///     ) or when the binder has no source span (desugared forms) — a caller that
     ///     cannot reach the binder has nothing to navigate to or rewrite.
     /// </summary>
     private static Binder? FindBinder(AstNode.Program ast, int line, int col)
@@ -238,9 +239,19 @@ internal static class ScopeAnalysis
             case AstNode.ClassDecl classDecl:
                 AddMethodBinders(binders, classDecl.Methods, classDecl.Constructor);
                 break;
-            // HandlerClause binding variables have no source span on the AST, so they
-            // are never binder targets — but they still shadow during occurrence
-            // collection (see CollectUses).
+            case AstNode.WithHandlers wh:
+                foreach (var h in wh.Handlers)
+                    binders.Add(
+                        new Binder(
+                            h.BindingVarName,
+                            h.BindingNameSpan,
+                            null,
+                            SymbolKind.Variable,
+                            [h.HandlerBody],
+                            h.Span
+                        )
+                    );
+                break;
         }
 
         foreach (var child in PlainChildren(node))
@@ -323,9 +334,11 @@ internal static class ScopeAnalysis
     /// <summary>
     ///     The binder that <paramref name="parent" /> establishes for
     ///     <paramref name="name" /> over the subtree entered via <paramref name="child" />
-    ///     (a node on the cursor path). <c>Unbindable</c> is set when the name is bound
-    ///     here but the binder has no source span to navigate to or rewrite (handler
-    ///     clauses) — the search must stop rather than fall through to an outer binder.
+    ///     (a node on the cursor path). <c>Unbindable</c> is set when the search must stop
+    ///     rather than fall through to an outer binder: either the name is bound here but
+    ///     the binder has no source span to navigate to or rewrite (desugared forms), or
+    ///     the cursor sits on a match-pattern constructor name, which is structural and
+    ///     never a use of a local.
     /// </summary>
     private static (Binder? Binder, bool Unbindable) BinderFor(
         AstNode parent,
@@ -388,9 +401,14 @@ internal static class ScopeAnalysis
 
             case AstNode.Match match:
             {
+                // The scrutinee is an ordinary expression: keep walking outward for its binder.
+                if (ReferenceEquals(child, match.Scrutinee))
+                    return (null, false);
                 var arm = match.Arms.FirstOrDefault(a => ReferenceEquals(a.Body, child));
                 if (arm is null)
-                    return (null, false);
+                    // A synthesized pattern-constructor name: constructor patterns are
+                    // structural, never a use of a local, so no outer binder may claim it.
+                    return (null, true);
                 var variable = FindPatternVariable(arm.Pattern, name);
                 return variable is null
                     ? (null, false)
@@ -412,8 +430,21 @@ internal static class ScopeAnalysis
                 var handler = withHandlers.Handlers.FirstOrDefault(h =>
                     ReferenceEquals(h.HandlerBody, child)
                 );
-                // Handler binding variables carry no span — bound here means unrenameable.
-                return (null, handler?.BindingVarName == name);
+                if (handler is null || handler.BindingVarName != name)
+                    return (null, false);
+                // The exception type is a bare string on the AST, so the binder carries
+                // no type; the span is empty only for desugared forms.
+                return (
+                    new Binder(
+                        handler.BindingVarName,
+                        handler.BindingNameSpan,
+                        null,
+                        SymbolKind.Variable,
+                        [handler.HandlerBody],
+                        handler.Span
+                    ),
+                    handler.BindingNameSpan.Length == 0
+                );
             }
 
             case AstNode.ObjectExpr objectExpr:

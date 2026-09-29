@@ -35,6 +35,7 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
         "import-clr",
         "raise",
         "await",
+        "with-handlers",
         "begin",
         "new",
         "typeof",
@@ -70,6 +71,34 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
     ];
 
     private static readonly string[] ValueConstructors = ["Some", "None", "Ok", "Err", "Error"];
+
+    /// <summary>
+    ///     Snippet templates for the structural keywords: selecting one from the list
+    ///     inserts the whole form skeleton with tab stops ($1, $2, …; $0 = final cursor).
+    ///     Shapes mirror the surface grammar the parser accepts (see AstBuilder) — e.g.
+    ///     <c>(let ([name value]) body)</c> and <c>(union Name (Case [field : Type]))</c>.
+    ///     Keywords without an entry here stay plain insertions. Only offered outside
+    ///     type positions (the keyword loop already runs there only).
+    /// </summary>
+    private static readonly Dictionary<string, string> SnippetTemplates = new(
+        StringComparer.Ordinal
+    )
+    {
+        ["define"] = "(define (${1:name} [${2:arg} : ${3:Int}])\n  $0)",
+        ["define-async"] =
+            "(define-async (${1:name} [${2:arg} : ${3:Int}]) : ${4:(Task Unit)}\n  $0)",
+        ["let"] = "(let ([${1:name} ${2:value}])\n  $0)",
+        ["letrec"] = "(letrec ([${1:name} ${2:value}])\n  $0)",
+        ["use"] = "(use ([${1:name} ${2:expr}])\n  $0)",
+        ["lambda"] = "(lambda ([${1:x}])\n  $0)",
+        ["match"] = "(match ${1:scrutinee}\n    [${2:pattern} ${3:body}]\n    [_ $0])",
+        ["if"] = "(if ${1:condition}\n    ${2:then}\n    $0)",
+        ["record"] = "(record ${1:Name}\n  [${2:field} : ${3:Int}]\n  $0)",
+        ["union"] = "(union ${1:Name}\n  (${2:Case} [${3:field} : ${4:Int}])\n  $0)",
+        ["class"] = "(class ${1:Name}\n  [${2:field} : ${3:Int}]\n  $0)",
+        ["interface"] = "(interface ${1:IName}\n  (${2:Method} [] : ${3:Unit})\n  $0)",
+        ["with-handlers"] = "(with-handlers ([${1:System.Exception} ${2:e}] ${3:result})\n  $0)",
+    };
 
     protected override CompletionRegistrationOptions CreateRegistrationOptions(
         CompletionCapability capability,
@@ -116,14 +145,27 @@ public sealed class CompletionHandler(AnalysisService analysisService) : Complet
         if (!isTypePosition)
             foreach (var kw in Keywords)
                 if (Matches(prefix, kw) && seen.Add(kw))
+                {
+                    // Structural keywords insert their whole form as a snippet with tab
+                    // stops; the rest stay plain keyword insertions.
                     items.Add(
-                        new CompletionItem
-                        {
-                            Label = kw,
-                            Kind = CompletionItemKind.Keyword,
-                            Detail = "keyword",
-                        }
+                        SnippetTemplates.TryGetValue(kw, out var snippet)
+                            ? new CompletionItem
+                            {
+                                Label = kw,
+                                Kind = CompletionItemKind.Keyword,
+                                Detail = "keyword",
+                                InsertText = snippet,
+                                InsertTextFormat = InsertTextFormat.Snippet,
+                            }
+                            : new CompletionItem
+                            {
+                                Label = kw,
+                                Kind = CompletionItemKind.Keyword,
+                                Detail = "keyword",
+                            }
                     );
+                }
 
         if (isTypePosition)
             foreach (var t in BuiltinTypes)

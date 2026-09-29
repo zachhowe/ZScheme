@@ -83,11 +83,7 @@ public sealed class WorkspaceIndexTests
     public void UpdateFile_ReplacesStaleSlice()
     {
         var index = new WorkspaceIndex();
-        index.UpdateFile(
-            "/a/app.zs",
-            [],
-            [Ref("foo", "pkg/lib/foo", "/a/app.zs", 3)]
-        );
+        index.UpdateFile("/a/app.zs", [], [Ref("foo", "pkg/lib/foo", "/a/app.zs", 3)]);
         // Re-index the same file with the reference removed.
         index.UpdateFile("/a/app.zs", [], []);
 
@@ -145,8 +141,8 @@ public sealed class WorkspaceIndexTests
             (define (sum-all [first : Int] [rest : Int ...]) : Int first)
             """;
         var (svc, uri) = TestFixtures.LspTestSession.Open(src);
-        var file = OmniSharp.Extensions.LanguageServer.Protocol.DocumentUri
-            .Parse(uri)
+        var file = OmniSharp
+            .Extensions.LanguageServer.Protocol.DocumentUri.Parse(uri)
             .GetFileSystemPath();
 
         var scale = svc.Index.DefinitionInFile(file, "scale");
@@ -161,6 +157,121 @@ public sealed class WorkspaceIndexTests
     }
 
     [Fact]
+    public void FindReferences_IncludesPatternConstructorUses()
+    {
+        var src = """
+            (module test)
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
+            (define (area [sh : Shape]) : Int
+              (match sh
+                [(Circle r) (* r r)]
+                [(Square s) (* s s)]))
+            """;
+        var (svc, uri) = TestFixtures.LspTestSession.Open(src);
+        var file = OmniSharp
+            .Extensions.LanguageServer.Protocol.DocumentUri.Parse(uri)
+            .GetFileSystemPath();
+
+        var refs = svc.Index.FindReferences(null, "Circle", file);
+
+        // The declaration's case name plus the pattern use in 'area' — pattern case
+        // names are indexed like constructor call sites.
+        Assert.Equal(2, refs.Count);
+    }
+
+    [Fact]
+    public void TypeUses_AreIndexedWithContainerAttribution()
+    {
+        var src = """
+            (module test)
+            (define-record Point [x : Int])
+            (define (f [p : Point]) : Point p)
+            (define g 1)
+            """;
+        var (svc, uri) = TestFixtures.LspTestSession.Open(src);
+        var file = OmniSharp
+            .Extensions.LanguageServer.Protocol.DocumentUri.Parse(uri)
+            .GetFileSystemPath();
+
+        // Both annotation sites are indexed as type uses, each attributed to 'f'.
+        var typeRefs = svc.Index.FindTypeReferences("Point");
+        Assert.Equal(2, typeRefs.Count);
+        Assert.All(typeRefs, r => Assert.True(r.IsTypeUse));
+        Assert.All(typeRefs, r => Assert.Equal(file, r.File));
+        Assert.All(typeRefs, r => Assert.Null(r.QualifiedKey));
+        Assert.All(typeRefs, r => Assert.Equal("f", r.ContainingDefinition));
+
+        // The declaration name itself is a Name occurrence, not a type use.
+        Assert.DoesNotContain(typeRefs, r => r.Span.Line == 2);
+    }
+
+    [Fact]
+    public void FindTypeReferences_MatchesBareNameAcrossFiles()
+    {
+        var index = new WorkspaceIndex();
+        index.UpdateFile(
+            "/a/lib.zs",
+            [
+                new IndexedDefinition(
+                    "pkg/lib/Widget",
+                    "Widget",
+                    new SourceSpan("/a/lib.zs", 2, 20, 6),
+                    SymbolKind.Record,
+                    "pkg/lib"
+                ),
+            ],
+            []
+        );
+        index.UpdateFile(
+            "/a/app.zs",
+            [],
+            [
+                new IndexedReference(
+                    "Widget",
+                    null,
+                    new SourceSpan("/a/app.zs", 3, 20, 6),
+                    "run",
+                    IsTypeUse: true
+                ),
+                // A same-named Name occurrence is not a type use.
+                new IndexedReference("Widget", null, new SourceSpan("/a/app.zs", 4, 5, 6), null),
+            ]
+        );
+
+        var typeRefs = index.FindTypeReferences("Widget");
+        var theRef = Assert.Single(typeRefs);
+        Assert.Equal("/a/app.zs", theRef.File);
+        Assert.Equal(3, theRef.Span.Line);
+
+        // Re-indexing the file without the type use drops it.
+        index.UpdateFile("/a/app.zs", [], []);
+        Assert.Empty(index.FindTypeReferences("Widget"));
+    }
+
+    [Fact]
+    public void CallHierarchy_DoesNotCountTypeUsesAsCalls()
+    {
+        var src = """
+            (module test)
+            (define-record Point [x : Int])
+            (define (f [p : Point]) : Point p)
+            (define (make) : Point (Point 1))
+            """;
+        var (svc, uri) = TestFixtures.LspTestSession.Open(src);
+        var file = OmniSharp
+            .Extensions.LanguageServer.Protocol.DocumentUri.Parse(uri)
+            .GetFileSystemPath();
+        var def = svc.Index.DefinitionInFile(file, "Point")!;
+
+        // 'f' only annotates with Point (no constructor call): a type use is not a call.
+        var incoming = svc.Index.IncomingCalls(def.QualifiedKey, def.BareName, def.File, def.Span);
+        Assert.DoesNotContain(incoming, c => c.Caller.BareName == "f");
+
+        // 'make' calls the constructor: it is a caller.
+        Assert.Contains(incoming, c => c.Caller.BareName == "make");
+    }
+
+    [Fact]
     public void IncomingCalls_AttributeNestedLambdasToTheEnclosingDefine()
     {
         var src = """
@@ -170,8 +281,8 @@ public sealed class WorkspaceIndexTests
             (helper 5)
             """;
         var (svc, uri) = TestFixtures.LspTestSession.Open(src);
-        var file = OmniSharp.Extensions.LanguageServer.Protocol.DocumentUri
-            .Parse(uri)
+        var file = OmniSharp
+            .Extensions.LanguageServer.Protocol.DocumentUri.Parse(uri)
             .GetFileSystemPath();
         var def = svc.Index.DefinitionInFile(file, "helper")!;
 

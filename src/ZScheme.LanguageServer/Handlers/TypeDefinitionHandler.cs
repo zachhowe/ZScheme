@@ -58,9 +58,11 @@ public sealed class TypeDefinitionHandler(AnalysisService analysisService)
     }
 
     /// <summary>Test seam: declaration span(s) of the inferred type of the node at the
-    ///     1-based (line, col). Same-file declarations win; otherwise all type-kind
-    ///     index matches are returned (multiple only when the bare name is ambiguous
-    ///     across packages).</summary>
+    ///     1-based (line, col). A cursor on a type name written in a type position jumps
+    ///     to the declared type's own definition (the annotation *is* the type
+    ///     reference). Otherwise, same-file declarations win; for value nodes all
+    ///     type-kind index matches are returned (multiple only when the bare name is
+    ///     ambiguous across packages).</summary>
     public static IReadOnlyList<SourceSpan> Resolve(
         DocumentState state,
         WorkspaceIndex? index,
@@ -70,6 +72,12 @@ public sealed class TypeDefinitionHandler(AnalysisService analysisService)
     {
         if (state.Ast is null)
             return [];
+
+        // A type-name use resolves to the declaration of the type it names — including
+        // cross-file declarations, which the value-based path below cannot reach from an
+        // annotation (the annotation's own inferred type carries no cursor node).
+        if (TypeNavigation.Resolve(state, index, line, col) is { } typeTarget)
+            return [typeTarget.DefinitionSpan];
 
         var node = AstNavigation.FindNodeAt(state.Ast, line, col);
         if (TypeConstructorName(node?.ResolvedType) is not { } typeName)

@@ -1792,6 +1792,17 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void WithHandlers_BindingVarCarriesNameSpan()
+    {
+        var prog = Build("(with-handlers ([System.Exception e] 0) 42)");
+        var wh = Assert.IsType<AstNode.WithHandlers>(prog.TopLevelForms[0]);
+        // The span points at the binding-variable atom, not the whole clause.
+        Assert.NotEqual(wh.Handlers[0].Span, wh.Handlers[0].BindingNameSpan);
+        Assert.Equal(35, wh.Handlers[0].BindingNameSpan.Column);
+        Assert.Equal(1, wh.Handlers[0].BindingNameSpan.Length);
+    }
+
+    [Fact]
     public void WithHandlers_MissingBody_ReportsError()
     {
         var (_, diag) = BuildWithDiagnostics("(with-handlers)");
@@ -1875,6 +1886,36 @@ public class AstBuilderTests
         Assert.Equal(2, pattern.Elements.Count);
         Assert.IsType<Pattern.Variable>(pattern.Elements[0]);
         Assert.IsType<Pattern.Variable>(pattern.Elements[1]);
+    }
+
+    [Fact]
+    public void ConstructorPattern_CarriesNameSpan()
+    {
+        var prog = Build("(match x [(Circle r) 0])");
+        var match = Assert.IsType<AstNode.Match>(prog.TopLevelForms[0]);
+        var pattern = Assert.IsType<Pattern.Constructor>(match.Arms[0].Pattern);
+        Assert.Equal("Circle", pattern.Name);
+        Assert.NotEqual(default, pattern.NameSpan);
+        // NameSpan points at the case-name atom only, so it is distinct from the span of
+        // the whole (Circle r) pattern form.
+        Assert.NotEqual(pattern.Span, pattern.NameSpan);
+        Assert.Equal(12, pattern.NameSpan.Column);
+        Assert.Equal(6, pattern.NameSpan.Length);
+    }
+
+    [Fact]
+    public void BareUppercaseAtomPattern_CarriesNameSpan()
+    {
+        var prog = Build("(match x [Nil 0])");
+        var match = Assert.IsType<AstNode.Match>(prog.TopLevelForms[0]);
+        var pattern = Assert.IsType<Pattern.Constructor>(match.Arms[0].Pattern);
+        Assert.Equal("Nil", pattern.Name);
+        Assert.NotEqual(default, pattern.NameSpan);
+        // A bare atom is its own name, so the name span equals the pattern span and points
+        // at the Nil atom.
+        Assert.Equal(pattern.Span, pattern.NameSpan);
+        Assert.Equal(11, pattern.NameSpan.Column);
+        Assert.Equal(3, pattern.NameSpan.Length);
     }
 
     [Fact]
@@ -2381,5 +2422,92 @@ public class AstBuilderTests
     {
         var (_, diag) = BuildWithDiagnostics("(define #:recursive x 1)");
         AssertHasError(diag, "not a value binding");
+    }
+
+    // --- TypeNameUses ---
+
+    [Fact]
+    public void TypeNameUses_CollectsParamAnnotation()
+    {
+        var prog = Build("(define (f [x : Point]) : Int 0)");
+        Assert.Equal(
+            [("Point", 0), ("Int", 0)],
+            prog.TypeNameUses.Select(u => (u.Name, u.Arity)).ToList()
+        );
+    }
+
+    [Fact]
+    public void TypeNameUses_CollectsReturnAnnotation()
+    {
+        var prog = Build("(define (f) : Shape 0)");
+        Assert.Equal([("Shape", 0)], prog.TypeNameUses.Select(u => (u.Name, u.Arity)).ToList());
+    }
+
+    [Fact]
+    public void TypeNameUses_CollectsNestedApplicationNamesWithArity()
+    {
+        var prog = Build("(define (g [o : (Option Int)]) : (Option Int) o)");
+        Assert.Equal(
+            [("Option", 1), ("Int", 0), ("Option", 1), ("Int", 0)],
+            prog.TypeNameUses.Select(u => (u.Name, u.Arity)).ToList()
+        );
+    }
+
+    [Fact]
+    public void TypeNameUses_CollectsNullableSuffixAsBareName()
+    {
+        var prog = Build("(define (f [x : Point?]) : Int 0)");
+        Assert.Equal(
+            [("Point", 0), ("Int", 0)],
+            prog.TypeNameUses.Select(u => (u.Name, u.Arity)).ToList()
+        );
+    }
+
+    [Fact]
+    public void TypeNameUses_CollectsClassBaseList()
+    {
+        var prog = Build("(define-class Dog : Animal IPet [x : Int])");
+        Assert.Equal(
+            [("Animal", 0), ("IPet", 0), ("Int", 0)],
+            prog.TypeNameUses.Select(u => (u.Name, u.Arity)).ToList()
+        );
+    }
+
+    [Fact]
+    public void TypeNameUses_CollectsInterfaceBaseList()
+    {
+        var prog = Build("(define-interface IDog : IFoo IBar (Bark [x : Int] : Int))");
+        Assert.Equal(
+            [("IFoo", 0), ("IBar", 0), ("Int", 0), ("Int", 0)],
+            prog.TypeNameUses.Select(u => (u.Name, u.Arity)).ToList()
+        );
+    }
+
+    [Fact]
+    public void TypeNameUses_CollectsObjectBaseAndInterfaces()
+    {
+        var prog = Build("(define (f) : Int ((object : Animal IPet (define (Bark) : Int 0)) 0))");
+        Assert.Equal(
+            [("Int", 0), ("Animal", 0), ("IPet", 0), ("Int", 0)],
+            prog.TypeNameUses.Select(u => (u.Name, u.Arity)).ToList()
+        );
+    }
+
+    [Fact]
+    public void TypeNameUses_CollectsWithHandlersExceptionTypes()
+    {
+        var prog = Build("(with-handlers ([System.Exception e] 0) 42)");
+        Assert.Equal(
+            [("System.Exception", 0)],
+            prog.TypeNameUses.Select(u => (u.Name, u.Arity)).ToList()
+        );
+    }
+
+    [Fact]
+    public void TypeNameUses_EmptyForExpressionPositions()
+    {
+        var prog = Build("(define (f) : Int (IsPoint 1))");
+        // The IsPoint call is a Name in expression position, not a type use.
+        Assert.Equal([("Int", 0)], prog.TypeNameUses.Select(u => (u.Name, u.Arity)).ToList());
     }
 }

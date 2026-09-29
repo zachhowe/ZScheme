@@ -240,6 +240,56 @@ public sealed class DefinitionTests
     }
 
     [Fact]
+    public void Definition_OnConstructorPatternName_ResolvesToCaseDeclaration()
+    {
+        var src = """
+            (module test)
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
+            (define (area [sh : Shape]) : Int
+              (match sh
+                [(Circle r) (* r r)]
+                [(Square s) (* s s)]))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // Cursor on the "Circle" case name inside the constructor pattern.
+        var (line, col) = LspTestSession.Locate(src, "(Circle r)");
+        var span = DefinitionHandler.ResolveDefinition(state, line, col + 1);
+
+        Assert.NotNull(span);
+        // The case-name atom in the union declaration, not the whole case form.
+        var (caseLine, caseCol) = LspTestSession.Locate(src, "Circle");
+        Assert.Equal(caseLine, span.Value.Line);
+        Assert.Equal(caseCol, span.Value.Column);
+        Assert.Equal("Circle".Length, span.Value.Length);
+    }
+
+    [Fact]
+    public void Definition_OnBareConstructorPatternName_ResolvesToCaseDeclaration()
+    {
+        var src = """
+            (module test)
+            (define-union Pair (Cons [hd : Int]) (Empty))
+            (define (first [p : Pair]) : Int
+              (match p
+                [(Cons hd) hd]
+                [Empty 0]))
+            """;
+        var (svc, uri) = NewSession(src);
+        var state = svc.GetDocument(uri)!;
+
+        // Cursor on the bare "Empty" nullary-case pattern.
+        var (line, col) = LspTestSession.Locate(src, "[Empty 0]");
+        var span = DefinitionHandler.ResolveDefinition(state, line, col + 1);
+
+        Assert.NotNull(span);
+        var (caseLine, caseCol) = LspTestSession.Locate(src, "Empty");
+        Assert.Equal(caseLine, span.Value.Line);
+        Assert.Equal(caseCol, span.Value.Column);
+    }
+
+    [Fact]
     public void Definition_OnImportClrAliasUse_ResolvesToAliasDeclaration()
     {
         var src = """
