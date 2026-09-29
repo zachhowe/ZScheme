@@ -5621,14 +5621,63 @@ public sealed partial class IlEmitter
         );
     }
 
+    /// <summary>
+    ///     Resolves an attribute's bare name (as written in <c>(@ Name ...)</c>) to a CLR
+    ///     attribute type. <see cref="ClrInterop.FindType" /> only matches full names, but
+    ///     attribute names in source are bare — the C# backend resolves them through the
+    ///     <c>using</c> directives import-clr generates, which have no IL counterpart. Fall
+    ///     back to a simple-name scan over the loaded assemblies (matching
+    ///     <c>Name</c> or <c>Name + "Attribute"</c>), which is what makes source like
+    ///     <c>(@ JsonPropertyName "index")</c> land on System.Text.Json's attribute here.
+    /// </summary>
+    private Type? FindAttributeType(string name)
+    {
+        var resolved = _clrInterop.FindType(name) ?? _clrInterop.FindType(name + "Attribute");
+        if (resolved is not null)
+            return resolved;
+
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            Type? match = null;
+            try
+            {
+                foreach (var type in assembly.GetTypes())
+                {
+                    if (type.Name == name)
+                        return type;
+                    if (type.Name == name + "Attribute")
+                        match ??= type;
+                }
+            }
+            catch (System.Reflection.ReflectionTypeLoadException ex)
+            {
+                // A load failure in any assembly's type list must not hide a match in the
+                // types that did load.
+                foreach (var type in ex.Types)
+                {
+                    if (type is null)
+                        continue;
+                    if (type.Name == name)
+                        return type;
+                    if (type.Name == name + "Attribute")
+                        match ??= type;
+                }
+            }
+
+            if (match is not null)
+                return match;
+        }
+
+        return null;
+    }
+
     private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, MethodDefinition target)
     {
         if (attrs is null)
             return;
         foreach (var attr in attrs)
         {
-            var attrType =
-                _clrInterop.FindType(attr.Name) ?? _clrInterop.FindType(attr.Name + "Attribute");
+            var attrType = FindAttributeType(attr.Name);
             if (attrType is null)
                 continue;
             var customAttr = BuildCustomAttribute(attrType, attr);
@@ -5643,8 +5692,25 @@ public sealed partial class IlEmitter
             return;
         foreach (var attr in attrs)
         {
-            var attrType =
-                _clrInterop.FindType(attr.Name) ?? _clrInterop.FindType(attr.Name + "Attribute");
+            var attrType = FindAttributeType(attr.Name);
+            if (attrType is null)
+                continue;
+            var customAttr = BuildCustomAttribute(attrType, attr);
+            if (customAttr is not null)
+                target.CustomAttributes.Add(customAttr);
+        }
+    }
+
+    // Record fields land as properties, and attribute consumers (System.Text.Json's
+    // JsonPropertyName, for one) read them off the property. The C# backend emits field
+    // attributes with a [property:] target; mirror that on the emitted property.
+    private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, PropertyDefinition target)
+    {
+        if (attrs is null)
+            return;
+        foreach (var attr in attrs)
+        {
+            var attrType = FindAttributeType(attr.Name);
             if (attrType is null)
                 continue;
             var customAttr = BuildCustomAttribute(attrType, attr);
