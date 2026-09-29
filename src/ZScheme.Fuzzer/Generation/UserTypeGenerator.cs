@@ -110,7 +110,7 @@ public sealed class UserTypeGenerator
         var name = $"FRec_{index}";
         var twoParams = _ctx.Rng.NextDouble() < 0.5;
         var isStruct = _ctx.Rng.NextDouble() < 0.25;
-        var keyword = isStruct ? "define-struct" : "define-record";
+        var keyword = isStruct ? "struct" : "record";
         // One mutable field on ~half the generic *records* so SetFieldExprGenerator
         // reaches the generic-setter path (the IL emitter resolves it against the
         // closed generic instance). Generic structs stay all-immutable: they already
@@ -123,7 +123,8 @@ public sealed class UserTypeGenerator
             var f1 = "first";
             var f2 = "second";
             var where = _where.MaybeEmit(["^a", "^b"], 0.04);
-            var def = $"({keyword} ({name} ^a ^b){where} [{f1} : ^a{MutableTag(mutableAt == 0)}] [{f2} : ^b{MutableTag(mutableAt == 1)}])";
+            var def =
+                $"({keyword} ({name} ^a ^b){where} [{f1} : ^a{MutableTag(mutableAt == 0)}] [{f2} : ^b{MutableTag(mutableAt == 1)}])";
             return new UserRecordDecl(
                 name,
                 ["^a", "^b"],
@@ -140,11 +141,15 @@ public sealed class UserTypeGenerator
             var f1 = "x";
             var f2 = "y";
             var where = _where.MaybeEmit(["^a"], 0.04);
-            var def = $"({keyword} ({name} ^a){where} [{f1} : ^a{MutableTag(mutableAt == 0)}] [{f2} : ^a{MutableTag(mutableAt == 1)}])";
+            var def =
+                $"({keyword} ({name} ^a){where} [{f1} : ^a{MutableTag(mutableAt == 0)}] [{f2} : ^a{MutableTag(mutableAt == 1)}])";
             return new UserRecordDecl(
                 name,
                 ["^a"],
-                [new UserRecordField(f1, "^a", mutableAt == 0), new UserRecordField(f2, "^a", mutableAt == 1)],
+                [
+                    new UserRecordField(f1, "^a", mutableAt == 0),
+                    new UserRecordField(f2, "^a", mutableAt == 1),
+                ],
                 def,
                 isStruct
             );
