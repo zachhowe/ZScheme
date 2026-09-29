@@ -181,3 +181,27 @@ In development since 2026-08-13.
   - Tested differentially on both backends — parameter receivers, struct copies, class-field
     receivers, `with` interplay, cross-module imports — and the fuzzer now generates the form
     against about half of its structs and generic records.
+
+## Fixed — IL backend
+
+- **A Unit-typed `with-handlers` failed to build with a stack-imbalance error.** The emitter
+  stored every branch's value into a result local, but Unit-typed nodes push nothing onto the
+  evaluation stack — the invariant `EmitLetBinding`, the `Seq` pop guard and `EmitArgNode` all
+  assume — so the `stloc` underflowed and building the PE image failed. Any function naming a
+  Unit-typed `with-handlers` failed to compile, and a cleanup helper catching around a void CLR
+  call is exactly what `with-handlers` is for. A Unit-typed form now stores nothing and leaves
+  the stack unchanged at the join, like every other Unit-typed node, in both the plain
+  try/catch emit and the async lifted-catch emit. The C# backend was unaffected.
+
+## Fixed — C# backend
+
+- **Names containing `=` failed to transpile.** `NameConverter` mapped `?`, `!`, `<`, `>`, `|`,
+  `^`, `*` and `$` but not `=`, so an equivalence predicate like `bytes=?` or `string=?`
+  sanitized to `Bytes=_q` — a raw `=` inside a C# identifier, which `csc` rejects with
+  CS1519/CS1022. The IL backend tolerates `=` in metadata names, so only C#-backend builds
+  (`zs build-examples`, `run-package-csharp-tests`) fell over.
+  - The rest of the lexer's symbol charset is mapped too, closing the same family: a name like
+    `a+b` now sanitizes `+` to `_plus` instead of emitting a raw operator into the C#
+    identifier, and so for `&`, `%`, `~`, `#` and `@`. `.` is deliberately left unmapped — CLR
+    type names like `System.Object` are sanitized through the same function and must keep their
+    dots, so a ZScheme identifier containing `.` still fails C#-backend compilation.
