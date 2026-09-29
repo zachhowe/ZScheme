@@ -802,6 +802,30 @@ public sealed class CodeActionTests
     }
 
     [Fact]
+    public void RemoveUnusedParameter_CommentInDeletedExtent_Declines()
+    {
+        // The comment sits between the previous parameter and the removed one, inside the
+        // definition-side deleted extent — destroying it is worse than declining.
+        var src = """
+            (module test)
+            (define (f [a : Int] ; note about a
+                        [unused : Int]
+                        [b : Int]) : Int (+ a b))
+            (define (main) : Int (+ (f 1 2 3) (f 4 5 6)))
+            """;
+        var (state, range, svc, uri) = UnusedParamDiagnostic(src, "unused");
+
+        Assert.Null(
+            CodeActionHandler.BuildRemoveUnusedParameterEdits(
+                state,
+                svc.Index,
+                range,
+                DocumentUri.Parse(uri)
+            )
+        );
+    }
+
+    [Fact]
     public void RemoveUnusedParameter_CrossFileCallSitesRewritten()
     {
         using var ws = new TempPackageWorkspace(

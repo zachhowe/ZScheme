@@ -316,6 +316,17 @@ public sealed class CodeActionHandler(AnalysisService analysisService) : CodeAct
         // first item (e.g. a lambda's only parameter), the one after it.
         var deleteStart =
             elementIndex > 0 ? items[elementIndex - 1].End : TokenEndOffset(source, paramList.Open);
+        // A comment inside the deleted extent would be destroyed; bail out instead.
+        if (
+            LexicalStructure
+                .Tokens(source)
+                .Any(t =>
+                    t.Kind == Compiler.Syntax.TokenKind.Comment
+                    && TokenStartOffset(source, t) > deleteStart
+                    && TokenEndOffset(source, t) < items[elementIndex].End
+                )
+        )
+            return null;
         var paramEdits = new List<TextEdit>
         {
             new()
