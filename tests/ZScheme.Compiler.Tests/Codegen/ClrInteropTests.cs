@@ -805,12 +805,6 @@ public static class UnreadableSignatureFixture
                 if (_holderType is not null)
                     return _holderType;
 
-                var dir = Path.Combine(
-                    Path.GetTempPath(),
-                    "zs-unreadable-" + Guid.NewGuid().ToString("N")
-                );
-                Directory.CreateDirectory(dir);
-
                 var ghost1 = Compile(
                     "Ghost",
                     "[assembly: System.Reflection.AssemblyVersion(\"1.0.0.0\")] namespace Ghost { public class Other { } }"
@@ -821,13 +815,11 @@ public static class UnreadableSignatureFixture
                 );
                 var host = CompileHost(ghost2);
 
-                var ghost1Path = Path.GetFullPath(Path.Combine(dir, "Ghost.dll"));
-                var hostPath = Path.GetFullPath(Path.Combine(dir, "Host.dll"));
-                File.WriteAllBytes(ghost1Path, ghost1);
-                File.WriteAllBytes(hostPath, host);
-
                 // A non-collectible context so the type outlives the test; this static holds the
-                // reference so it is never collected while the process runs.
+                // reference so it is never collected while the process runs. The assemblies load
+                // from memory: a file-based load would map its images for the life of the
+                // non-collectible context, so the files could never be deleted and would litter
+                // the temp directory for the rest of the test process.
                 _context = new AssemblyLoadContext(
                     "ZSchemeUnreadableSignature",
                     isCollectible: false
@@ -835,9 +827,9 @@ public static class UnreadableSignatureFixture
 
                 // Satisfy every Ghost request with the v1 image (no Thing), so the referenced
                 // Ghost.Thing in Host.M is unresolvable -> TypeLoadException on GetParameters().
-                var ghost1Asm = _context.LoadFromAssemblyPath(ghost1Path);
+                var ghost1Asm = Load(_context, ghost1);
                 _context.Resolving += (_, name) => name.Name == "Ghost" ? ghost1Asm : null;
-                var hostAsm = _context.LoadFromAssemblyPath(hostPath);
+                var hostAsm = Load(_context, host);
 
                 _holderType =
                     hostAsm.GetType("Host.Holder")
@@ -868,6 +860,14 @@ public static class UnreadableSignatureFixture
 
             return refs;
         }
+    }
+
+    /// <summary>Loads an emitted image straight into <paramref name="context" /> from memory —
+    ///     no files on disk to clean up or leave behind.</summary>
+    private static Assembly Load(AssemblyLoadContext context, byte[] image)
+    {
+        using var stream = new MemoryStream(image);
+        return context.LoadFromStream(stream);
     }
 
     private static byte[] Compile(string name, string source)
