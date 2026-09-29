@@ -327,7 +327,10 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
         // [name :git "url" "version"] or [name :git "url" "version" "packages/subdir"]
         if (items.Count < 5)
         {
-            diagnostics.Error("Git dependency must be [name :git \"url\" \"version\"]", span);
+            diagnostics.Error(
+                "Git dependency must be [name :git \"url\" \"version\"] or [name :git \"url\" \"version\" \"sub/dir\"]",
+                span
+            );
             return null;
         }
 

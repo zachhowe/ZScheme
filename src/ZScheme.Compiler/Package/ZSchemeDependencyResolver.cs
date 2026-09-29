@@ -71,13 +71,39 @@ public sealed class ZSchemeDependencyResolver(
         if (subdirectory is not { Length: > 0 })
             return cacheDir;
 
-        var subDir = Path.Combine(
-            cacheDir,
-            subdirectory
-                .Replace('\\', Path.DirectorySeparatorChar)
-                .Replace('/', Path.DirectorySeparatorChar)
+        // Manifests are third-party input: a rooted subdirectory would make Path.Combine
+        // discard the cache dir entirely, and ".." segments walk out of the clone.
+        if (Path.IsPathRooted(subdirectory))
+        {
+            diagnostics.Error(
+                $"Git dependency '{dep.Name}': subdirectory '{subdirectory}' must be a relative path",
+                dep.Span
+            );
+            return null;
+        }
+
+        var full = Path.GetFullPath(
+            Path.Combine(
+                cacheDir,
+                subdirectory
+                    .Replace('\\', Path.DirectorySeparatorChar)
+                    .Replace('/', Path.DirectorySeparatorChar)
+            )
         );
-        if (!Directory.Exists(subDir))
+        var cacheRoot = Path.GetFullPath(cacheDir);
+        if (
+            full != cacheRoot
+            && !full.StartsWith(cacheRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+        )
+        {
+            diagnostics.Error(
+                $"Git dependency '{dep.Name}': subdirectory '{subdirectory}' escapes the cloned repository",
+                dep.Span
+            );
+            return null;
+        }
+
+        if (!Directory.Exists(full))
         {
             diagnostics.Error(
                 $"Git dependency '{dep.Name}': subdirectory '{subdirectory}' not found in {url}@{versionOrRef}",
@@ -86,7 +112,7 @@ public sealed class ZSchemeDependencyResolver(
             return null;
         }
 
-        return subDir;
+        return full;
     }
 
     private string? CloneGit(string url, string versionOrRef, ZSchemeDependency dep)
