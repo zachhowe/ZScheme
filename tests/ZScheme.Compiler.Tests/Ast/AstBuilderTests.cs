@@ -2528,4 +2528,30 @@ public class AstBuilderTests
         // The IsPoint call is a Name in expression position, not a type use.
         Assert.Equal([("Int", 0)], prog.TypeNameUses.Select(u => (u.Name, u.Arity)).ToList());
     }
+
+    [Fact]
+    public void TypeNameUses_SurvivesASubsequentBuildOnTheSameBuilder()
+    {
+        var diag = new DiagnosticBag();
+        var builder = new AstBuilder(diag);
+
+        AstNode.Program BuildProgram(string source)
+        {
+            var lexer = new Lexer(source, "test.zs", diag);
+            var tokens = lexer.Tokenize();
+            var parser = new SExprParser(tokens, diag);
+            return builder.BuildProgram(parser.ParseAll());
+        }
+
+        var first = BuildProgram("(record Point [x : Int]) (define (f [x : Point]) : Int 0)");
+        var second = BuildProgram("(record Shape [w : Int]) (define (g [s : Shape]) : Int 0)");
+
+        // The second BuildProgram clears the builder's live list; the first program must
+        // keep its own snapshot of uses, and the two programs must not share one list.
+        Assert.NotEmpty(first.TypeNameUses);
+        Assert.Contains(first.TypeNameUses, u => u.Name == "Point");
+        Assert.NotSame(first.TypeNameUses, second.TypeNameUses);
+        Assert.NotEmpty(second.TypeNameUses);
+        Assert.Contains(second.TypeNameUses, u => u.Name == "Shape");
+    }
 }

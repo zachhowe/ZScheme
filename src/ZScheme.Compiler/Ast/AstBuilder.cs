@@ -29,10 +29,11 @@ public sealed class AstBuilder(
     private int _freshCounter;
 
     /// <summary>
-    ///     Type names written in type positions, accumulated while building one program and
-    ///     attached to the returned <see cref="AstNode.Program" /> (see
-    ///     <c>Program.TypeNameUses</c>). <c>BuildProgram</c> is the single entry point and
-    ///     clears it before building.
+    ///     Type names written in type positions, accumulated while building one program.
+    ///     <c>BuildProgram</c> is the single entry point: it clears this list before
+    ///     building and attaches a snapshot of it to the returned
+    ///     <see cref="AstNode.Program" /> (see <c>Program.TypeNameUses</c>), so a builder
+    ///     reused for a second program leaves the first program's uses intact.
     /// </summary>
     private readonly List<TypeNameUse> _typeNameUses = [];
 
@@ -111,7 +112,7 @@ public sealed class AstBuilder(
             diagnostics.Error("Attribute(s) with no target declaration", pendingAttrs[0].Span);
 
         var span = exprs.Count > 0 ? exprs[0].Span : SourceSpan.None;
-        return new AstNode.Program(forms, span) { TypeNameUses = _typeNameUses };
+        return new AstNode.Program(forms, span) { TypeNameUses = [.. _typeNameUses] };
     }
 
     private AstNode ApplyPendingAttributes(AstNode node, List<AttributeDecl> pendingAttrs)
