@@ -3,28 +3,50 @@ using System.Globalization;
 namespace ZScheme.Fuzzer.Generation;
 
 // Emits `(class ...)` declarations plus reducers that use those classes in
-// expression position. Three declaration shapes are produced:
+// expression position. Four declaration shapes are produced:
 //
 //   * Standalone class: 1-3 mutable Int fields, implicit or explicit constructor,
 //     1-3 methods whose bodies are non-trivial Int expressions generated via the
 //     shared ExprGenerator (so they exercise if/match/with-handlers/etc.).
-//   * Open + derived pair: a base class marked #:open with an overridable method,
-//     and a derived class that overrides it via `(super/MName ...)` — the only
-//     super-call form the compiler supports.
+//   * Open + derived pair (optionally a three-level chain): a base class marked
+//     #:open with an overridable method, and one or two derived classes that
+//     override via `(super/MName ...)` — the only super-call form the compiler
+//     supports. A middle class is itself #:open when a third level follows, and
+//     the bottom level may override a method its direct base never overrode, so
+//     the super-call and constructor-argument chain must walk two hops. Every
+//     level uses the implicit constructor, whose parameter list is the base
+//     chain's fields followed by its own — the shape whose inherited fields used
+//     to be dropped by the lowering's argument zip. The bare constructor-call
+//     form `(Cls args...)` (ConstructDiscardToInt) additionally exercises the
+//     registered constructor chain directly.
 //   * Interface-implementing class: the class additionally implements one of the
-//     generated interfaces, supplying matching method bodies.
+//     generated interfaces — expanded through that interface's own inheritance
+//     chain, since every inherited member must be supplied (and gains an
+//     accessor under the implementing interface's name).
+//   * Interface-implementing OPEN base + derived pair: the base implements an
+//     interface and is still derived from, so the subclass must keep every
+//     interface its base chain declares — a combination that used to lose the
+//     inherited interfaces entirely.
 //
-// Two reducers consume those classes:
+// Three reducers consume those classes:
 //
-//   * Construct-and-discard — `(begin (new Cls args...) <int>)`. The instance is
-//     discarded and the final Int is returned. Always available when classes exist.
+//   * Construct-and-discard — `(begin (new Cls args...) <int>)`, or — for
+//     implicit-constructor classes — the bare constructor call
+//     `(begin (Cls args...) <int>)`. The instance is discarded and the final
+//     Int is returned. Always available when classes exist.
 //   * Construct-and-call — gated on GeneratorContext.EnableClassInstanceCalls.
 //     Constructs the instance into a `let`, then calls one of its methods via an
 //     `(import-clr [alias Namespace.Cls.Method :instance ...])` alias emitted at
-//     program scope. The IL backend currently has a known stack-imbalance bug on
-//     this path (reproducible with the minimal program in the original generator
-//     note); the gate keeps the failure-artifact stream from being dominated by
-//     identical reports while still surfacing the bug end-to-end.
+//     program scope. The alias set covers inherited methods too, so the call
+//     must resolve against the declaring type. The IL backend currently has a
+//     known stack-imbalance bug on this path (reproducible with the minimal
+//     program in the original generator note); the gate keeps the
+//     failure-artifact stream from being dominated by identical reports while
+//     still surfacing the bug end-to-end.
+//   * Interface dispatch — gated on GeneratorContext.EnableInterfaceDispatch:
+//     construct an instance and call one of its interface methods through the
+//     `IName-M` accessor, including methods reached only through an interface's
+//     or base class's inheritance chain.
 public sealed class ClassExprGenerator
 {
     private readonly GeneratorContext _ctx;
@@ -88,13 +110,54 @@ public sealed class ClassExprGenerator
         }
     }
 
+    // Expands an interface's method list through its inheritance chain: the
+    // interface's own methods, then every distinct base method (recursively).
+    // A class or object implementing the child must supply all of them, and the
+    // inherited ones also gain `IChild-BaseM` accessors the dispatch reducer
+    // calls through. Deduped by name; an interface never re-declares a base's
+    // method, so first-wins keeps each signature intact, and breadth-first
+    // order keeps the emitted method list base-first.
+    internal IReadOnlyList<UserInterfaceMethod> CollectChainMethods(UserInterfaceDecl iface)
+    {
+        var result = new List<UserInterfaceMethod>();
+        var seen = new HashSet<string>();
+        var queue = new Queue<UserInterfaceDecl>();
+        queue.Enqueue(iface);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            foreach (var m in current.Methods)
+                if (seen.Add(m.Name))
+                    result.Add(m);
+            foreach (var baseName in current.InterfaceBaseNames)
+            {
+                var baseIface = _ctx.UserInterfaces.FirstOrDefault(i => i.Name == baseName);
+                if (baseIface is not null)
+                    queue.Enqueue(baseIface);
+            }
+        }
+
+        return result;
+    }
+
     private UserClassDecl GenerateClassCore(
         int index,
         bool isOpen,
         UserInterfaceDecl? interfaceToImplement
     )
     {
-        var name = $"FCls_{index}";
+        // Case-variant spelling only: the class name reaches `import-clr` member
+        // paths, and NameConverter Pascal-cases hyphen segments, so a hyphenated
+        // name would not survive into the emitted CLR path (see
+        // GeneratorContext.MangleTypeName). Rolled at a lower probability than
+        // the type-level default: a case-variant class name currently breaks the
+        // C# backend's constructor-reference emission (it writes the source
+        // spelling where the declaration was canonicalized — CS0246), so the
+        // probe is deliberately kept lean while that diverges.
+        var name =
+            _ctx.Rng.NextDouble() < 0.15
+                ? _ctx.MangleTypeName($"FCls_{index}", allowHyphen: false)
+                : $"FCls_{index}";
         var numFields = 1 + _ctx.Rng.Next(3); // 1..3
         var fields = new List<UserClassField>(numFields);
         var fieldDecls = new List<string>(numFields);
@@ -169,7 +232,7 @@ public sealed class ClassExprGenerator
         var usedNames = new HashSet<string>();
 
         if (interfaceToImplement is not null)
-            foreach (var im in interfaceToImplement.Methods)
+            foreach (var im in CollectChainMethods(interfaceToImplement))
             {
                 methods.Add(new UserClassMethod(im.Name, im.ParamTypes, im.RetType));
                 methodTexts.Add(BuildMethodText(im.Name, im.ParamTypes, im.RetType, fieldScope));
@@ -242,7 +305,8 @@ public sealed class ClassExprGenerator
             interfaceToImplement is null
                 ? Array.Empty<string>()
                 : new[] { interfaceToImplement.Name },
-            def
+            def,
+            explicitCtor
         );
     }
 
@@ -250,11 +314,22 @@ public sealed class ClassExprGenerator
     // marked #:open). The derived class:
     //   * adds 0-1 own mutable Int field(s),
     //   * uses an implicit constructor whose params are (base ctor args, own field args),
-    //   * overrides one of the base methods, body = `(super/MName base-args...) +/- own-data`.
+    //   * overrides 1..N methods from the base chain's effective set, body =
+    //     `(super/MName base-args...) +/- own-data`.
+    //
+    // `isOpen` marks the derived class `#:open` itself so a third level can be
+    // derived from it; chain depths beyond two would only repeat the same paths.
+    // Picking an override target the direct base never overrode (possible because
+    // the base's effective set includes methods it merely inherited) forces the
+    // super-call and the vtable to resolve two hops up.
     //
     // The override is the OO-coverage win: it exercises the override codegen path
     // and the only `super/Method` form the compiler supports.
-    public UserClassDecl GenerateDerivedClass(int index, UserClassDecl baseClass)
+    public UserClassDecl GenerateDerivedClass(
+        int index,
+        UserClassDecl baseClass,
+        bool isOpen = false
+    )
     {
         // Same instance-state flagging as GenerateClass; a derived class also sees the base
         // class's fields by bare name.
@@ -262,7 +337,7 @@ public sealed class ClassExprGenerator
         _ctx.InInstanceContext = true;
         try
         {
-            return GenerateDerivedClassCore(index, baseClass);
+            return GenerateDerivedClassCore(index, baseClass, isOpen);
         }
         finally
         {
@@ -270,24 +345,32 @@ public sealed class ClassExprGenerator
         }
     }
 
-    private UserClassDecl GenerateDerivedClassCore(int index, UserClassDecl baseClass)
+    private UserClassDecl GenerateDerivedClassCore(int index, UserClassDecl baseClass, bool isOpen)
     {
         if (!baseClass.IsOpen)
             throw new InvalidOperationException($"Base class {baseClass.Name} is not #:open");
-        if (baseClass.Methods.Count == 0)
+        if (baseClass.EffectiveMethods.Count == 0)
             throw new InvalidOperationException(
                 $"Base class {baseClass.Name} has no methods to override"
             );
 
-        var name = $"FCls_{index}";
+        // Case-variant spelling only — see GenerateClassCore.
+        var name =
+            _ctx.Rng.NextDouble() < 0.15
+                ? _ctx.MangleTypeName($"FCls_{index}", allowHyphen: false)
+                : $"FCls_{index}";
+        // Field prefix carries the class index: two derived levels would otherwise
+        // both mint `d0`, and the emitted C# hierarchy would hold duplicate `D0`
+        // properties/constructor parameters (CS0100).
+        var fieldPrefix = $"d{index}";
         var numOwn = _ctx.Rng.Next(2); // 0..1
         var ownFields = new List<UserClassField>(numOwn);
         var fieldDecls = new List<string>(numOwn);
         for (var i = 0; i < numOwn; i++)
         {
             // Distinct prefix from base to avoid name collisions with inherited
-            // fields (which use `f<n>`).
-            var fname = $"d{i}";
+            // fields (which use `f<n>`, or a `d<idx>` from another level).
+            var fname = $"{fieldPrefix}_{i}";
             ownFields.Add(new UserClassField(fname, true));
             fieldDecls.Add($"  [{fname} : Int #:mutable]");
         }
@@ -298,12 +381,14 @@ public sealed class ClassExprGenerator
             .ConstructorParamTypes.Concat(Enumerable.Repeat(ExprType.Int, numOwn))
             .ToList();
 
-        // Pick 1..N base methods to override. Multiple overrides on a single
-        // derived class exercise vtable layout (slot ordering, contiguous
-        // override entries) more thoroughly than the prior single-override shape.
-        var howMany = 1 + _ctx.Rng.Next(baseClass.Methods.Count);
+        // Pick 1..N methods from the base chain's effective set to override. Multiple
+        // overrides on a single derived class exercise vtable layout (slot ordering,
+        // contiguous override entries) more thoroughly than the prior single-override
+        // shape.
+        var candidateMethods = baseClass.EffectiveMethods;
+        var howMany = 1 + _ctx.Rng.Next(candidateMethods.Count);
         var pickedIndices = Enumerable
-            .Range(0, baseClass.Methods.Count)
+            .Range(0, candidateMethods.Count)
             .OrderBy(_ => _ctx.Rng.Next())
             .Take(howMany)
             .ToList();
@@ -312,14 +397,19 @@ public sealed class ClassExprGenerator
         var overriddenMethods = new List<UserClassMethod>(pickedIndices.Count);
         foreach (var idx in pickedIndices)
         {
-            var baseMethod = baseClass.Methods[idx];
+            var baseMethod = candidateMethods[idx];
             var paramSig = string.Join(
                 " ",
-                Enumerable.Range(0, baseMethod.ParamTypes.Count).Select(i => $"[p{i} : Int]")
+                Enumerable
+                    .Range(0, baseMethod.ParamTypes.Count)
+                    .Select(i => $"[p{i} : {ExprGenerator.TypeNameOf(baseMethod.ParamTypes[i])}]")
             );
 
-            // Body: `(+ (super/MName p0 p1 ...) <int>)`. Forwarding to super tests
-            // the override-path super-call codegen end-to-end at compile time. Body
+            // Body: `(+ (super/MName p0 p1 ...) <int>)` at Int, or the bare super call at
+            // Bool/Float (interface methods carried in from an implementing base). The
+            // super call redeclares every parameter and forwards it, so the override body's
+            // types must match the overridden signature exactly. Forwarding to super tests
+            // the override-path super-call codegen end-to-end at compile time; the Int body
             // stays small to avoid runtime divergences in currently-uncalled methods.
             var superArgs = string.Join(
                 " ",
@@ -330,31 +420,50 @@ public sealed class ClassExprGenerator
                     ? $"(super/{baseMethod.Name})"
                     : $"(super/{baseMethod.Name} {superArgs})";
 
-            var bodyExpr = ownFields.Count > 0 ? $"(+ {superCall} {ownFields[0].Name})" : superCall;
+            var bodyExpr =
+                baseMethod.RetType == ExprType.Int && ownFields.Count > 0
+                    ? $"(+ {superCall} {ownFields[0].Name})"
+                    : superCall;
 
             var paramsPart = baseMethod.ParamTypes.Count == 0 ? "" : $" {paramSig}";
-            overrideTexts.Add($"  (define ({baseMethod.Name}{paramsPart}) : Int {bodyExpr})");
+            overrideTexts.Add(
+                $"  (define ({baseMethod.Name}{paramsPart}) : {ExprGenerator.TypeNameOf(baseMethod.RetType)} {bodyExpr})"
+            );
             overriddenMethods.Add(
                 new UserClassMethod(baseMethod.Name, baseMethod.ParamTypes, baseMethod.RetType)
             );
         }
 
-        var header = $"(class {name} : {baseClass.Name}";
+        var header = $"(class{(isOpen ? " #:open" : "")} {name} : {baseClass.Name}";
         var bodyParts = new List<string>(fieldDecls);
         bodyParts.AddRange(overrideTexts);
         var def = $"{header}\n{string.Join("\n", bodyParts)})";
+
+        // The effective method set folds the base chain in: declared overrides keep
+        // their (identical) signatures, and methods the base merely inherited stay
+        // callable and override-able here. The interface list is propagated too — a
+        // subclass inherits every interface its base chain declares, which the
+        // dispatch reducer probes by calling an accessor on a bottom-of-chain
+        // instance.
+        var effective = new List<UserClassMethod>();
+        var seenMethodNames = new HashSet<string>();
+        foreach (var m in overriddenMethods.Concat(baseClass.EffectiveMethods))
+            if (seenMethodNames.Add(m.Name))
+                effective.Add(m);
 
         return new UserClassDecl(
             name,
             ownFields,
             ctorParamTypes,
-            // Inherits all base methods plus the overrides (overrides share names).
-            // For construct/call bookkeeping we list only the overrides' signatures.
+            // Only the overrides are declared on this class; EffectiveMethods is the
+            // callable set for bookkeeping (alias emission, dispatch, further deriving).
             overriddenMethods,
-            false,
+            isOpen,
             baseClass.Name,
-            Array.Empty<string>(),
-            def
+            baseClass.ImplementedInterfaces,
+            def,
+            HasExplicitCtor: false,
+            BaseChainMethods: effective
         );
     }
 
@@ -407,10 +516,18 @@ public sealed class ClassExprGenerator
         return $"  (define ({mName}{paramsPart}) : {ExprGenerator.TypeNameOf(retType)} {body})";
     }
 
-    // Construct-and-discard reducer: `(begin (new ClsName <int> ...) <int>)`.
-    // The class instance is discarded and the final Int is returned. Same
-    // mechanism as before; updated only to draw constructor args from the
-    // (potentially longer) ConstructorParamTypes list.
+    // Construct-and-discard reducer: `(begin (new ClsName <int> ...) <int>)`, or —
+    // for implicit-constructor classes — the bare constructor-call form
+    // `(begin (ClsName <int> ...) <int>)`. The bare form resolves against the
+    // lowering's registered constructor chain (base fields ++ own fields, in emit
+    // order), so on a derived class it directly exercises the chain concat that
+    // used to zip every inherited argument away; `(new ...)` is kept as the
+    // control shape. Explicit-constructor classes stay on `(new ...)`: the bare
+    // form is registered from field names, and an explicit constructor's
+    // parameters are user-chosen rather than field-named. The instance is
+    // discarded and the final Int is returned. Same mechanism as before;
+    // updated only to draw constructor args from the (potentially longer)
+    // ConstructorParamTypes list.
     public string ConstructDiscardToInt(Scope scope, int depth)
     {
         if (_ctx.UserClasses.Count == 0)
@@ -423,10 +540,16 @@ public sealed class ClassExprGenerator
         foreach (var p in cls.ConstructorParamTypes)
             ctorArgs.Add(_exprs.GenTyped(p, scope, depth - 1));
 
+        // ~50% bare form on implicit-ctor classes. Classes always have at least one
+        // constructor parameter (standalone classes carry 1-3 fields; a derived
+        // class concatenates its base chain's), so the zero-arg branch below never
+        // takes the bare form — a bare zero-arg reference would be a variable
+        // lookup, not a constructor call.
+        var bareForm = !cls.HasExplicitCtor && ctorArgs.Count > 0 && _ctx.Rng.NextDouble() < 0.5;
         var construct =
-            ctorArgs.Count == 0
-                ? $"(new {cls.Name})"
-                : $"(new {cls.Name} {string.Join(" ", ctorArgs)})";
+            ctorArgs.Count == 0 ? $"(new {cls.Name})"
+            : bareForm ? $"({cls.Name} {string.Join(" ", ctorArgs)})"
+            : $"(new {cls.Name} {string.Join(" ", ctorArgs)})";
         var tail = _exprs.GenInt(scope, depth - 1);
         return $"(begin {construct} {tail})";
     }
@@ -443,14 +566,19 @@ public sealed class ClassExprGenerator
             );
 
         // Pick a (class, method) pair where the method returns Int and is sync.
-        // Async methods return `(Task Int)`; calling them from this sync reducer
-        // would require an `await` that this code path can't emit. They're still
-        // emitted for compile-time codegen coverage of class-method state machines.
+        // The candidates are the class's declared methods, plus — when the
+        // inherited-instance-call flag is on — everything inherited through the
+        // base chain, so the alias call must resolve an inherited member against
+        // its declaring type. Async methods return `(Task Int)`; calling them
+        // from this sync reducer would require an `await` that this code path
+        // can't emit. They're still emitted for compile-time codegen coverage of
+        // class-method state machines.
         var eligible = new List<(int ClassIdx, UserClassDecl Cls, UserClassMethod Method)>();
         for (var ci = 0; ci < _ctx.UserClasses.Count; ci++)
         {
             var cls = _ctx.UserClasses[ci];
-            foreach (var m in cls.Methods)
+            var methodSet = _ctx.EnableInheritedInstanceCalls ? cls.EffectiveMethods : cls.Methods;
+            foreach (var m in methodSet)
                 if (m.RetType == ExprType.Int && !m.IsAsync)
                     eligible.Add((ci, cls, m));
         }
@@ -494,7 +622,8 @@ public sealed class ClassExprGenerator
         for (var ci = 0; ci < _ctx.UserClasses.Count; ci++)
         {
             var cls = _ctx.UserClasses[ci];
-            foreach (var m in cls.Methods)
+            var methodSet = _ctx.EnableInheritedInstanceCalls ? cls.EffectiveMethods : cls.Methods;
+            foreach (var m in methodSet)
             {
                 // Skip async methods — their return type is `(Task Int)`, and
                 // ConstructAndCallToInt can't await from its sync call site.
@@ -526,6 +655,63 @@ public sealed class ClassExprGenerator
     private static string InstanceMethodAlias(int classIdx, string methodName)
     {
         return $"call-c{classIdx}-{methodName.ToLowerInvariant().Replace('_', '-')}";
+    }
+
+    // True when at least one generated class implements an interface — directly
+    // or through its base chain (GenerateDerivedClass propagates the base's
+    // interface list) — so the dispatch reducer has a target.
+    public bool HasDispatchTarget()
+    {
+        return _ctx.UserClasses.Any(c => c.ImplementedInterfaces.Count > 0);
+    }
+
+    // Interface-dispatch reducer: construct an instance into a `let`, then call one
+    // of its interface methods through the `IName-M` accessor:
+    //
+    //   (let ([x0 (new Cls args...)]) (IName-M x0 m-args...))
+    //
+    // The (interface, method) pairs range over the class's whole transitive
+    // interface set, so the pick can be a method the class inherits through an
+    // interface chain (IChild : IBase) or through its base-class chain — both of
+    // which must resolve through the accessor registry and both backends'
+    // declaring-type walk. The result is reduced to Int so the compute contract
+    // holds. Calls the *declared* method implementation — the observable value is
+    // whatever the class's method body computes — but routes it through the
+    // interface's accessor, which is the dispatch path being probed.
+    public string InterfaceDispatchToInt(Scope scope, int depth)
+    {
+        var candidates =
+            new List<(UserClassDecl Cls, UserInterfaceDecl Iface, UserInterfaceMethod M)>();
+        foreach (var cls in _ctx.UserClasses)
+        foreach (var ifaceName in cls.ImplementedInterfaces)
+        {
+            var iface = _ctx.UserInterfaces.FirstOrDefault(i => i.Name == ifaceName);
+            if (iface is null)
+                continue;
+            foreach (var m in CollectChainMethods(iface))
+                candidates.Add((cls, iface, m));
+        }
+
+        if (candidates.Count == 0)
+            return ConstructDiscardToInt(scope, depth);
+
+        var (pickedCls, pickedIface, pickedMethod) = candidates[_ctx.Rng.Next(candidates.Count)];
+
+        var ctorArgs = new List<string>();
+        foreach (var p in pickedCls.ConstructorParamTypes)
+            ctorArgs.Add(_exprs.GenTyped(p, scope, depth - 1));
+        var construct =
+            ctorArgs.Count == 0
+                ? $"(new {pickedCls.Name})"
+                : $"(new {pickedCls.Name} {string.Join(" ", ctorArgs)})";
+
+        var bindName = _ctx.Fresh();
+        var callArgs = new List<string> { bindName };
+        foreach (var pt in pickedMethod.ParamTypes)
+            callArgs.Add(_exprs.GenTyped(pt, scope, depth - 1));
+
+        var call = $"({pickedIface.Name}-{pickedMethod.Name} {string.Join(" ", callArgs)})";
+        return $"(let ([{bindName} {construct}])\n    {ExprGenerator.ReduceToInt(call, pickedMethod.RetType)})";
     }
 
     // RHS for an explicit constructor's `(set! field rhs)` line. Picks among the

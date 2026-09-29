@@ -18,14 +18,17 @@ public sealed class UserTypeGenerator
     // match compiler, union codegen, and generic instantiation all get exercised.
     public UserUnionDecl GenerateUnion(int index)
     {
-        var name = $"FUn_{index}";
+        // Non-canonical casing probes the declaration-context resolution of type
+        // names and — for the nullary ctors — the bare-atom constructor rewrite in
+        // match patterns (see GeneratorContext.MangleTypeName / MangleNullaryCtorName).
+        var name = _ctx.MangleTypeName($"FUn_{index}");
         var shape = _ctx.Rng.Next(4);
 
         if (shape == 0)
         {
             // Option-shaped: 1 type param, Wrap[^a] | Empty
             var ctorWrap = $"Wrap_{index}";
-            var ctorEmpty = $"Empty_{index}";
+            var ctorEmpty = _ctx.MangleNullaryCtorName($"Empty_{index}");
             var where = _where.MaybeEmit(["^a"], 0.04);
             var def = $"(union ({name} ^a){where} ({ctorWrap} [value : ^a]) ({ctorEmpty}))";
             return new UserUnionDecl(
@@ -55,7 +58,7 @@ public sealed class UserTypeGenerator
         {
             // Pair-shaped: 1 type param, two-field ctor plus nullary
             var ctorBoth = $"Both_{index}";
-            var ctorNone = $"Neither_{index}";
+            var ctorNone = _ctx.MangleNullaryCtorName($"Neither_{index}");
             var where = _where.MaybeEmit(["^a"], 0.04);
             var def = $"(union ({name} ^a){where} ({ctorBoth} [a : ^a] [b : ^a]) ({ctorNone}))";
             return new UserUnionDecl(
@@ -74,7 +77,7 @@ public sealed class UserTypeGenerator
             // backends' nested constructor-pattern paths (CSharpEmitter.EmitPattern
             // and IlEmitter.EmitConstructorPatternTest).
             var ctorCons = $"Cons_{index}";
-            var ctorNil = $"Nil_{index}";
+            var ctorNil = _ctx.MangleNullaryCtorName($"Nil_{index}");
             // No :where on the recursive form — the recursive `(FUn_n ^a)` field
             // type may interact unpredictably with constraints; keep this shape
             // unconstrained as the safer fuzz path.
@@ -107,7 +110,7 @@ public sealed class UserTypeGenerator
     // the bug observable without flooding the report stream.
     public UserRecordDecl GenerateRecord(int index)
     {
-        var name = $"FRec_{index}";
+        var name = _ctx.MangleTypeName($"FRec_{index}");
         var twoParams = _ctx.Rng.NextDouble() < 0.5;
         var isStruct = _ctx.Rng.NextDouble() < 0.25;
         var keyword = isStruct ? "struct" : "record";

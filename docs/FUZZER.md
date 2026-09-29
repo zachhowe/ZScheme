@@ -304,8 +304,47 @@ Later additions to the expression surface:
   into that same chain, and the 1-arg identity form — spelled both as
   `string-append` and as the string form of `+`; plus `contains?` and annotated
   `let` bindings `[x : Type v]` (~15%).
+- **Interface inheritance chains** (`InterfaceGenerator`) — an interface extends an
+  earlier one ~40% of the time (`(interface IChild : IBase ...)`), and every
+  implementer — class or anonymous object — must supply the whole transitive
+  method set (`ClassExprGenerator.CollectChainMethods`), exactly what csc would
+  demand. Inherited members gain accessors under the inheriting interface's name,
+  and a dispatch reducer (per-program `GeneratorContext.EnableInterfaceDispatch`,
+  ~35% when some class implements an interface) constructs an instance and calls
+  `(IName-M ...)` through one — including methods reached only through the chain,
+  so the accessor registry and both backends' declaring-type walks must agree.
+  Anonymous objects may instead route their tail through an accessor call, giving
+  the same dispatch probe against a synthesized type.
+- **Multi-level class chains and interface-on-open-base** — the `#:open` base +
+  derived pair can grow a third level (`emitThirdLevel`, gated low: see the known
+  divergences below), the middle class marked `#:open` itself. The bottom level
+  picks overrides from the base chain's *effective* method set, so it can override
+  a method its direct base merely inherited — forcing the super-call and vtable to
+  resolve two hops up. A base may implement an interface and still be derived from
+  (a combination that used to lose the subclass's interfaces entirely); the derived
+  class inherits the interface list, and the dispatch reducer may call an accessor
+  on a bottom-of-chain instance. Construct-and-discard now also emits the bare
+  constructor-call form `(Cls args...)` on implicit-ctor classes (~50%), which
+  resolves against the registered constructor chain — the argument-zipping path
+  that used to drop every inherited field (`55b03471`). Instance-call aliases cover
+  inherited methods when `GeneratorContext.EnableInheritedInstanceCalls` is rolled
+  (a fraction of instance-call programs; currently a known IL divergence).
+- **Non-canonical type-name casing** (`GeneratorContext.MangleTypeName`) —
+  records, structs, unions and interfaces occasionally take a lower-case-first
+  (`fRec_0`) or hyphenated (`f-rec_0`) spelling; every use site interpolates the
+  stored name, so the declaration-context resolution is probed at accessors,
+  constructor calls, `with` forms, match patterns, `: Base`/`: IFoo` runs and
+  grouped interface lists. Class names roll the same way but case-variants only
+  (hyphens cannot survive `NameConverter` into the emitted `import-clr` paths)
+  and at a lower probability (the explicit-ctor C# emission currently writes the
+  source spelling — a known divergence). Nullary union constructors get
+  `MangleNullaryCtorName` (`empty_0`, `e-mpty_0`): a bare atom in pattern position
+  is parsed as a binder unless it starts upper-case, so these arms only match
+  because the inferer rewrites bare atoms naming nullary cases (`d58beca1`) —
+  and the same spelling must resolve to the constructor value in expression
+  position.
 
-Four of these immediately surfaced compiler bugs, all now fixed.
+Four of the earlier additions immediately surfaced compiler bugs, all now fixed.
 Expression-level `=`/`!=` on String was reference equality on the IL backend
 (bare `ceq`); the IL emitter now calls `String.Equals`, and the equal-content
 probe in `SymbolExprGenerator.SymbolToStringEqToInt` is back to an even 0.5
@@ -324,6 +363,18 @@ arm at its intended ~20%. See
 `issues/fuzzer-generator-expansion-2026-07-11-notes.md` for the validation
 evidence, all gating levers, and the preserved-but-untriaged diffexec divergence
 repros under `issues/repros/`.
+
+The inheritance and casing additions above surfaced four further divergences on
+first contact, documented with minimized repros under `issues/` and generated at
+reduced probabilities until fixed: the IL backend cannot resolve a super-call
+two hops up the chain (`issues/il-two-hop-super-call-resolution.md`) and marks
+overrides final so any further override fails IL type load
+(`issues/il-override-marked-final-blocks-further-overrides.md`); the C# backend
+emits a case-variant class's explicit-constructor calls with the source spelling
+(`issues/csharp-case-variant-explicit-ctor-source-spelling.md`); and a
+pre-existing value divergence — a with-handlers inside an n-ary `+` inside a
+fold lambda used as a struct `set!` RHS — surfaced once the RNG stream shifted
+(`issues/with-handlers-nary-plus-in-set-rhs-diverges.md`).
 
 Two invariants make the whole thing tractable for the oracle:
 
@@ -400,6 +451,21 @@ Newly documented *language-level* limits (constructs the generator cannot emit):
 - The `class` where-constraint is not emitted (no reference-type ground exists
   to instantiate it with); `struct` / `unmanaged` / `default` / `notnull` /
   `new` all are.
+- **A class never omits a member inherited through the interface hierarchy.**
+  The front end accepts a class implementing `IChild : IBase` that declares only
+  the child's methods, and the IL backend synthesizes the inherited ones — but
+  the C# backend's output then fails Roslyn with CS0535 (see
+  `issues/class-may-omit-interface-hierarchy-member.md`). Until that diverges
+  less, every implementer is generated with the full transitive member set, so
+  the omission shape is a documented gap rather than a generated one.
+- **Known-divergence shapes are gated, not removed.** While the bugs documented
+  under `issues/` stay unfixed, the shapes that reach them run at reduced
+  probabilities — three-level chains (`emitThirdLevel`, 15% of derived pairs),
+  derive-and-implement (15% of derived pairs), inherited instance-call aliases
+  (`EnableInheritedInstanceCalls`, 25% of instance-call programs) and
+  case-variant class names (15% of classes) — so each family stays observable
+  in the artifact stream without any one of it flooding it. When the underlying
+  issue is fixed, raise the gate back to the shape's natural rate.
 
 ### 4.5 Deep-recursion mode (`--deep-recursion`)
 

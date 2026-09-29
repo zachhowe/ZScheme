@@ -100,6 +100,7 @@ public sealed class ProgramGenerator
         _exprs.SetString(_string);
         _exprs.SetClass(_class);
         _exprs.SetObject(_object);
+        _object.SetClass(_class);
         _exprs.SetClrInterop(_clr);
         _exprs.SetDelegate(_delegate);
         _exprs.SetMatch(_match);
@@ -289,24 +290,42 @@ public sealed class ProgramGenerator
             sb.AppendLine();
 
         // Classes: emit a base class with ~35% probability, plus optional
-        // interface implementation and optional inheritance pair. Three shapes
-        // exercise different OO codegen paths:
+        // interface implementation and an inheritance chain of depth 1-2. The
+        // shapes exercise different OO codegen paths:
         //   * standalone class
-        //   * class implementing an interface
-        //   * #:open base + derived class with override + super/Method
+        //   * class implementing an interface (expanded through the interface's
+        //     own inheritance chain)
+        //   * #:open base + derived class with override + super/Method, optionally
+        //     a third level — the middle class is #:open too, and the bottom level
+        //     may override a method its direct base never did
+        //   * #:open base implementing an interface + derived pair — the subclass
+        //     must keep every interface its base chain declares
         var emitClass = _ctx.Rng.NextDouble() < 0.45;
         if (emitClass)
         {
             // ~50% chance to set up for inheritance — requires #:open base and
             // at least one base method to override (always true given our gen).
             var emitDerived = _ctx.Rng.NextDouble() < 0.5;
+            // A third level only after a derived one, and rarer still than the
+            // pair: while the chain diverges (two-hop super-call resolution on
+            // IL; override-of-override emitting a final method, which fails the
+            // case at IL type load), nearly every third-level case fails, so
+            // the gate keeps those bugs observable without either of them
+            // flooding the artifact stream.
+            var emitThirdLevel = emitDerived && _ctx.Rng.NextDouble() < 0.15;
 
-            // ~40% chance to implement an interface when one exists. Skip when
-            // we plan to also emit a derived class, since deriving + implementing
-            // simultaneously isn't tested in the current shape.
+            // ~40% chance to implement an interface when one exists. When the
+            // class will also be derived from, roll much lower: a subclass that
+            // re-overrides an interface-implemented method currently fails IL
+            // type load (the emitter marks interface implementations final),
+            // so the combination stays observable at a fraction of pairs.
             UserInterfaceDecl? toImpl = null;
-            if (!emitDerived && _ctx.UserInterfaces.Count > 0 && _ctx.Rng.NextDouble() < 0.4)
-                toImpl = _ctx.UserInterfaces[_ctx.Rng.Next(_ctx.UserInterfaces.Count)];
+            if (_ctx.UserInterfaces.Count > 0)
+            {
+                var implRoll = emitDerived ? 0.15 : 0.40;
+                if (_ctx.Rng.NextDouble() < implRoll)
+                    toImpl = _ctx.UserInterfaces[_ctx.Rng.Next(_ctx.UserInterfaces.Count)];
+            }
 
             var baseCls = _class.GenerateClass(0, emitDerived, toImpl);
             _ctx.UserClasses.Add(baseCls);
@@ -316,10 +335,20 @@ public sealed class ProgramGenerator
 
             if (emitDerived)
             {
-                var derived = _class.GenerateDerivedClass(1, baseCls);
+                var derived = _class.GenerateDerivedClass(1, baseCls, emitThirdLevel);
                 _ctx.UserClasses.Add(derived);
                 sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Class));
                 sb.AppendLine(derived.Definition);
+                sb.AppendLine();
+            }
+
+            if (emitThirdLevel)
+            {
+                var middle = _ctx.UserClasses[^1];
+                var bottom = _class.GenerateDerivedClass(2, middle);
+                _ctx.UserClasses.Add(bottom);
+                sb.Append(_attrs.MaybeEmitFor(AttributeTarget.Class));
+                sb.AppendLine(bottom.Definition);
                 sb.AppendLine();
             }
         }
@@ -336,7 +365,20 @@ public sealed class ProgramGenerator
                 sb.AppendLine(classImports);
                 sb.AppendLine();
             }
+
+            // ~25% of instance-call programs also aim calls at inherited methods
+            // (see EnableInheritedInstanceCalls) — currently a known IL
+            // divergence, so it stays a fraction of a fraction.
+            if (_ctx.UserClasses.Any(c => c.BaseName is not null) && _ctx.Rng.NextDouble() < 0.25)
+                _ctx.EnableInheritedInstanceCalls = true;
         }
+
+        // Interface dispatch: gate at ~35% when some class implements an
+        // interface (directly or through its base chain). The reducer needs no
+        // emitted declarations — `IName-M` accessors come from the interface
+        // itself — only the flag enabling the call sites.
+        if (_class.HasDispatchTarget() && _ctx.Rng.NextDouble() < 0.35)
+            _ctx.EnableInterfaceDispatch = true;
 
         var numFuncs = _ctx.Rng.Next(_ctx.MaxFuncs + 1);
         for (var i = 0; i < numFuncs; i++)

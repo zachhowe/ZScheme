@@ -4,12 +4,7 @@ public sealed class GeneratorContext
 {
     private int _nameCounter;
 
-    public GeneratorContext(
-        Random rng,
-        int maxDepth,
-        int maxFuncs,
-        int deepRecursionDepth = 0
-    )
+    public GeneratorContext(Random rng, int maxDepth, int maxFuncs, int deepRecursionDepth = 0)
     {
         Rng = rng;
         MaxDepth = Math.Max(1, maxDepth);
@@ -101,6 +96,23 @@ public sealed class GeneratorContext
     // divergence here would otherwise flood the artifact stream.
     public bool EnableNestedDefines { get; set; }
 
+    // Per-program flag: when set (and EnableClassInstanceCalls is too), the
+    // import-clr instance-alias block also covers methods a class inherits
+    // through its base chain, and ConstructAndCallToInt may target them. This
+    // probes declaring-type resolution for inherited members — currently a
+    // known IL divergence (the emitter's implementation reference for the
+    // inherited alias makes the assembly fail type load), so it is gated to a
+    // fraction of instance-call cases rather than always on.
+    public bool EnableInheritedInstanceCalls { get; set; }
+
+    // Per-program flag: when set, ExprGenerator's GenInt enables the interface-dispatch
+    // reducer: construct a class instance and call one of its interface methods through
+    // the `IName-M` accessor, including methods the class inherits through an interface
+    // chain or a base-class chain (the accessor registry and the backends' method
+    // resolution must walk both). Gated to a fraction of cases — a systemic divergence
+    // on the dispatch path would otherwise flood the failure-artifact stream.
+    public bool EnableInterfaceDispatch { get; set; }
+
     // Per-program flag: when set, ProgramGenerator emits compute as
     // `(define-async (compute) : (Task Int) ...)` instead of the synchronous form
     // and AsyncExprGenerator drives the body. DifferentialExecOracle awaits the
@@ -148,12 +160,54 @@ public sealed class GeneratorContext
         EnableShadowing = false;
         EnableUnicodeStrings = false;
         EnableNestedDefines = false;
+        EnableInterfaceDispatch = false;
+        EnableInheritedInstanceCalls = false;
         ComputeIsAsync = false;
     }
 
     public string Fresh()
     {
         return $"x{_nameCounter++}";
+    }
+
+    /// <summary>
+    ///     Occasionally spells a generated type name in a non-canonical casing: a
+    ///     lower-case first letter (<c>fRec_0</c>), or — where the name never reaches a
+    ///     CLR member path — a hyphenated lower-case form (<c>f-rec_0</c>). Type names are
+    ///     resolved by declaration and pattern context, not capitalisation, so every
+    ///     consumer that used to read the leading letter (the <c>: Base IFoo</c> runs in
+    ///     class/interface/object headers, grouped interface lists) must accept these
+    ///     spellings. All use sites interpolate the stored name, so one roll per
+    ///     declaration keeps every reference consistent.
+    /// </summary>
+    public string MangleTypeName(string name, bool allowHyphen = true)
+    {
+        var roll = Rng.NextDouble();
+        if (roll < 0.55)
+            return name;
+
+        var lowerFirst = char.ToLowerInvariant(name[0]) + name[1..];
+        if (!allowHyphen || roll < 0.80)
+            return lowerFirst;
+        return lowerFirst.Insert(1, "-");
+    }
+
+    /// <summary>
+    ///     Occasionally spells a nullary union constructor in a non-canonical form:
+    ///     lower-case (<c>empty_0</c>) or hyphenated (<c>e-mpty_0</c>). In pattern position a
+    ///     bare atom is parsed as a binder unless it starts upper-case, so these arms
+    ///     only match because the type inferer rewrites a bare atom naming a nullary
+    ///     union case into the constructor pattern it was meant to be; in expression
+    ///     position the same spelling must resolve to the constructor value.
+    /// </summary>
+    public string MangleNullaryCtorName(string name)
+    {
+        var roll = Rng.NextDouble();
+        if (roll < 0.60)
+            return name;
+
+        var lowerFirst = char.ToLowerInvariant(name[0]) + name[1..];
+        return roll < 0.85 ? lowerFirst : lowerFirst.Insert(1, "-");
     }
 
     // Binder-name picker for shadowing coverage: when the per-case flag is on,
