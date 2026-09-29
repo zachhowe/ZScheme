@@ -1349,7 +1349,7 @@ public sealed partial class IlEmitter
 
             case IrNode.SetField setField:
                 EmitLoadClassThis(il, ctx);
-                EmitNode(setField.Value, il, outerParams, locals, ctx);
+                EmitArgNode(setField.Value, il, outerParams, locals, ctx);
                 EmitNullableWrapIfNeeded(
                     setField.Value,
                     ctx.CurrentClassFields![setField.FieldName].Signature!.FieldType,
@@ -1562,7 +1562,7 @@ public sealed partial class IlEmitter
     )
     {
         foreach (var arg in clrNew.Args)
-            EmitNode(arg, il, outerParams, locals, ctx);
+            EmitArgNode(arg, il, outerParams, locals, ctx);
 
         // (new FCls_0 ...) for user-defined ZScheme classes: the type lives in
         // the module we're currently emitting, so CLR reflection can't see it.
@@ -1877,7 +1877,7 @@ public sealed partial class IlEmitter
                 {
                     // A closure value (e.g. a Func<...> parameter) whose delegate type differs
                     // from the target: build a new delegate over the source's Invoke method.
-                    EmitNode(clrCall.Args[i], il, outerParams, locals, ctx); // [src]
+                    EmitArgNode(clrCall.Args[i], il, outerParams, locals, ctx); // [src]
                     il.Add(CilOpCodes.Dup); // [src, src]
                     il.Add(CilOpCodes.Ldvirtftn, _module.DefaultImporter.ImportMethod(srcInvoke)); // [src, ftn]
                     il.Add(CilOpCodes.Newobj, delegateCtor); // [delegate]
@@ -1886,7 +1886,7 @@ public sealed partial class IlEmitter
             }
 
             if (!needsDelegate)
-                EmitNode(clrCall.Args[i], il, outerParams, locals, ctx);
+                EmitArgNode(clrCall.Args[i], il, outerParams, locals, ctx);
 
             if (i >= methodParams.Length)
                 continue;
@@ -2059,7 +2059,7 @@ public sealed partial class IlEmitter
             }
             else
             {
-                EmitNode(clrCall.Args[visibleIdx], il, outerParams, locals, ctx);
+                EmitArgNode(clrCall.Args[visibleIdx], il, outerParams, locals, ctx);
                 var methodParam = method.GetParameters()[i];
                 if (
                     methodParam.ParameterType == typeof(object)
@@ -2311,7 +2311,7 @@ public sealed partial class IlEmitter
                 {
                     il.Add(CilOpCodes.Ldsfld, staticField);
                     foreach (var arg in call.Args)
-                        EmitNode(arg, il, outerParams, locals, ctx);
+                        EmitArgNode(arg, il, outerParams, locals, ctx);
                     EmitDelegateInvoke(call.Function.Type, il, ctx);
                     return;
                 }
@@ -2333,7 +2333,7 @@ public sealed partial class IlEmitter
                 EmitLoadClassThis(il, ctx);
 
                 foreach (var arg in call.Args)
-                    EmitNode(arg, il, outerParams, locals, ctx);
+                    EmitArgNode(arg, il, outerParams, locals, ctx);
 
                 il.Add(CilOpCodes.Callvirt, siblingMethod);
                 return;
@@ -2350,7 +2350,7 @@ public sealed partial class IlEmitter
         // Non-Var target: emit expression, then invoke
         EmitNode(call.Function, il, outerParams, locals, ctx);
         foreach (var arg in call.Args)
-            EmitNode(arg, il, outerParams, locals, ctx);
+            EmitArgNode(arg, il, outerParams, locals, ctx);
         if (call.Function.Type is ZType.ZFuncType or ZType.ZDelegateType)
         {
             EmitDelegateInvoke(call.Function.Type, il, ctx);
@@ -2394,7 +2394,7 @@ public sealed partial class IlEmitter
             Log.Debug("EmitCall: resolved {FuncName} as local delegate invocation", v.Name);
             il.Add(CilOpCodes.Ldloc, delegateLocal);
             foreach (var arg in call.Args)
-                EmitNode(arg, il, outerParams, locals, ctx);
+                EmitArgNode(arg, il, outerParams, locals, ctx);
             EmitDelegateInvoke(call.Function.Type, il, ctx);
             return true;
         }
@@ -2411,7 +2411,7 @@ public sealed partial class IlEmitter
                 var method = il.Owner!.Owner!;
                 il.Add(CilOpCodes.Ldarg, method.Parameters[i]);
                 foreach (var arg in call.Args)
-                    EmitNode(arg, il, outerParams, locals, ctx);
+                    EmitArgNode(arg, il, outerParams, locals, ctx);
                 EmitDelegateInvoke(outerParams[i].Type, il, ctx);
                 return true;
             }
@@ -2447,7 +2447,7 @@ public sealed partial class IlEmitter
             EmitLoadClassThis(il, ctx);
             il.Add(CilOpCodes.Ldfld, classFieldDelegate);
             foreach (var arg in call.Args)
-                EmitNode(arg, il, outerParams, locals, ctx);
+                EmitArgNode(arg, il, outerParams, locals, ctx);
             EmitDelegateInvoke(call.Function.Type, il, ctx);
             return true;
         }
@@ -3323,7 +3323,7 @@ public sealed partial class IlEmitter
                 }
 
                 foreach (var arg in node.Args)
-                    EmitNode(arg, il, outerParams, locals, ctx);
+                    EmitArgNode(arg, il, outerParams, locals, ctx);
 
                 IMethodDescriptor methodRef = mdef;
                 // Only when the method is the receiver type's own: a method found on a base
@@ -3680,7 +3680,7 @@ public sealed partial class IlEmitter
         {
             il.Add(CilOpCodes.Dup);
             il.Add(CilOpCodes.Ldc_I4, i);
-            EmitNode(node.Elements[i], il, outerParams, locals, ctx);
+            EmitArgNode(node.Elements[i], il, outerParams, locals, ctx);
             // Box value types when element type is object
             if (elementSigType == _module.CorLibTypeFactory.Object)
             {
@@ -4320,7 +4320,7 @@ public sealed partial class IlEmitter
             var spilled = new List<CilLocalVariable>(superArgs.Count);
             foreach (var arg in superArgs)
             {
-                EmitNode(arg, il, outerParams, argLocals, ctx);
+                EmitArgNode(arg, il, outerParams, argLocals, ctx);
                 var local = new CilLocalVariable(MapToClr(arg.Type ?? ZType.Unit, ctx));
                 body.LocalVariables.Add(local);
                 il.Add(CilOpCodes.Stloc, local);
@@ -4335,7 +4335,7 @@ public sealed partial class IlEmitter
         {
             il.Add(CilOpCodes.Ldarg_0);
             foreach (var arg in superArgs)
-                EmitNode(arg, il, outerParams, argLocals, ctx);
+                EmitArgNode(arg, il, outerParams, argLocals, ctx);
         }
     }
 
@@ -4348,7 +4348,7 @@ public sealed partial class IlEmitter
     )
     {
         foreach (var element in node.Elements)
-            EmitNode(element, il, outerParams, locals, ctx);
+            EmitArgNode(element, il, outerParams, locals, ctx);
 
         EmitValueTupleNewobj(node.Type, il, node.Span, ctx);
     }
@@ -4362,7 +4362,7 @@ public sealed partial class IlEmitter
     )
     {
         foreach (var (_, value) in node.Fields)
-            EmitNode(value, il, outerParams, locals, ctx);
+            EmitArgNode(value, il, outerParams, locals, ctx);
 
         if (_userTypes.TryGetValue(node.TypeName, out var typeRef))
         {
@@ -4513,7 +4513,7 @@ public sealed partial class IlEmitter
                 }
 
                 il.Add(CilOpCodes.Ldloca, tmp);
-                EmitNode(value, il, outerParams, locals, ctx);
+                EmitArgNode(value, il, outerParams, locals, ctx);
                 il.Add(CilOpCodes.Call, ResolveMethod(setter));
             }
 
@@ -4554,7 +4554,7 @@ public sealed partial class IlEmitter
             }
 
             il.Add(CilOpCodes.Dup);
-            EmitNode(value, il, outerParams, locals, ctx);
+            EmitArgNode(value, il, outerParams, locals, ctx);
             il.Add(CilOpCodes.Callvirt, ResolveMethod(setter));
         }
     }
@@ -4666,6 +4666,38 @@ public sealed partial class IlEmitter
         il.Add(CilOpCodes.Ldc_I4_0);
     }
 
+    /// <summary>
+    ///     Emits a node whose value a consumer takes as an argument or payload: a call
+    ///     argument, constructor argument, union case payload, tuple element, record field
+    ///     value, or array literal element. Identical to <see cref="EmitNode" /> except for
+    ///     Unit-typed nodes. EmitNode treats those as statements and pushes nothing — right
+    ///     for every statement position, but a consumer expecting one stack slot per
+    ///     argument (e.g. the newobj for <c>(Ok ())</c> : Result&lt;Unit, string&gt;) is left
+    ///     short one value and AsmResolver rejects the body as stack-imbalanced. After
+    ///     emitting the node for its side effects, materialize default(ValueTuple), the CLR
+    ///     shape of Unit.
+    /// </summary>
+    private void EmitArgNode(
+        IrNode node,
+        CilInstructionCollection il,
+        IReadOnlyList<IrParam> outerParams,
+        Dictionary<string, CilLocalVariable> locals,
+        EmitContext ctx
+    )
+    {
+        EmitNode(node, il, outerParams, locals, ctx);
+        if (node.Type is not ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+            return;
+
+        var unitClrType = MapToClr(node.Type, ctx);
+        var unitLocal = new CilLocalVariable(unitClrType);
+        il.Owner.LocalVariables.Add(unitLocal);
+        il.Owner.InitializeLocals = true;
+        il.Add(CilOpCodes.Ldloca, unitLocal);
+        il.Add(CilOpCodes.Initobj, unitClrType.ToTypeDefOrRef());
+        il.Add(CilOpCodes.Ldloc, unitLocal);
+    }
+
     private void EmitUnionCaseNew(
         IrNode.UnionCaseNew node,
         CilInstructionCollection il,
@@ -4675,7 +4707,7 @@ public sealed partial class IlEmitter
     )
     {
         foreach (var arg in node.Args)
-            EmitNode(arg, il, outerParams, locals, ctx);
+            EmitArgNode(arg, il, outerParams, locals, ctx);
 
         var caseKey = $"{node.UnionName}.{node.CaseName}";
         Log.Debug("EmitUnionCaseNew: caseKey={CaseKey}, nodeType={NodeType}", caseKey, node.Type);
@@ -6407,7 +6439,7 @@ public sealed partial class IlEmitter
 
         il.Add(CilOpCodes.Ldarg_0);
         foreach (var arg in superCall.Args)
-            EmitNode(arg, il, outerParams, locals, ctx);
+            EmitArgNode(arg, il, outerParams, locals, ctx);
         il.Add(CilOpCodes.Call, baseMethod);
     }
 }

@@ -941,6 +941,52 @@ public class IlEmitterTests
     }
 
     [Fact]
+    public void EmitUnionCaseNew_UnitPayload()
+    {
+        // A union whose case payload is Unit — e.g. (Ok ()) : Result<Unit, string>. The
+        // body emitter pushes nothing for unit-typed nodes (they are statements everywhere
+        // else), which used to leave the case's newobj short one stack slot and made
+        // AsmResolver reject the method body as stack-imbalanced at serialization.
+        var unionDecl = new IrNode.UnionDecl(
+            "Result",
+            ["a", "e"],
+            [
+                new IrUnionCase("Ok", [new IrField("value", new ZType.ZNamedType("a", []))]),
+                new IrUnionCase("Err", [new IrField("error", new ZType.ZNamedType("e", []))]),
+            ]
+        );
+
+        var resultUnitType = new ZType.ZNamedType("Result", [ZType.Unit, ZType.String]);
+        var func = new IrNode.FuncDef(
+            "test",
+            [],
+            resultUnitType,
+            new IrNode.UnionCaseNew("Result", "Ok", [new IrNode.UnitConst { Type = ZType.Unit }])
+            {
+                Type = resultUnitType,
+            },
+            false
+        )
+        {
+            Type = new ZType.ZFuncType([], resultUnitType),
+        };
+
+        var seq = new IrNode.Seq([unionDecl, func]) { Type = ZType.Unit };
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter(
+            "TestAssembly",
+            diag,
+            "TestClass",
+            typeAliases: BuildStdlibRegistry()
+        );
+        var bytes = emitter.Emit(seq);
+
+        Assert.NotNull(bytes);
+        Assert.True(bytes.Length > 0);
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+    }
+
+    [Fact]
     public void EmitUnionCaseNew_GenericNullaryCase()
     {
         var unionDecl = new IrNode.UnionDecl(
@@ -5754,10 +5800,7 @@ public class IlEmitterTests
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
         var type = Assembly.Load(bytes!).GetTypes().First(t => t.Name == "C");
 
-        var visible = type.GetMethod(
-            "Visible",
-            BindingFlags.Public | BindingFlags.Instance
-        );
+        var visible = type.GetMethod("Visible", BindingFlags.Public | BindingFlags.Instance);
         Assert.NotNull(visible);
         Assert.True(visible.IsVirtual);
 
