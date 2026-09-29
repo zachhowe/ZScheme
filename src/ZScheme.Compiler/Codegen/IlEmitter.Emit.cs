@@ -5634,6 +5634,10 @@ public sealed partial class IlEmitter
     ///     back to a simple-name scan over the loaded assemblies (matching
     ///     <c>Name</c> or <c>Name + "Attribute"</c>), which is what makes source like
     ///     <c>(@ JsonPropertyName "index")</c> land on System.Text.Json's attribute here.
+    ///     The scan order is <see cref="ClrInterop.GetBareNameScanAssemblies" />: an
+    ///     assembly this compilation named in an <c>import-clr … :from</c> hint is
+    ///     visible to the scan even though it never loads into the default context, and a
+    ///     host-loaded copy of the same name cannot shadow it.
     /// </summary>
     private Type? FindAttributeType(string name)
     {
@@ -5641,7 +5645,7 @@ public sealed partial class IlEmitter
         if (resolved is not null)
             return resolved;
 
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        foreach (var assembly in _clrInterop.GetBareNameScanAssemblies())
         {
             Type? match = null;
             try

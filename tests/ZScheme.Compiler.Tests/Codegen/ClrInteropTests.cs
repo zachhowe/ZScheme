@@ -729,6 +729,59 @@ public class ClrInteropTests
         Assert.Equal([typeof(Math).Assembly.GetName().Name!], names);
     }
 
+    [Fact]
+    public void GetBareNameScanAssemblies_SurfacesThePrivateContextCopyAndDedupesNames()
+    {
+        // A ':from' assembly lands in the private InteropLoadContext, not the default
+        // context, so a bare-name scan over
+        // AppDomain.CurrentDomain.GetAssemblies() alone never sees it — the blind spot
+        // that silently dropped attributes from :from assemblies in IL output while the
+        // C# backend (which resolves through usings) emitted them. The scan list must
+        // surface the private-context copy, and no simple name may appear twice.
+        var tempDir = Directory.CreateTempSubdirectory();
+        try
+        {
+            File.Copy(
+                Path.Combine(AppContext.BaseDirectory, "AsmResolver.PE.File.dll"),
+                Path.Combine(tempDir.FullName, "AsmResolver.PE.File.dll"),
+                overwrite: true
+            );
+
+            var interop = new ClrInterop(
+                new DiagnosticBag(),
+                assemblySearchPaths: [tempDir.FullName]
+            );
+            interop.EnsureAssemblyLoaded("AsmResolver.PE.File", SourceSpan.None);
+
+            var assemblies = interop.GetBareNameScanAssemblies();
+
+            var match = assemblies.Single(a =>
+                string.Equals(
+                    a.GetName().Name,
+                    "AsmResolver.PE.File",
+                    StringComparison.OrdinalIgnoreCase
+                )
+            );
+            // The copy loaded from the temp dir is the one the scan must surface — the
+            // private context's, not a host-loaded default-context copy of the same name.
+            Assert.StartsWith(tempDir.FullName, match.Location);
+
+            var names = assemblies.Select(a => a.GetName().Name!).ToList();
+            Assert.Equal(names.Count, names.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        }
+        finally
+        {
+            // The private ALC holds the copied DLL open on Windows, so the deletion can
+            // legitimately fail there; the dir is in the OS temp area and gets reclaimed.
+            try
+            {
+                tempDir.Delete(recursive: true);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
     private static void EmitCollisionType(
         string assemblyName,
         string methodName,
