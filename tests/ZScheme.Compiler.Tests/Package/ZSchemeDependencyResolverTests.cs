@@ -123,6 +123,88 @@ public class ZSchemeDependencyResolverTests
     }
 
     [Fact]
+    public void GitDependency_Subdirectory_ResolvesIntoClone()
+    {
+        // [name :git url ref "packages/mypkg"] — the dependency is the package inside a
+        // monorepo clone, not the repo root.
+        var overrideRoot = Path.Combine(Path.GetTempPath(), $"zs_cache_{Guid.NewGuid():N}");
+        var manifestDir = Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(manifestDir);
+
+        const string url = "https://example.com/repo.git";
+        const string versionOrRef = "master";
+        var urlHash = ComputeUrlHash(url);
+        var cloneDir = Path.Combine(overrideRoot, urlHash, versionOrRef);
+        var packageDir = Path.Combine(cloneDir, "packages", "mypkg");
+        Directory.CreateDirectory(packageDir);
+        File.WriteAllText(Path.Combine(packageDir, "lib.zs"), "(define (f x) x)");
+
+        try
+        {
+            var diag = new DiagnosticBag();
+            var resolver = new ZSchemeDependencyResolver(diag, manifestDir, overrideRoot);
+            var deps = new List<ZSchemeDependency>
+            {
+                new(
+                    "my-lib",
+                    new ZSchemeDependencySource.Git(url, versionOrRef, "packages/mypkg"),
+                    SourceSpan.None
+                ),
+            };
+
+            var paths = resolver.Resolve(deps);
+
+            Assert.Single(paths);
+            Assert.Equal(packageDir, paths[0]);
+            Assert.False(diag.HasErrors);
+        }
+        finally
+        {
+            Directory.Delete(overrideRoot, true);
+            Directory.Delete(manifestDir, true);
+        }
+    }
+
+    [Fact]
+    public void GitDependency_SubdirectoryMissing_ReportsError()
+    {
+        var overrideRoot = Path.Combine(Path.GetTempPath(), $"zs_cache_{Guid.NewGuid():N}");
+        var manifestDir = Path.Combine(Path.GetTempPath(), $"zs_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(manifestDir);
+
+        const string url = "https://example.com/repo.git";
+        const string versionOrRef = "master";
+        var urlHash = ComputeUrlHash(url);
+        var cloneDir = Path.Combine(overrideRoot, urlHash, versionOrRef);
+        Directory.CreateDirectory(cloneDir);
+        File.WriteAllText(Path.Combine(cloneDir, "lib.zs"), "(define (f x) x)");
+
+        try
+        {
+            var diag = new DiagnosticBag();
+            var resolver = new ZSchemeDependencyResolver(diag, manifestDir, overrideRoot);
+            var deps = new List<ZSchemeDependency>
+            {
+                new(
+                    "my-lib",
+                    new ZSchemeDependencySource.Git(url, versionOrRef, "packages/nope"),
+                    SourceSpan.None
+                ),
+            };
+
+            var paths = resolver.Resolve(deps);
+
+            Assert.Empty(paths);
+            Assert.True(diag.HasErrors);
+        }
+        finally
+        {
+            Directory.Delete(overrideRoot, true);
+            Directory.Delete(manifestDir, true);
+        }
+    }
+
+    [Fact]
     public void GitDependency_UsesOverrideCacheRoot()
     {
         // Pre-populate a fake git cache under an override root so Resolve returns it without

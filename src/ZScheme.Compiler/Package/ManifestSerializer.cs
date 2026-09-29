@@ -81,7 +81,9 @@ public static class ManifestSerializer
                         break;
                     case ZSchemeDependencySource.Git git:
                         sb.AppendLine(
-                            $"      [{dep.Name} :git \"{git.Url}\" \"{git.VersionOrRef}\"]"
+                            git.Subdirectory is { Length: > 0 } sub
+                                ? $"      [{dep.Name} :git \"{git.Url}\" \"{git.VersionOrRef}\" \"{sub}\"]"
+                                : $"      [{dep.Name} :git \"{git.Url}\" \"{git.VersionOrRef}\"]"
                         );
                         break;
                 }

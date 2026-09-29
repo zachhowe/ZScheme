@@ -1107,6 +1107,70 @@ public class ManifestParserTests
         Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected version string"));
     }
 
+    [Fact]
+    public void GitDep_WithSubdirectory_Parses()
+    {
+        var source = """
+            (package
+              (name "app")
+              (version "1.0.0")
+              (dependencies
+                (zscheme
+                  [utils :git "https://github.com/user/utils" "v1.0.0" "packages/utils"])))
+            """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        var dep = Assert.Single(manifest!.Dependencies.ZScheme);
+        var git = Assert.IsType<ZSchemeDependencySource.Git>(dep.Source);
+        Assert.Equal("packages/utils", git.Subdirectory);
+    }
+
+    [Fact]
+    public void GitDep_WithoutSubdirectory_HasNullSubdirectory()
+    {
+        var source = """
+            (package
+              (name "app")
+              (version "1.0.0")
+              (dependencies
+                (zscheme
+                  [utils :git "https://github.com/user/utils" "v1.0.0"])))
+            """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.False(diag.HasErrors);
+        var dep = Assert.Single(manifest!.Dependencies.ZScheme);
+        var git = Assert.IsType<ZSchemeDependencySource.Git>(dep.Source);
+        Assert.Null(git.Subdirectory);
+    }
+
+    [Fact]
+    public void GitDep_NonStringSubdirectory_ReportsError()
+    {
+        var source = """
+            (package
+              (name "app")
+              (version "1.0.0")
+              (dependencies
+                (zscheme
+                  [utils :git "url" "1.0" subdir])))
+            """;
+
+        var diag = new DiagnosticBag();
+        var manifest = Parse(source, diag);
+
+        Assert.NotNull(manifest);
+        Assert.True(diag.HasErrors);
+        Assert.Contains(diag.Diagnostics, d => d.Message.Contains("Expected subdirectory string"));
+    }
+
     // --- Local dependency error tests ---
 
     [Fact]

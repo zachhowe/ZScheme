@@ -283,6 +283,60 @@ public class ManifestSerializerTests
     }
 
     [Fact]
+    public void SerializesGitZSchemeDependency_WithSubdirectory()
+    {
+        var deps = new PackageDependencies(
+            [
+                new ZSchemeDependency(
+                    "utils",
+                    new ZSchemeDependencySource.Git(
+                        "https://github.com/user/utils",
+                        "v1.0.0",
+                        "packages/utils"
+                    ),
+                    SourceSpan.None
+                ),
+            ],
+            []
+        );
+        var manifest = MakeManifest(deps: deps);
+        var output = ManifestSerializer.Serialize(manifest);
+
+        Assert.Contains(
+            """[utils :git "https://github.com/user/utils" "v1.0.0" "packages/utils"]""",
+            output
+        );
+    }
+
+    [Fact]
+    public void SerializesGitZSchemeDependency_WithSubdirectory_RoundTrips()
+    {
+        var deps = new PackageDependencies(
+            [
+                new ZSchemeDependency(
+                    "utils",
+                    new ZSchemeDependencySource.Git(
+                        "https://github.com/user/utils",
+                        "v1.0.0",
+                        "packages/utils"
+                    ),
+                    SourceSpan.None
+                ),
+            ],
+            []
+        );
+        var manifest = MakeManifest(deps: deps);
+        var parsed = RoundTrip(manifest);
+
+        Assert.NotNull(parsed);
+        Assert.Single(parsed!.Dependencies.ZScheme);
+        var git = Assert.IsType<ZSchemeDependencySource.Git>(parsed.Dependencies.ZScheme[0].Source);
+        Assert.Equal("https://github.com/user/utils", git.Url);
+        Assert.Equal("v1.0.0", git.VersionOrRef);
+        Assert.Equal("packages/utils", git.Subdirectory);
+    }
+
+    [Fact]
     public void SerializesTestDependencies()
     {
         var testDeps = new PackageDependencies(

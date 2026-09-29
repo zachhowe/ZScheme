@@ -23,7 +23,12 @@ public sealed class ZSchemeDependencyResolver(
             var path = dep.Source switch
             {
                 ZSchemeDependencySource.Local local => ResolveLocal(local.Path, dep),
-                ZSchemeDependencySource.Git git => ResolveGit(git.Url, git.VersionOrRef, dep),
+                ZSchemeDependencySource.Git git => ResolveGit(
+                    git.Url,
+                    git.VersionOrRef,
+                    git.Subdirectory,
+                    dep
+                ),
                 _ => null,
             };
 
@@ -50,7 +55,41 @@ public sealed class ZSchemeDependencyResolver(
         return fullPath;
     }
 
-    private string? ResolveGit(string url, string versionOrRef, ZSchemeDependency dep)
+    private string? ResolveGit(
+        string url,
+        string versionOrRef,
+        string? subdirectory,
+        ZSchemeDependency dep
+    )
+    {
+        var cacheDir = CloneGit(url, versionOrRef, dep);
+        if (cacheDir is null)
+            return null;
+
+        // The repo root is only the package root when the manifest sits at the top of the
+        // tree. A subdirectory names the package within a monorepo clone.
+        if (subdirectory is not { Length: > 0 })
+            return cacheDir;
+
+        var subDir = Path.Combine(
+            cacheDir,
+            subdirectory
+                .Replace('\\', Path.DirectorySeparatorChar)
+                .Replace('/', Path.DirectorySeparatorChar)
+        );
+        if (!Directory.Exists(subDir))
+        {
+            diagnostics.Error(
+                $"Git dependency '{dep.Name}': subdirectory '{subdirectory}' not found in {url}@{versionOrRef}",
+                dep.Span
+            );
+            return null;
+        }
+
+        return subDir;
+    }
+
+    private string? CloneGit(string url, string versionOrRef, ZSchemeDependency dep)
     {
         var urlHash = ComputeUrlHash(url);
         var cacheDir = Path.Combine(_cacheRoot, urlHash, versionOrRef);

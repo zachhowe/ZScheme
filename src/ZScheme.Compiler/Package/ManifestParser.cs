@@ -324,7 +324,7 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
 
     private ZSchemeDependencySource.Git? ParseGitSource(IReadOnlyList<SExpr> items, SourceSpan span)
     {
-        // [name :git "url" "version"]
+        // [name :git "url" "version"] or [name :git "url" "version" "packages/subdir"]
         if (items.Count < 5)
         {
             diagnostics.Error("Git dependency must be [name :git \"url\" \"version\"]", span);
@@ -343,7 +343,21 @@ public sealed class ManifestParser(DiagnosticBag diagnostics)
             return null;
         }
 
-        return new ZSchemeDependencySource.Git(urlAtom.Text, versionAtom.Text);
+        // Optional package subdirectory within the cloned repository — the repo root is
+        // only the package root when the manifest sits at the top of the tree.
+        string? subdirectory = null;
+        if (items.Count >= 6)
+        {
+            if (items[5] is not SExpr.Atom { Kind: TokenKind.StringLit } subdirectoryAtom)
+            {
+                diagnostics.Error("Expected subdirectory string for git dependency", items[5].Span);
+                return null;
+            }
+
+            subdirectory = subdirectoryAtom.Text;
+        }
+
+        return new ZSchemeDependencySource.Git(urlAtom.Text, versionAtom.Text, subdirectory);
     }
 
     private ZSchemeDependencySource.Local? ParseLocalSource(
