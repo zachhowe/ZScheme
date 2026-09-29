@@ -839,26 +839,28 @@ public static class UnreadableSignatureFixture
         }
     }
 
+    // The framework reference set, read straight off TRUSTED_PLATFORM_ASSEMBLIES. Building it
+    // from AppDomain.CurrentDomain.GetAssemblies() instead would make these references depend on
+    // test execution order: the AppDomain spans every load context, and InteropLoadContextTests
+    // deliberately leaves the same simple-named probe assembly loaded from two files (a host
+    // copy in the default context plus a private copy in a context that never unloads). Two
+    // references sharing one simple name is CS1704 at emit, so whichever test touches HolderType
+    // first would fail whenever it ran after those probes. The Ghost/Host sources below use
+    // nothing outside the BCL, so the framework set is exactly enough.
     private static IReadOnlyList<MetadataReference> References
     {
         get
         {
-            var refs = new List<MetadataReference>();
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                if (assembly.IsDynamic || string.IsNullOrEmpty(assembly.Location))
-                    continue;
-                try
-                {
-                    refs.Add(MetadataReference.CreateFromFile(assembly.Location));
-                }
-                catch
-                {
-                    // Some loaded assemblies are not readable as files; skip them.
-                }
-            }
-
-            return refs;
+            var tpa =
+                (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string)
+                ?? throw new InvalidOperationException("TRUSTED_PLATFORM_ASSEMBLIES unavailable");
+            return
+            [
+                .. tpa.Split(Path.PathSeparator)
+                    .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                    .Where(File.Exists)
+                    .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p)),
+            ];
         }
     }
 
