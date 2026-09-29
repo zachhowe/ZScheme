@@ -29,6 +29,21 @@ internal static class NameConverter
             // `=` names Scheme-style equivalence predicates (=?). IL tolerates a raw '=' in
             // an identifier, C# does not, so map it like the other punctuation above.
             .Replace("=", "_eq")
+            // These are in the lexer's symbol charset but not legal in C#
+            // identifiers, so map them like the other punctuation above. A `#:`
+            // keyword flag never arrives as a `#`-leading symbol (the lexer
+            // consumes the `#:` prefix).
+            //
+            // `.` is deliberately not mapped: CLR type names (`System.Object`)
+            // sanitize through here via CSharpEmitter's QualifyType/SanitizeType
+            // and must keep their dots — mapping it breaks every import-clr
+            // emission on the C# backend.
+            .Replace("+", "_plus")
+            .Replace("&", "_amp")
+            .Replace("%", "_pct")
+            .Replace("~", "_tilde")
+            .Replace("#", "_hash")
+            .Replace("@", "_at")
             .Replace("^", "")
             .Replace("*", "_star")
             // '$' never reaches here from source (the lexer rejects it in symbols); it
