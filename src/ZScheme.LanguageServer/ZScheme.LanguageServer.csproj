@@ -8,6 +8,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ZScheme.Compiler\ZScheme.Compiler.csproj" />
+    <ProjectReference Include="..\ZScheme.Formatter\ZScheme.Formatter.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="OmniSharp.Extensions.LanguageServer" Version="0.19.9" />

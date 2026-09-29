@@ -1,9 +1,0 @@
-.gradle/
-build/
-.idea/
-.intellijPlatform/
-*.iml
-out/
-
-# Generated lexer
-src/main/gen/

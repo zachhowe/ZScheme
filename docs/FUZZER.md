@@ -7,8 +7,9 @@ anyone extending the fuzzer.
 
 The fuzzer lives in `src/ZScheme.Fuzzer/` (assembly `zs-fuzz`). It is a
 standalone .NET console program, driven in CI and locally by
-`run-fuzzer.ps1`. There is a stale duplicate under
-`editor/zed/grammars/zscheme/...`; ignore it.
+`run-fuzzer.ps1`. There is no duplicate of it elsewhere in the tree:
+`editor/zed/grammars/` is a gitignored Zed build artifact, and the checked-in
+Zed assets live under `editor/zed/languages/`.
 
 ---
 

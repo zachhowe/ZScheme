@@ -65,6 +65,18 @@ public sealed class AnalysisService
         StringComparer.OrdinalIgnoreCase
     );
 
+    /// <summary>
+    ///     The latest text the client has sent for each open document, recorded synchronously
+    ///     on open/change. <see cref="DocumentState.Source" /> is not a substitute: analysis is
+    ///     debounced, so a superseded <see cref="AnalyzeAsync" /> leaves the stored state (and
+    ///     its source) one or more keystrokes behind the buffer. Anything that produces
+    ///     <em>edits</em> — formatting — must work from this, since edits computed against
+    ///     stale text would corrupt the document.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, string> _buffers = new(
+        StringComparer.OrdinalIgnoreCase
+    );
+
     private readonly WorkspaceIndex _index = new();
     private readonly WorkspaceExclusions _exclusions = new();
     private int _workspaceScanStarted;
@@ -146,6 +158,14 @@ public sealed class AnalysisService
         return _documents.TryGetValue(uri, out var state) ? state : null;
     }
 
+    /// <summary>The current editor buffer for <paramref name="uri" />, or null when the
+    ///     document is not open. See <see cref="_buffers" /> for why this is not
+    ///     <c>GetDocument(uri)?.Source</c>.</summary>
+    public string? GetBufferText(string uri)
+    {
+        return _buffers.TryGetValue(uri, out var text) ? text : null;
+    }
+
     /// <summary>
     ///     Kicks off a one-time background scan that compiles and indexes every
     ///     <c>.zs</c> file under the given workspace roots, so cross-file navigation
@@ -211,6 +231,9 @@ public sealed class AnalysisService
 
     public async Task<DocumentState> AnalyzeAsync(string uri, string source, int version)
     {
+        // Before the debounce: the buffer is current even when this analysis is superseded.
+        _buffers[uri] = source;
+
         // Cancel any pending analysis for this document
         if (_pendingAnalysis.TryRemove(uri, out var previousCts))
             await previousCts.CancelAsync();
@@ -251,6 +274,7 @@ public sealed class AnalysisService
 
     public DocumentState AnalyzeImmediate(string uri, string source, int version)
     {
+        _buffers[uri] = source;
         return AnalyzeGuarded(uri, source, version);
     }
 
@@ -440,6 +464,7 @@ public sealed class AnalysisService
         // An analysis still running for a closed document must not publish its result: the
         // continuation checks the registry, so dropping the entry is what stops it.
         _running.TryRemove(uri, out _);
+        _buffers.TryRemove(uri, out _);
         if (_pendingAnalysis.TryRemove(uri, out var cts))
             cts.Cancel();
     }

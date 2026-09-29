@@ -1,0 +1,113 @@
+%YAML 1.2
+---
+# Formatter configuration dot files (.zsfmt). Sublime derives a dotfile's extension
+# from the text after the leading dot, so `zsfmt` matches a file named `.zsfmt` —
+# the same mechanism by which `gitignore` matches `.gitignore`.
+# Clause set mirrors src/ZScheme.Formatter/ZsFmtConfig.cs.
+name: ZScheme Formatter Config
+file_extensions:
+  - zsfmt
+scope: source.zsfmt
+
+variables:
+  sym_start: '[a-zA-Z_+\-*/=<>!?&|%^~#@]'
+  sym_continue: '[a-zA-Z_+\-*/=<>!?&|%^~#@0-9.\->]'
+  symbol: '{{sym_start}}{{sym_continue}}*'
+
+contexts:
+  main:
+    - include: expressions
+
+  expressions:
+    - include: line-comment
+    - include: open-paren
+    - include: close-paren
+    - include: boolean
+    - include: indent-style
+    - include: integer
+    - include: identifiers
+
+  # ── Comments ──────────────────────────────────────────────────────
+
+  line-comment:
+    - match: ;.*$
+      scope: comment.line.semicolon.zsfmt
+
+  # ── Values ────────────────────────────────────────────────────────
+
+  integer:
+    - match: '-?[0-9]+(?!{{sym_continue}})'
+      scope: constant.numeric.integer.zsfmt
+
+  # ZsFmtConfig.ParseBool lowercases first, so all four spellings are accepted in
+  # any case. Note 'true'/'false' are ordinary symbols in .zs but booleans here —
+  # which is precisely why this grammar is standalone.
+  boolean:
+    - match: '(?:#t|#f|(?i:true|false))(?!{{sym_continue}})'
+      scope: constant.language.boolean.zsfmt
+
+  indent-style:
+    - match: '(?i:space|tab)(?!{{sym_continue}})'
+      scope: constant.language.indent-style.zsfmt
+
+  # ── Clauses ───────────────────────────────────────────────────────
+
+  open-paren:
+    - match: \(
+      scope: punctuation.section.parens.begin.zsfmt
+      push: after-open-paren
+
+  close-paren:
+    - match: \)
+      scope: punctuation.section.parens.end.zsfmt
+
+  after-open-paren:
+    - include: line-comment
+    - match: \)
+      scope: punctuation.section.parens.end.zsfmt
+      pop: true
+    # The form ZsFmtConfig looks for; the first one in the file wins.
+    - match: 'format(?!{{sym_continue}})'
+      scope: keyword.control.format.zsfmt
+      set: paren-body
+    # The two keyword-set clauses take a list of ZScheme form names.
+    - match: '(?:keep-first-operand|always-break-body)(?!{{sym_continue}})'
+      scope: keyword.other.setting.zsfmt
+      set: delta-body
+    # Scalar settings.
+    - match: '(?:trim-trailing-whitespace|trailing-comment-spaces|insert-final-newline|max-line-length|merge-imports|indent-style|indent-size|root)(?!{{sym_continue}})'
+      scope: keyword.other.setting.zsfmt
+      set: paren-body
+    # An unrecognised clause is silently ignored by ZsFmtConfig, so leave it plain
+    # rather than dressing it up as a setting.
+    - match: '{{symbol}}'
+      scope: variable.other.zsfmt
+      set: paren-body
+    - match: ''
+      set: paren-body
+
+  paren-body:
+    - match: \)
+      scope: punctuation.section.parens.end.zsfmt
+      pop: true
+    - include: expressions
+
+  # Members of keep-first-operand / always-break-body. These clauses are deltas over
+  # the built-in defaults: a bare name adds, a '-' prefix removes (e.g. -if).
+  delta-body:
+    - match: \)
+      scope: punctuation.section.parens.end.zsfmt
+      pop: true
+    - include: line-comment
+    - match: '(-)({{sym_start}}{{sym_continue}}*)'
+      captures:
+        1: keyword.operator.remove.zsfmt
+        2: entity.name.function.zsfmt
+    - match: '{{symbol}}'
+      scope: entity.name.function.zsfmt
+
+  # ── Identifiers ───────────────────────────────────────────────────
+
+  identifiers:
+    - match: '{{symbol}}'
+      scope: variable.other.zsfmt

@@ -27,6 +27,26 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
         return tokens;
     }
 
+    public (List<Token> Tokens, List<Token> Comments) TokenizeWithComments()
+    {
+        var tokens = new List<Token>();
+        var comments = new List<Token>();
+        while (true)
+        {
+            var token = NextToken();
+            if (token.Kind == TokenKind.Comment)
+                comments.Add(token);
+            else
+            {
+                tokens.Add(token);
+                if (token.Kind == TokenKind.Eof)
+                    break;
+            }
+        }
+
+        return (tokens, comments);
+    }
+
     private Token NextToken()
     {
         SkipWhitespace();
@@ -202,6 +222,14 @@ public sealed class Lexer(string source, string file, DiagnosticBag diagnostics)
             Advance();
 
         var text = source[start.._pos];
+
+        // The scan stops at '\n', so under CRLF the '\r' half of the terminator lands inside the
+        // comment text. It is part of the line ending, not of the comment: left in, the formatter
+        // reprints the comment as ";; a\r" and then adds its own newline, yielding ";; a\r\r\n" —
+        // so formatting a CRLF file was not idempotent and leaked a stray CR on every comment.
+        if (text.EndsWith('\r'))
+            text = text[..^1];
+
         return MakeToken(TokenKind.Comment, text, startLine, startCol);
     }
 
