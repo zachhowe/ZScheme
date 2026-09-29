@@ -1031,7 +1031,7 @@ public sealed partial class IlEmitter
                 // argument, so an argument that suspends does so at stack depth 0.
                 for (var i = 0; i < jump.NewArgs.Count; i++)
                 {
-                    EmitNode(jump.NewArgs[i], il, outerParams, locals, ctx);
+                    EmitArgNode(jump.NewArgs[i], il, outerParams, locals, ctx);
                     var declaredSlotType = exit.ParamSlotType(i);
                     var argSig = MapToClr(jump.NewArgs[i].Type, ctx);
                     var slotType = declaredSlotType ?? argSig;
@@ -1226,6 +1226,11 @@ public sealed partial class IlEmitter
                 break;
 
             case IrNode.Var v:
+                // Unit-typed reads push nothing — the invariant EmitLetBinding (skips Stloc
+                // for Unit) and the Seq statement Pop guard already assume; value consumers
+                // use EmitArgNode which materializes default(ValueTuple).
+                if (v.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit })
+                    break;
                 EmitLoadVar(v.Name, v.Span, il, outerParams, locals, ctx, v.Type, v.EmitName);
                 break;
 
@@ -2177,7 +2182,7 @@ public sealed partial class IlEmitter
                     var sig = methodDef.Signature!;
                     for (var i = 0; i < call.Args.Count; i++)
                     {
-                        EmitNode(call.Args[i], il, outerParams, locals, ctx);
+                        EmitArgNode(call.Args[i], il, outerParams, locals, ctx);
                         if (i < sig.ParameterTypes.Count)
                         {
                             var paramSig = sig.ParameterTypes[i];
@@ -2202,7 +2207,7 @@ public sealed partial class IlEmitter
                     var sig = methodDef.Signature!;
                     for (var i = 0; i < call.Args.Count; i++)
                     {
-                        EmitNode(call.Args[i], il, outerParams, locals, ctx);
+                        EmitArgNode(call.Args[i], il, outerParams, locals, ctx);
                         if (i >= sig.ParameterTypes.Count)
                             continue;
                         var argSig = MapToClr(call.Args[i].Type, ctx);
@@ -2248,7 +2253,7 @@ public sealed partial class IlEmitter
                     // Emit arguments with boxing where value types are passed as reference types
                     for (var i = 0; i < call.Args.Count; i++)
                     {
-                        EmitNode(call.Args[i], il, outerParams, locals, ctx);
+                        EmitArgNode(call.Args[i], il, outerParams, locals, ctx);
                         if (i >= openParams.Length)
                             continue;
                         var argSig = MapToClr(call.Args[i].Type, ctx);
@@ -2275,7 +2280,7 @@ public sealed partial class IlEmitter
                     var preParams = reflectionMethod?.GetParameters();
                     for (var i = 0; i < call.Args.Count; i++)
                     {
-                        EmitNode(call.Args[i], il, outerParams, locals, ctx);
+                        EmitArgNode(call.Args[i], il, outerParams, locals, ctx);
                         if (preParams is null || i >= preParams.Length)
                             continue;
                         var argSig = MapToClr(call.Args[i].Type, ctx);
@@ -4167,7 +4172,7 @@ public sealed partial class IlEmitter
         for (var i = 0; i < captureCount; i++)
         {
             il.Add(CilOpCodes.Dup);
-            EmitNode(closure.CapturedValues[i], il, outerParams, locals, ctx);
+            EmitArgNode(closure.CapturedValues[i], il, outerParams, locals, ctx);
             il.Add(CilOpCodes.Stfld, display.CaptureFields[i]);
         }
 
@@ -4670,12 +4675,12 @@ public sealed partial class IlEmitter
     ///     Emits a node whose value a consumer takes as an argument or payload: a call
     ///     argument, constructor argument, union case payload, tuple element, record field
     ///     value, or array literal element. Identical to <see cref="EmitNode" /> except for
-    ///     Unit-typed nodes. EmitNode treats those as statements and pushes nothing — right
-    ///     for every statement position, but a consumer expecting one stack slot per
-    ///     argument (e.g. the newobj for <c>(Ok ())</c> : Result&lt;Unit, string&gt;) is left
-    ///     short one value and AsmResolver rejects the body as stack-imbalanced. After
-    ///     emitting the node for its side effects, materialize default(ValueTuple), the CLR
-    ///     shape of Unit.
+    ///     Unit-typed nodes, relying on the invariant that EmitNode pushes nothing for ANY
+    ///     Unit-typed node, Var included (see the Var case): right for every statement
+    ///     position, but a consumer expecting one stack slot per argument (e.g. the newobj
+    ///     for <c>(Ok ())</c> : Result&lt;Unit, string&gt;) is left short one value and
+    ///     AsmResolver rejects the body as stack-imbalanced. After emitting the node for
+    ///     its side effects, materialize default(ValueTuple), the CLR shape of Unit.
     /// </summary>
     private void EmitArgNode(
         IrNode node,
@@ -6119,7 +6124,7 @@ public sealed partial class IlEmitter
                     {
                         // Stack must be empty at try-block entry; spill the value to a
                         // local before pushing `this`.
-                        EmitNode(value, ctorIl, irCtor.Params, bodyLocals, ctorCtx);
+                        EmitArgNode(value, ctorIl, irCtor.Params, bodyLocals, ctorCtx);
                         EmitNullableWrapIfNeeded(value, fieldType, ctorIl);
                         var tmp = new CilLocalVariable(fieldType);
                         ctorBody.LocalVariables.Add(tmp);
@@ -6130,7 +6135,7 @@ public sealed partial class IlEmitter
                     else
                     {
                         ctorIl.Add(CilOpCodes.Ldarg_0);
-                        EmitNode(value, ctorIl, irCtor.Params, bodyLocals, ctorCtx);
+                        EmitArgNode(value, ctorIl, irCtor.Params, bodyLocals, ctorCtx);
                         EmitNullableWrapIfNeeded(value, fieldType, ctorIl);
                     }
 
