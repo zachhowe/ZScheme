@@ -470,8 +470,10 @@ sub-passes over the whole program, in order:
   `super/` call — makes the group's members private methods of that class
   (`IrObjectMethod.IsSynthesizedHelper`) instead of top-level statics; there too the call sites
   need no rewriting, because a bare name in a method body is already `this.M` on both backends.
-  A `set!` and a `super/` call name their target implicitly, so neither appears in the
-  free-variable set and a dedicated scan finds them. Three shapes are still reported as errors:
+  A receiverless `set!` and a `super/` call name their target implicitly, so neither
+  appears in the free-variable set and a dedicated scan finds them; a `set!` with an explicit
+  record receiver has no implicit `this` and its receiver flows through the normal
+  free-variable walk. Three shapes are still reported as errors:
   a group that needs the instance where there is none to host it on (in a constructor, whose
   scope binds only its own parameters and whose emission has no class-method map live), a
   member used in *value* position when it is either generic or hosted on the class
