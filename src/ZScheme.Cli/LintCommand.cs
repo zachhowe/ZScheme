@@ -318,7 +318,7 @@ internal static class LintCommand
     private static string Format(Diagnostic hint)
     {
         return $"{Display(hint.Span.File)}({hint.Span.Line}:{hint.Span.Column}): "
-            + $"hint {hint.Code}: {hint.Message}";
+            + $"{hint.Severity.ToString().ToLowerInvariant()} {hint.Code}: {hint.Message}";
     }
 
     private static string Display(string path)
