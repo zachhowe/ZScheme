@@ -916,7 +916,9 @@ public sealed class TypeInferer
     {
         var paramTypes = new List<ZType>(parameters.Count);
         foreach (var param in parameters)
-            paramTypes.Add(ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar());
+            paramTypes.Add(
+                ResolveTypeVarAnnotations(param.TypeAnnotation, typeVarScope) ?? FreshVar()
+            );
         return (paramTypes, parameters.Count > 0 && parameters[^1].IsVariadic);
     }
 
@@ -1546,8 +1548,9 @@ public sealed class TypeInferer
     ///     (TypeEnv.DefineImportedBinding), so consult both — the same route a direct
     ///     `(Record/field value)` call takes through InferName.
     /// </summary>
-    private ZType? LookupFieldAccessor(string accessorKey, TypeEnv env)
-        => env.Lookup(accessorKey) ?? env.LookupOverloads(accessorKey)?.Candidates.FirstOrDefault()?.Type;
+    private ZType? LookupFieldAccessor(string accessorKey, TypeEnv env) =>
+        env.Lookup(accessorKey)
+        ?? env.LookupOverloads(accessorKey)?.Candidates.FirstOrDefault()?.Type;
 
     private ZType InferWith(AstNode.With node, TypeEnv env)
     {
@@ -2091,17 +2094,10 @@ public sealed class TypeInferer
             if (
                 accessorType is null
                 || Instantiate(accessorType)
-                    is not ZType.ZFuncType
-                    {
-                        Params: [var accParam],
-                        Return: var accReturn
-                    }
+                    is not ZType.ZFuncType { Params: [var accParam], Return: var accReturn }
             )
             {
-                Diagnostics.Error(
-                    $"'{named.Name}' has no field '{node.FieldName}'",
-                    node.Span
-                );
+                Diagnostics.Error($"'{named.Name}' has no field '{node.FieldName}'", node.Span);
                 return Assign(node, ZType.Unit);
             }
 
@@ -3263,6 +3259,8 @@ public sealed class TypeInferer
                     Resolve(a);
                 break;
             case AstNode.SetField sf:
+                if (sf.Receiver is { } rec)
+                    Resolve(rec);
                 Resolve(sf.Value);
                 break;
             case AstNode.NullLit:
