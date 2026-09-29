@@ -24,6 +24,8 @@ public class NameConverterTests
     [InlineData("mutable-vector/set!", "MutableVector_Set_b")]
     [InlineData("append*", "Append_star")]
     [InlineData("treelist-append*", "TreelistAppend_star")]
+    [InlineData("bytes=?", "Bytes_eq_q")]
+    [InlineData("string=?", "String_eq_q")]
     public void SanitizeIdentifier_ConvertsCorrectly(string input, string expected)
     {
         Assert.Equal(expected, NameConverter.SanitizeIdentifier(input));
@@ -56,6 +58,7 @@ public class NameConverterTests
     [InlineData("set!", "set_b")]
     [InlineData("append*", "append_star")]
     [InlineData("treelist-append*", "treelistAppend_star")]
+    [InlineData("bytes=?", "bytes_eq_q")]
     public void SanitizeParameter_ConvertsCorrectly(string input, string expected)
     {
         Assert.Equal(expected, NameConverter.SanitizeParameter(input));

@@ -601,7 +601,7 @@ copies `ZScheme.Runtime.dll` next to the output.
 
 #### Emit-name resolution (shared pre-codegen pass)
 
-`NameConverter` (`?`→`_q`, `*`→`_star`, hyphen/`/` segmentation, PascalCase) is **not
+`NameConverter` (`?`→`_q`, `=`→`_eq`, `*`→`_star`, hyphen/`/` segmentation, PascalCase) is **not
 injective**: distinct ZScheme names can sanitize to the same identifier — e.g.
 `this-function` and `ThisFunction` both become `ThisFunction`, and the locals
 `this-var`/`ThisVar` both become `thisVar`. Left alone these collide in the emitted
