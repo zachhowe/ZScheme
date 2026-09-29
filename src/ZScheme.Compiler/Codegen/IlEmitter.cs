@@ -355,10 +355,11 @@ public sealed partial class IlEmitter(
             return query();
         }
         catch (Exception ex)
-            when (ex is FileNotFoundException
-                or FileLoadException
-                or TypeLoadException
-                or ReflectionTypeLoadException
+            when (ex
+                    is FileNotFoundException
+                        or FileLoadException
+                        or TypeLoadException
+                        or ReflectionTypeLoadException
             )
         {
             diagnostics.Warning(
@@ -821,7 +822,7 @@ public sealed partial class IlEmitter(
         }
 
         typeDefinition.Methods.Add(methodDef);
-        EmitCustomAttributes(func.Attributes, methodDef);
+        EmitCustomAttributes(func.Attributes, methodDef, func.Span);
         var bareKey = emittedName;
         var qualifiedKey = $"{typeDefinition.Name}.{bareKey}";
         _methods[bareKey] = methodDef;
@@ -1842,7 +1843,10 @@ public sealed partial class IlEmitter(
             return null;
 
         var own = typeDef.Methods.FirstOrDefault(m =>
-            !m.IsConstructor && !m.IsStatic && m.Name == methodName && m.Parameters.Count == argCount
+            !m.IsConstructor
+            && !m.IsStatic
+            && m.Name == methodName
+            && m.Parameters.Count == argCount
         );
         if (own is not null)
             return own;
