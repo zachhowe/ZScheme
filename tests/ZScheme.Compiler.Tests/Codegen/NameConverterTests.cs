@@ -26,6 +26,12 @@ public class NameConverterTests
     [InlineData("treelist-append*", "TreelistAppend_star")]
     [InlineData("bytes=?", "Bytes_eq_q")]
     [InlineData("string=?", "String_eq_q")]
+    [InlineData("a+b", "A_plusb")]
+    [InlineData("a&b", "A_ampb")]
+    [InlineData("a%b", "A_pctb")]
+    [InlineData("a~b", "A_tildeb")]
+    [InlineData("a#b", "A_hashb")]
+    [InlineData("a@b", "A_atb")]
     public void SanitizeIdentifier_ConvertsCorrectly(string input, string expected)
     {
         Assert.Equal(expected, NameConverter.SanitizeIdentifier(input));
@@ -59,6 +65,7 @@ public class NameConverterTests
     [InlineData("append*", "append_star")]
     [InlineData("treelist-append*", "treelistAppend_star")]
     [InlineData("bytes=?", "bytes_eq_q")]
+    [InlineData("a+b", "a_plusb")]
     public void SanitizeParameter_ConvertsCorrectly(string input, string expected)
     {
         Assert.Equal(expected, NameConverter.SanitizeParameter(input));
