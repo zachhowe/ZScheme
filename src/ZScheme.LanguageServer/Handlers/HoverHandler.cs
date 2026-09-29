@@ -63,6 +63,26 @@ public sealed class HoverHandler(AnalysisService analysisService) : HoverHandler
     {
         if (state.Ast is null)
             return null;
+
+        // A cursor on a type name written in a type position hovers the declaration's
+        // signature (same-file declarations only — cross-file would need the workspace
+        // index). The synthesized node carries the use's span, so the hover range is the
+        // annotation, not the enclosing form.
+        if (
+            TypeNavigation.UseAt(state.Ast, line, col) is { } use
+            && state.NameToDefinition.TryGetValue(use.Name, out var typeSymbol)
+            && TypeNavigation.IsTypeKind(typeSymbol.Kind)
+        )
+        {
+            var typeName = new AstNode.Name(use.Name, use.Span)
+            {
+                ResolvedType = typeSymbol.ResolvedType,
+            };
+            var typeMarkdown = FormatNameHover(typeName, state);
+            if (typeMarkdown is not null)
+                return (typeName, typeMarkdown);
+        }
+
         var node = FindNodeAt(state.Ast, line, col);
         if (node is null)
             return null;

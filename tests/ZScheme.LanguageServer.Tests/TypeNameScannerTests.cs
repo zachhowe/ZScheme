@@ -74,6 +74,19 @@ public sealed class TypeNameScannerTests
     }
 
     [Fact]
+    public void NullableSuffix_SpanCoversTheNameOnly()
+    {
+        // The span is what consumers turn into edit ranges, so it must stop before the '?'.
+        var src = "(define (f [x : Foo?]) x)";
+        var occurrence = Assert.Single(Scan(src).TypeNames);
+
+        var (line, col) = LspTestSessionLocate(src, "Foo?");
+        Assert.Equal(line, occurrence.Token.Span.Line);
+        Assert.Equal(col, occurrence.Token.Span.Column);
+        Assert.Equal("Foo".Length, occurrence.Token.Span.Length);
+    }
+
+    [Fact]
     public void DelegateType_IsSkippedEntirely()
     {
         Assert.Empty(Scan("(define (f [g : (delegate System.Func<int,int>)]) g)").TypeNames);

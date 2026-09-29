@@ -16,9 +16,14 @@ public abstract record Pattern(SourceSpan Span)
     // 42, "hello", true, etc.
     public sealed record Literal(object Value, SourceSpan Span) : Pattern(Span);
 
-    // (Circle r) or (Rect w h) — constructor pattern
-    public sealed record Constructor(string Name, IReadOnlyList<Pattern> Fields, SourceSpan Span)
-        : Pattern(Span);
+    // (Circle r) or (Rect w h) — constructor pattern. NameSpan, when non-empty, points at
+    // the case-name atom (Span covers the whole pattern form).
+    public sealed record Constructor(
+        string Name,
+        IReadOnlyList<Pattern> Fields,
+        SourceSpan Span,
+        SourceSpan NameSpan = default
+    ) : Pattern(Span);
 
     // (values p1 p2 ...) — tuple destructuring pattern
     public sealed record Tuple(IReadOnlyList<Pattern> Elements, SourceSpan Span) : Pattern(Span);

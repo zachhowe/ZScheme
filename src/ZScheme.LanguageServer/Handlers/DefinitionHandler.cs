@@ -54,9 +54,10 @@ public sealed class DefinitionHandler(AnalysisService analysisService) : Definit
     ///     Test seam: resolve the defining span for the name at a 1-based (line, col)
     ///     position, consulting the workspace <paramref name="index" /> (when supplied)
     ///     for cross-file / cross-package definitions. Returns null if the cursor is not
-    ///     on a name, or the name has no recorded definition (e.g. an unbound symbol).
-    ///     The returned span's <see cref="SourceSpan.File" /> identifies the defining
-    ///     file, which may differ from the current document.
+    ///     on a name or type use, or the name has no recorded definition (e.g. an
+    ///     unbound symbol, an ambiguous type name, a primitive). The returned span's
+    ///     <see cref="SourceSpan.File" /> identifies the defining file, which may differ
+    ///     from the current document.
     /// </summary>
     public static SourceSpan? ResolveDefinition(
         DocumentState state,
@@ -72,6 +73,15 @@ public sealed class DefinitionHandler(AnalysisService analysisService) : Definit
         // variables have no Name node.
         if (state.Ast is not null && ScopeAnalysis.BindingSiteAt(state.Ast, line, col) is { } local)
             return local;
+
+        // Type-annotation uses have no Name node, so SymbolResolver cannot see them;
+        // resolve them against the recorded type uses instead. Primitive and CLR type
+        // names decline there and are simply not navigable.
+        if (
+            state.Ast is not null
+            && TypeNavigation.Resolve(state, index, line, col) is { } typeTarget
+        )
+            return typeTarget.DefinitionSpan;
 
         return SymbolResolver.Resolve(state, index, line, col)?.DefinitionSpan;
     }

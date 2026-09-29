@@ -81,7 +81,13 @@ public sealed class DocumentHighlightTests
         var state = svc.GetDocument(uri)!;
 
         // Column 1 of line 2 is the opening paren.
-        var highlights = DocumentHighlightHandler.ResolveHighlights(state, svc.Index, 2, 1, FilePath(uri));
+        var highlights = DocumentHighlightHandler.ResolveHighlights(
+            state,
+            svc.Index,
+            2,
+            1,
+            FilePath(uri)
+        );
 
         Assert.Empty(highlights);
     }
@@ -110,6 +116,61 @@ public sealed class DocumentHighlightTests
 
         // Binding + body use; the parameter and the use in the let's value are a
         // different binding.
+        Assert.Equal(2, highlights.Count);
+    }
+
+    [Fact]
+    public void Highlight_UnionCase_MarksDeclarationCallAndPatternUses()
+    {
+        var src = """
+            (module test)
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
+            (define (mk) : Shape (Circle 1))
+            (define (area [sh : Shape]) : Int
+              (match sh
+                [(Circle r) (* r r)]
+                [(Square s) (* s s)]))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        var (line, col) = LspTestSession.Locate(src, "Circle", 1); // the case declaration
+
+        var highlights = DocumentHighlightHandler.ResolveHighlights(
+            state,
+            svc.Index,
+            line,
+            col,
+            FilePath(uri)
+        );
+
+        // Declaration + constructor call + the pattern use in 'area'.
+        Assert.Equal(3, highlights.Count);
+    }
+
+    [Fact]
+    public void Highlight_HandlerVariable_MarksBindingAndBodyUses()
+    {
+        var src = """
+            (module test)
+            (define (f [err : Int]) : Int
+              (with-handlers
+                ([System.Exception err] (raise err))
+                (+ err 1)))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        var (line, col) = LspTestSession.Locate(src, "err", 2); // the clause's binding
+
+        var highlights = DocumentHighlightHandler.ResolveHighlights(
+            state,
+            svc.Index,
+            line,
+            col,
+            FilePath(uri)
+        );
+
+        // Clause binding + the rethrow use; the same-named parameter and the use in
+        // the protected body are a different binder.
         Assert.Equal(2, highlights.Count);
     }
 

@@ -305,4 +305,68 @@ public sealed class CompletionTests
         Assert.Contains(items, i => i.Label == "define");
         Assert.Contains(items, i => i.Label == "Some");
     }
+
+    [Fact]
+    public async Task Completion_StructuralKeywords_AreSnippetsWithTabStops()
+    {
+        var items = await CompleteAsync("(module test)");
+
+        foreach (var label in new[] { "define", "let", "match", "with-handlers" })
+        {
+            var item = items.Single(i => i.Label == label);
+            Assert.Equal(InsertTextFormat.Snippet, item.InsertTextFormat);
+            Assert.NotNull(item.InsertText);
+            // Tab stops: an entry point (${1…}) and a final cursor position ($0).
+            Assert.Contains("$0", item.InsertText);
+            Assert.Contains("${1", item.InsertText);
+        }
+    }
+
+    [Fact]
+    public async Task Completion_Snippets_MatchSurfaceGrammar()
+    {
+        var items = await CompleteAsync("(module test)");
+
+        // Shapes mirror what the parser accepts (see AstBuilder / examples).
+        Assert.Equal(
+            "(let ([${1:name} ${2:value}])\n  $0)",
+            items.Single(i => i.Label == "let").InsertText
+        );
+        Assert.StartsWith(
+            "(define (${1:name} [${2:arg} : ${3:Int}])",
+            items.Single(i => i.Label == "define").InsertText!
+        );
+        Assert.StartsWith(
+            "(match ${1:scrutinee}",
+            items.Single(i => i.Label == "match").InsertText!
+        );
+        Assert.StartsWith(
+            "(union ${1:Name}\n  (${2:Case} [${3:field} : ${4:Int}])",
+            items.Single(i => i.Label == "union").InsertText!
+        );
+    }
+
+    [Fact]
+    public async Task Completion_NonStructuralKeywords_StayPlainInsertions()
+    {
+        var items = await CompleteAsync("(module test)");
+
+        foreach (var label in new[] { "begin", "raise", "null", "true", "values" })
+        {
+            var item = items.Single(i => i.Label == label);
+            Assert.NotEqual(InsertTextFormat.Snippet, item.InsertTextFormat);
+            Assert.Null(item.InsertText);
+        }
+    }
+
+    [Fact]
+    public async Task Completion_Snippets_FilterByPrefix()
+    {
+        var source = "(module test)";
+        var items = await CompleteAsync(source, position: After(source, "(m"));
+
+        var labels = items.Select(i => i.Label).ToList();
+        Assert.Contains("match", labels);
+        Assert.DoesNotContain("let", labels);
+    }
 }

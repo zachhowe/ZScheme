@@ -105,20 +105,34 @@ public sealed class RenameHandler(AnalysisService analysisService)
             };
         }
 
-        var resolved = SymbolResolver.Resolve(state, index, line, col);
-        if (resolved is null)
+        // Type-annotation uses have no Name node, so SymbolResolver cannot reach them:
+        // resolve against the recorded type uses first. A type target's edits cover the
+        // declaration plus every indexed occurrence — Name uses (constructor calls are
+        // Name nodes and ride FindReferences) and type uses in every file.
+        ResolvedSymbol? maybeTarget = null;
+        if (state.Ast is not null)
+        {
+            if (TypeNavigation.Resolve(state, index, line, col) is { } typeTarget)
+                maybeTarget = typeTarget;
+            else
+                maybeTarget = SymbolResolver.Resolve(state, index, line, col);
+        }
+        if (maybeTarget is null)
             return null;
 
-        var target = resolved.Value;
+        var target = maybeTarget.Value;
         var defSpan = target.DefinitionSpan;
-        var references = index.FindReferences(target.QualifiedKey, target.BareName, defSpan.File);
+        var spans = TypeNavigation.IsTypeTarget(state, index, target)
+            ? TypeNavigation.TypeReferenceSpans(index, target)
+            : index
+                .FindReferences(target.QualifiedKey, target.BareName, defSpan.File)
+                .Select(r => r.Span);
 
         // Same-file occurrences bound by a shadowing local of the same name belong to
         // that local, not to the symbol being renamed.
-        var locallyBound =
-            state.Ast is null
-                ? (IReadOnlySet<SourceSpan>)new HashSet<SourceSpan>()
-                : ScopeAnalysis.OccurrencesBoundLocally(state.Ast, target.BareName);
+        var locallyBound = state.Ast is null
+            ? (IReadOnlySet<SourceSpan>)new HashSet<SourceSpan>()
+            : ScopeAnalysis.OccurrencesBoundLocally(state.Ast, target.BareName);
 
         var byUri = new Dictionary<DocumentUri, List<TextEdit>>();
         var seen = new HashSet<(string, int, int, int)>();
@@ -141,22 +155,18 @@ public sealed class RenameHandler(AnalysisService analysisService)
             );
         }
 
-        foreach (var reference in references)
-            Add(reference.Span);
+        foreach (var span in spans)
+            Add(span);
 
         // Records, unions, classes and interfaces have no synthesized Name occurrence, so
         // the declaration itself must be added explicitly (mirrors ReferencesHandler).
         Add(defSpan);
-
         if (byUri.Count == 0)
             return null;
 
         return new WorkspaceEdit
         {
-            Changes = byUri.ToDictionary(
-                kv => kv.Key,
-                kv => (IEnumerable<TextEdit>)kv.Value
-            ),
+            Changes = byUri.ToDictionary(kv => kv.Key, kv => (IEnumerable<TextEdit>)kv.Value),
         };
     }
 }
@@ -165,8 +175,7 @@ public sealed class RenameHandler(AnalysisService analysisService)
 ///     Validates a rename before the client prompts for the new name: returns the range of
 ///     the identifier under the cursor, or null to reject (cursor not on a renameable name).
 /// </summary>
-public sealed class PrepareRenameHandler(AnalysisService analysisService)
-    : PrepareRenameHandlerBase
+public sealed class PrepareRenameHandler(AnalysisService analysisService) : PrepareRenameHandlerBase
 {
     protected override RenameRegistrationOptions CreateRegistrationOptions(
         RenameCapability capability,
@@ -206,9 +215,10 @@ public sealed class PrepareRenameHandler(AnalysisService analysisService)
 
     /// <summary>
     ///     Test seam: the range of the renameable identifier at a 1-based (line, col), or
-    ///     null if the cursor is not on a <see cref="AstNode.Name" /> node or a local
-    ///     binding name (<c>let</c>/<c>use</c> names and pattern variables have no
-    ///     <see cref="AstNode.Name" /> node, so those come from <see cref="ScopeAnalysis" />).
+    ///     null if the cursor is not on a <see cref="AstNode.Name" /> node, a type name in
+    ///     a type position, or a local binding name (<c>let</c>/<c>use</c> names and
+    ///     pattern variables have no <see cref="AstNode.Name" /> node, so those come from
+    ///     <see cref="ScopeAnalysis" />).
     /// </summary>
     public static Range? ResolvePrepareRename(DocumentState state, int line, int col)
     {
@@ -220,6 +230,11 @@ public sealed class PrepareRenameHandler(AnalysisService analysisService)
             && name.Span.Length > 0
         )
             return TextDocumentSyncHandler.SpanToRange(name.Span);
+
+        // Type-annotation uses have no Name node: prepare them from the recorded type
+        // uses so editors can start a rename on an annotation site.
+        if (TypeNavigation.UseAt(state.Ast, line, col) is { } use && use.Span.Length > 0)
+            return TextDocumentSyncHandler.SpanToRange(use.Span);
 
         if (ScopeAnalysis.LocalOccurrences(state.Ast, line, col) is { } occurrences)
         {

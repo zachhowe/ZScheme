@@ -4,6 +4,8 @@ namespace ZScheme.Compiler.Analysis;
 
 /// <summary>A named type written in a type position. <paramref name="Name" /> is the token
 ///     text with a trailing <c>?</c> stripped (the nullable suffix is not part of the name);
+///     <paramref name="Token" />'s span covers that name — it excludes the nullable suffix
+///     when one was stripped, while <c>Token.Text</c> still carries the full atom text;
 ///     <paramref name="Arity" /> is the type-argument count, which is what
 ///     <c>TypeNameCanonicalizer.Canonical</c> needs to pick between <c>Foo</c> and
 ///     <c>Foo`n</c>.</summary>
@@ -380,9 +382,15 @@ public static class TypeNameScanner
         private void Record(Token token, int arity)
         {
             var name = token.Text;
-            // `Foo?` parses as ZNullableType(Foo); the name to resolve is the part before the '?'.
+            var span = token.Span;
+            // `Foo?` parses as ZNullableType(Foo); the name to resolve is the part before the
+            // '?', and the span recorded covers exactly that name — the suffix is nullable
+            // syntax, not part of the name (consumers turn this span into edit ranges).
             if (name.Length > 1 && name[^1] == '?' && name[0] != '^')
+            {
                 name = name[..^1];
+                span = span with { Length = span.Length - 1 };
+            }
 
             if (name.Length == 0)
                 return;
@@ -396,7 +404,7 @@ public static class TypeNameScanner
             if (name is "->" or "*" or "...")
                 return;
 
-            TypeNames.Add(new TypeNameOccurrence(token, name, arity));
+            TypeNames.Add(new TypeNameOccurrence(token with { Span = span }, name, arity));
         }
 
         /// <summary>Member forms that can head a paren list inside an <c>object</c> body —

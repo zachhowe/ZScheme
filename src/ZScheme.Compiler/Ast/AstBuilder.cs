@@ -29,6 +29,15 @@ public sealed class AstBuilder(
     private int _freshCounter;
 
     /// <summary>
+    ///     Type names written in type positions, accumulated while building one program.
+    ///     <c>BuildProgram</c> is the single entry point: it clears this list before
+    ///     building and attaches a snapshot of it to the returned
+    ///     <see cref="AstNode.Program" /> (see <c>Program.TypeNameUses</c>), so a builder
+    ///     reused for a second program leaves the first program's uses intact.
+    /// </summary>
+    private readonly List<TypeNameUse> _typeNameUses = [];
+
+    /// <summary>
     ///     The modern spelling of <paramref name="head" />, warning once when it was written
     ///     with a deprecated one. Every head goes through here before it is dispatched or
     ///     matched, so the rest of the builder only ever deals in modern spellings.
@@ -57,6 +66,7 @@ public sealed class AstBuilder(
 
     public AstNode.Program BuildProgram(IReadOnlyList<SExpr> exprs)
     {
+        _typeNameUses.Clear();
         var forms = new List<AstNode>();
         var pendingAttrs = new List<AttributeDecl>();
 
@@ -102,7 +112,7 @@ public sealed class AstBuilder(
             diagnostics.Error("Attribute(s) with no target declaration", pendingAttrs[0].Span);
 
         var span = exprs.Count > 0 ? exprs[0].Span : SourceSpan.None;
-        return new AstNode.Program(forms, span);
+        return new AstNode.Program(forms, span) { TypeNameUses = [.. _typeNameUses] };
     }
 
     private AstNode ApplyPendingAttributes(AstNode node, List<AttributeDecl> pendingAttrs)
@@ -1516,7 +1526,16 @@ public sealed class AstBuilder(
             }
 
             var handlerBody = Build(clause.Items[1]);
-            handlers.Add(new HandlerClause(typeAtom.Text, varAtom.Text, handlerBody, clause.Span));
+            RecordTypeNameUse(typeAtom);
+            handlers.Add(
+                new HandlerClause(
+                    typeAtom.Text,
+                    varAtom.Text,
+                    handlerBody,
+                    clause.Span,
+                    varAtom.Span
+                )
+            );
         }
 
         var body = Build(list.Items[^1]);
@@ -1976,7 +1995,9 @@ public sealed class AstBuilder(
             var allNames = new List<string>();
             while (idx < list.Items.Count && IsBaseTypeNameAtom(list.Items[idx]))
             {
-                allNames.Add(((SExpr.Atom)list.Items[idx]).Text);
+                var baseAtom = (SExpr.Atom)list.Items[idx];
+                allNames.Add(baseAtom.Text);
+                RecordTypeNameUse(baseAtom);
                 idx++;
             }
 
@@ -1985,7 +2006,11 @@ public sealed class AstBuilder(
             {
                 var ifaceGroup = (SExpr.SList)list.Items[idx];
                 foreach (var item in ifaceGroup.Items)
-                    interfaceNames.Add(((SExpr.Atom)item).Text);
+                {
+                    var ifaceAtom = (SExpr.Atom)item;
+                    interfaceNames.Add(ifaceAtom.Text);
+                    RecordTypeNameUse(ifaceAtom);
+                }
                 idx++;
             }
 
@@ -2005,12 +2030,16 @@ public sealed class AstBuilder(
         else if (list.Items[1] is SExpr.Atom ifaceAtom)
         {
             interfaceNames.Add(ifaceAtom.Text);
+            RecordTypeNameUse(ifaceAtom);
         }
         else if (list.Items[1] is SExpr.SList ifaceList)
         {
             foreach (var item in ifaceList.Items)
                 if (item is SExpr.Atom a)
+                {
                     interfaceNames.Add(a.Text);
+                    RecordTypeNameUse(a);
+                }
                 else
                     diagnostics.Error("Interface name must be an identifier", item.Span);
         }
@@ -2220,7 +2249,9 @@ public sealed class AstBuilder(
             var allNames = new List<string>();
             while (membersStart < list.Items.Count && IsBaseTypeNameAtom(list.Items[membersStart]))
             {
-                allNames.Add(((SExpr.Atom)list.Items[membersStart]).Text);
+                var baseAtom = (SExpr.Atom)list.Items[membersStart];
+                allNames.Add(baseAtom.Text);
+                RecordTypeNameUse(baseAtom);
                 membersStart++;
             }
 
@@ -2505,7 +2536,9 @@ public sealed class AstBuilder(
             membersStart++;
             while (membersStart < list.Items.Count && IsBaseTypeNameAtom(list.Items[membersStart]))
             {
-                baseInterfaceNames.Add(((SExpr.Atom)list.Items[membersStart]).Text);
+                var baseAtom = (SExpr.Atom)list.Items[membersStart];
+                baseInterfaceNames.Add(baseAtom.Text);
+                RecordTypeNameUse(baseAtom);
                 membersStart++;
             }
         }
@@ -3330,7 +3363,7 @@ public sealed class AstBuilder(
             SExpr.Atom { Kind: TokenKind.BoolLit } a => new Pattern.Literal(a.Text == "#t", a.Span),
             SExpr.Atom { Kind: TokenKind.StringLit } a => new Pattern.Literal(a.Text, a.Span),
             SExpr.Atom a when a.Text.Length > 0 && char.IsUpper(a.Text[0]) =>
-                new Pattern.Constructor(a.Text, [], a.Span),
+                new Pattern.Constructor(a.Text, [], a.Span, a.Span),
             SExpr.Atom a => new Pattern.Variable(a.Text, a.Span),
             SExpr.SList list
                 when list.Items.Count >= 3 && list.Items[0] is SExpr.Atom { Text: "values" } =>
@@ -3370,11 +3403,11 @@ public sealed class AstBuilder(
 
     private Pattern ParseConstructorPattern(SExpr.SList list)
     {
-        var name = ((SExpr.Atom)list.Items[0]).Text;
+        var nameAtom = (SExpr.Atom)list.Items[0];
         var fields = new List<Pattern>();
         for (var i = 1; i < list.Items.Count; i++)
             fields.Add(ParsePattern(list.Items[i]));
-        return new Pattern.Constructor(name, fields, list.Span);
+        return new Pattern.Constructor(nameAtom.Text, fields, list.Span, nameAtom.Span);
     }
 
     private Pattern ParseTuplePattern(SExpr.SList list)
@@ -3391,14 +3424,47 @@ public sealed class AstBuilder(
         return new Pattern.Wildcard(expr.Span);
     }
 
+    /// <summary>
+    ///     Records a type name written in a type position on <see cref="_typeNameUses" />.
+    ///     Mirrors <c>TypeNameScanner.Record</c>'s exclusions: a trailing <c>?</c> is not
+    ///     part of the name — and neither is it part of the recorded span, so the span
+    ///     covers exactly the name — and <c>^</c>-prefixed type variables and
+    ///     <c>#:</c>-prefixed flags are the enclosing form's own syntax, not named types.
+    /// </summary>
+    private void RecordTypeNameUse(SExpr.Atom atom, int arity = 0)
+    {
+        var name = atom.Text;
+        var span = atom.Span;
+        if (name.Length > 1 && name[^1] == '?' && name[0] != '^')
+        {
+            name = name[..^1];
+            span = span with { Length = span.Length - 1 };
+        }
+        if (name.Length == 0 || name[0] is '^' or '#')
+            return;
+        _typeNameUses.Add(new TypeNameUse(name, span, arity));
+    }
+
+    private ZType ParseNamedTypeAtom(SExpr.Atom atom)
+    {
+        RecordTypeNameUse(atom);
+        return PrimitiveTypeNames.Lookup(atom.Text) ?? new ZType.ZNamedType(atom.Text, []);
+    }
+
     public ZType ParseTypeExpr(SExpr expr)
     {
         return expr switch
         {
             SExpr.Atom a
                 when a.Text.EndsWith('?') && a.Text.Length > 1 && !a.Text.StartsWith('^') =>
+                // The synthesized name atom drops the '?', and its span drops it too, so the
+                // recursion records the name-only span (not one that ends at the suffix).
                 new ZType.ZNullableType(
-                    ParseTypeExpr(new SExpr.Atom(new Token(a.Kind, a.Text[..^1], a.Span)))
+                    ParseTypeExpr(
+                        new SExpr.Atom(
+                            new Token(a.Kind, a.Text[..^1], a.Span with { Length = a.Span.Length - 1 })
+                        )
+                    )
                 ),
             SExpr.Atom a when a.Text.StartsWith('^') && a.Text.Length > 1 => new ZType.ZNamedType(
                 a.Text,
@@ -3406,7 +3472,7 @@ public sealed class AstBuilder(
             ),
             // A primitive answers to its keyword and to its CLR full name alike, so
             // `System.Int32` and `Int` land on one ZType instead of two that never unify.
-            SExpr.Atom a => PrimitiveTypeNames.Lookup(a.Text) ?? new ZType.ZNamedType(a.Text, []),
+            SExpr.Atom a => ParseNamedTypeAtom(a),
             SExpr.SList list
                 when list.Items.Count >= 2
                     && list.Items[0] is SExpr.Atom atom0
@@ -3550,12 +3616,14 @@ public sealed class AstBuilder(
     private ZType ParseNamedType(SExpr.SList list)
     {
         // (Result Int String) or (Option Int) etc.
-        var name = ((SExpr.Atom)list.Items[0]).Text;
+        var nameAtom = (SExpr.Atom)list.Items[0];
+        RecordTypeNameUse(nameAtom, list.Items.Count - 1);
         var args = new List<ZType>();
         for (var i = 1; i < list.Items.Count; i++)
             args.Add(ParseTypeExpr(list.Items[i]));
         // Canonicalize: Nullable<T> is always represented as ZNullableType, never as a
         // named type — a named "System.Nullable" would not unify with T? elsewhere.
+        var name = nameAtom.Text;
         if (name is "Nullable" or "System.Nullable" && args.Count == 1)
             return new ZType.ZNullableType(args[0]);
         return new ZType.ZNamedType(name, args);

@@ -316,7 +316,19 @@ public abstract record AstNode(SourceSpan Span)
 
     // A sequence of top-level forms
     public sealed record Program(IReadOnlyList<AstNode> TopLevelForms, SourceSpan Span)
-        : AstNode(Span);
+        : AstNode(Span)
+    {
+        /// <summary>
+        ///     Every type name written in a type position of this file — `: Type` annotations,
+        ///     parameter annotations, <c>new</c>/<c>typeof</c> type arguments, nested
+        ///     applications like <c>(Option Int)</c>, the base/interface runs of
+        ///     <c>define-class</c>/<c>define-interface</c>/<c>object</c> heads, and
+        ///     <c>with-handlers</c> exception types — recorded with the span of the atom as
+        ///     written. Populated by <c>AstBuilder</c> for type-name navigation; it mirrors the
+        ///     grammar <c>TypeNameScanner</c> recognizes, so the two must stay in step.
+        /// </summary>
+        public IReadOnlyList<TypeNameUse> TypeNameUses { get; init; } = [];
+    }
 }
 
 // AllowsUnloopedRecursion / NameSpan: see Define. A method of a sealed class is a loop
@@ -408,11 +420,14 @@ public sealed record MatchArm(Pattern Pattern, AstNode Body, SourceSpan Span)
     public Pattern Pattern { get; set; } = Pattern;
 }
 
+// BindingNameSpan, when non-empty, points at the binding-variable atom (Span covers the
+// whole [ExceptionType var] body clause).
 public sealed record HandlerClause(
     string ExceptionTypeName,
     string BindingVarName,
     AstNode HandlerBody,
-    SourceSpan Span
+    SourceSpan Span,
+    SourceSpan BindingNameSpan = default
 );
 
 public enum ClrImportKind

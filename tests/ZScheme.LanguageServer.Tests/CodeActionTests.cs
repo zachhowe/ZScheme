@@ -639,4 +639,254 @@ public sealed class CodeActionTests
             ApplyEdits(source, [edit])
         );
     }
+
+    // ---- Remove unused parameter (ZS0003) fix ----
+
+    /// <summary>The ZS0003 diagnostic whose span starts exactly at
+    ///     <paramref name="token" /> (a source may carry several unused-binding
+    ///     diagnostics; the parameter under test is identified by position).</summary>
+    private static (
+        DocumentState State,
+        Range Range,
+        AnalysisService Service,
+        string Uri
+    ) UnusedParamDiagnostic(string source, string token)
+    {
+        var (svc, uri) = LspTestSession.Open(source);
+        var state = svc.GetDocument(uri)!;
+        var (line, col) = LspTestSession.Locate(source, token);
+        var diag = Assert.Single(
+            state.Diagnostics.Diagnostics,
+            d =>
+                d.Code == DiagnosticCodes.UnusedBinding
+                && d.Span.Line == line
+                && d.Span.Column == col
+        );
+        return (state, TextDocumentSyncHandler.SpanToRange(diag.Span), svc, uri);
+    }
+
+    [Fact]
+    public void RemoveUnusedParameter_SameFileCallSitesRewritten()
+    {
+        var src = """
+            (module test)
+            (define (f [a : Int] [unused : Int] [b : Int]) : Int (+ a b))
+            (define (main) : Int (+ (f 1 2 3) (f 4 5 6)))
+            """;
+        var (state, range, svc, uri) = UnusedParamDiagnostic(src, "unused");
+
+        var byUri = CodeActionHandler.BuildRemoveUnusedParameterEdits(
+            state,
+            svc.Index,
+            range,
+            DocumentUri.Parse(uri)
+        );
+
+        Assert.NotNull(byUri);
+        var edits = Assert.Single(byUri).Value;
+        Assert.Equal(
+            """
+            (module test)
+            (define (f [a : Int] [b : Int]) : Int (+ a b))
+            (define (main) : Int (+ (f 1 3) (f 4 6)))
+            """,
+            ApplyEdits(src, edits)
+        );
+    }
+
+    [Fact]
+    public void RemoveUnusedParameter_UntypedParamsRewritten()
+    {
+        var src = """
+            (module test)
+            (define (g x y z) (+ x z))
+            (define (main) : Int (g 1 2 3))
+            """;
+        var (state, range, svc, uri) = UnusedParamDiagnostic(src, "y");
+
+        var byUri = CodeActionHandler.BuildRemoveUnusedParameterEdits(
+            state,
+            svc.Index,
+            range,
+            DocumentUri.Parse(uri)
+        );
+
+        Assert.NotNull(byUri);
+        Assert.Equal(
+            """
+            (module test)
+            (define (g x z) (+ x z))
+            (define (main) : Int (g 1 3))
+            """,
+            ApplyEdits(src, Assert.Single(byUri).Value)
+        );
+    }
+
+    [Fact]
+    public void RemoveUnusedParameter_VariadicParam_Declines()
+    {
+        var src = """
+            (module test)
+            (define (v [a : Int] [rest : Int ...]) : Int a)
+            (define (main) : Int (v 1))
+            """;
+        var (state, range, svc, uri) = UnusedParamDiagnostic(src, "rest");
+
+        Assert.Null(
+            CodeActionHandler.BuildRemoveUnusedParameterEdits(
+                state,
+                svc.Index,
+                range,
+                DocumentUri.Parse(uri)
+            )
+        );
+    }
+
+    [Fact]
+    public void RemoveUnusedParameter_HigherOrderUse_Declines()
+    {
+        var src = """
+            (module test)
+            (define (h [unused : Int] [x : Int]) : Int x)
+            (define keep-h (begin h))
+            """;
+        var (state, range, svc, uri) = UnusedParamDiagnostic(src, "unused");
+
+        Assert.Null(
+            CodeActionHandler.BuildRemoveUnusedParameterEdits(
+                state,
+                svc.Index,
+                range,
+                DocumentUri.Parse(uri)
+            )
+        );
+    }
+
+    [Fact]
+    public void RemoveUnusedParameter_PartialUse_Declines()
+    {
+        var src = """
+            (module test)
+            (define (h [unused : Int] [x : Int]) : Int x)
+            (define p (partial h 1))
+            """;
+        var (state, range, svc, uri) = UnusedParamDiagnostic(src, "unused");
+
+        Assert.Null(
+            CodeActionHandler.BuildRemoveUnusedParameterEdits(
+                state,
+                svc.Index,
+                range,
+                DocumentUri.Parse(uri)
+            )
+        );
+    }
+
+    [Fact]
+    public void RemoveUnusedParameter_LambdaParam_NotOffered()
+    {
+        var src = """
+            (module test)
+            (define (lk) : Int ((lambda ([ignored : Int] [y : Int]) y) 1 2))
+            """;
+        var (state, range, svc, uri) = UnusedParamDiagnostic(src, "ignored");
+
+        Assert.Null(
+            CodeActionHandler.BuildRemoveUnusedParameterEdits(
+                state,
+                svc.Index,
+                range,
+                DocumentUri.Parse(uri)
+            )
+        );
+    }
+
+    [Fact]
+    public void RemoveUnusedParameter_CommentInDeletedExtent_Declines()
+    {
+        // The comment sits between the previous parameter and the removed one, inside the
+        // definition-side deleted extent — destroying it is worse than declining.
+        var src = """
+            (module test)
+            (define (f [a : Int] ; note about a
+                        [unused : Int]
+                        [b : Int]) : Int (+ a b))
+            (define (main) : Int (+ (f 1 2 3) (f 4 5 6)))
+            """;
+        var (state, range, svc, uri) = UnusedParamDiagnostic(src, "unused");
+
+        Assert.Null(
+            CodeActionHandler.BuildRemoveUnusedParameterEdits(
+                state,
+                svc.Index,
+                range,
+                DocumentUri.Parse(uri)
+            )
+        );
+    }
+
+    [Fact]
+    public void RemoveUnusedParameter_CrossFileCallSitesRewritten()
+    {
+        using var ws = new TempPackageWorkspace(
+            "rpx",
+            new Dictionary<string, string>
+            {
+                ["lib.zs"] = """
+                (module lib)
+                (define (lib-triple [unused : Int] [n : Int]) : Int (* n 3))
+                (export lib-triple)
+                """,
+                ["app.zs"] = """
+                (module app)
+                (import rpx/lib)
+                (define (main) : Int (+ (lib-triple 1 2) (lib-triple 3 4)))
+                """,
+            }
+        );
+        var libState = ws.Open("lib.zs");
+        ws.Open("app.zs");
+
+        var (line, col) = ws.Locate("lib.zs", "unused");
+        var diag = Assert.Single(
+            libState.Diagnostics.Diagnostics,
+            d =>
+                d.Code == DiagnosticCodes.UnusedBinding
+                && d.Span.Line == line
+                && d.Span.Column == col
+        );
+        var range = TextDocumentSyncHandler.SpanToRange(diag.Span);
+
+        var byUri = CodeActionHandler.BuildRemoveUnusedParameterEdits(
+            libState,
+            ws.Service.Index,
+            range,
+            DocumentUri.Parse(ws.UriOf("lib.zs"))
+        );
+
+        Assert.NotNull(byUri);
+        Assert.Equal(2, byUri.Count);
+        Assert.Equal(
+            """
+            (module lib)
+            (define (lib-triple [n : Int]) : Int (* n 3))
+            (export lib-triple)
+            """,
+            ApplyEdits(
+                File.ReadAllText(ws.PathOf("lib.zs")),
+                byUri[DocumentUri.Parse(ws.UriOf("lib.zs"))]
+            )
+        );
+        Assert.Equal(
+            """
+            (module app)
+            (import rpx/lib)
+            (define (main) : Int (+ (lib-triple 2) (lib-triple 4)))
+            """,
+            ApplyEdits(
+                File.ReadAllText(ws.PathOf("app.zs")),
+                byUri[DocumentUri.Parse(ws.UriOf("app.zs"))]
+            )
+        );
+    }
 }

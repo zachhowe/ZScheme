@@ -57,9 +57,15 @@ var server = await LanguageServer.From(options =>
         .WithHandler<CallHierarchyHandler>()
         .WithHandler<TypeHierarchyHandler>()
         .WithHandler<WorkspaceFoldersHandler>()
+        .WithHandler<DocumentFormattingHandler>()
+        .WithHandler<DocumentRangeFormattingHandler>()
+        .WithHandler<DocumentOnTypeFormattingHandler>()
         .WithServices(services =>
         {
             services.AddSingleton<AnalysisService>();
+            // The real formatter is on another branch; until it lands, the null
+            // formatter makes every formatting request decline. See ISourceFormatter.
+            services.AddSingleton<ISourceFormatter, NullFormatter>();
             // A Receiver is also the output filter that gates server-to-client traffic on
             // initialization. Registering only IReceiver leaves DI to build a second,
             // never-initialized LspServerReceiver for IOutputFilter, which then silences

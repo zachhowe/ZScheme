@@ -257,6 +257,17 @@ Along the way it:
   keeps the two backends in agreement: C# refuses a use-before-initialization local outright
   (CS0165) while IL would silently observe a default value.
 
+Written type names are recorded for navigation: every named-type atom in a type position —
+a `: Type` annotation, a parameter annotation, a `new`/`typeof` type argument, a nested
+application like `(Option Int)`, the base/interface run of a `class`/`interface`/`object`
+head, and a `with-handlers` exception type — lands on the returned `Program` as a
+`TypeNameUse` (the name with any trailing `?` stripped, the span of the atom as written,
+and the type-argument count) via `Program.TypeNameUses`. `ZType` deliberately carries no
+spans of its own — structural equality drives unification and types are rebuilt constantly
+during inference. The list mirrors the grammar [`TypeNameScanner`](../src/ZScheme.Compiler/Analysis/TypeNameScanner.cs)
+recognizes for ZS0004, so the two must stay in step when the type-position grammar
+changes.
+
 ## Stage 4 — Type inference
 
 - **Input:** `AstNode.Program` + imported `CompiledModule` type info

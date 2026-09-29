@@ -1819,4 +1819,39 @@ public class TypeInfererTests
         );
         Assert.True(diag.HasErrors);
     }
+
+    [Fact]
+    public void BareCasePatternRewrite_PropagatesNameSpans()
+    {
+        var (program, _, diag) = InferProgram(
+            @"(define-union color (red) (green))
+              (define-union pair (both [a : color] [b : color]) (neither))
+              (define (f [p : pair]) : Int
+                (match p
+                  [(both red) 0]
+                  [neither 1]))"
+        );
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        var match = Assert.IsType<AstNode.Match>(
+            Assert.IsType<AstNode.Define>(program.TopLevelForms[2]).Body
+        );
+
+        // A bare atom that names a nullary case is rewritten into a constructor pattern,
+        // and the name span follows the atom it was spelled as.
+        var bare = Assert.IsType<Pattern.Constructor>(match.Arms[1].Pattern);
+        Assert.Equal("neither", bare.Name);
+        Assert.Equal(bare.Span, bare.NameSpan);
+        Assert.Equal(7, bare.NameSpan.Length);
+
+        // When a field is rewritten, the outer constructor is rebuilt and keeps the span of
+        // its name atom; the rewritten inner field is the atom's own span.
+        var outer = Assert.IsType<Pattern.Constructor>(match.Arms[0].Pattern);
+        Assert.Equal("both", outer.Name);
+        Assert.NotEqual(default, outer.NameSpan);
+        Assert.NotEqual(outer.Span, outer.NameSpan);
+        Assert.Equal(4, outer.NameSpan.Length);
+        var inner = Assert.IsType<Pattern.Constructor>(outer.Fields[0]);
+        Assert.Equal("red", inner.Name);
+        Assert.Equal(inner.Span, inner.NameSpan);
+    }
 }

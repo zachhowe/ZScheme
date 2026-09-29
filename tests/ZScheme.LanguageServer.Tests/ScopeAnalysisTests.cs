@@ -23,6 +23,18 @@ public sealed class ScopeAnalysisTests
         return (svc.GetDocument(uri)!, src);
     }
 
+    /// <summary>Occurrences of "err": 1 = param binding, 2 = handler-clause binding,
+    ///     3 = the rethrow in the handler body (bound by the clause), 4 = the use in
+    ///     the protected body (bound by the param — the clause's binding does not
+    ///     leak into it).</summary>
+    private const string Handlers = """
+        (module test)
+        (define (f [err : Int]) : Int
+          (with-handlers
+            ([System.Exception err] (raise err))
+            (+ err 1)))
+        """;
+
     private static void AssertOccurrences(
         IReadOnlyList<SourceSpan>? occurrences,
         string src,
@@ -158,6 +170,42 @@ public sealed class ScopeAnalysisTests
         var occurrences = ScopeAnalysis.LocalOccurrences(state.Ast!, line, col);
 
         AssertOccurrences(occurrences, src, "vv", 1, 2);
+    }
+
+    [Fact]
+    public void LocalOccurrences_HandlerVariable_BindingAndBodyUses()
+    {
+        var (state, src) = Analyze(Handlers);
+        var (line, col) = LspTestSession.Locate(src, "err", 2); // the clause's binding
+
+        var occurrences = ScopeAnalysis.LocalOccurrences(state.Ast!, line, col);
+
+        AssertOccurrences(occurrences, src, "err", 2, 3);
+    }
+
+    [Fact]
+    public void LocalOccurrences_HandlerVariableUse_ResolvesToClauseBinder()
+    {
+        var (state, src) = Analyze(Handlers);
+        var (line, col) = LspTestSession.Locate(src, "err", 3); // the rethrow in the handler body
+
+        var occurrences = ScopeAnalysis.LocalOccurrences(state.Ast!, line, col);
+
+        // The use resolves to the clause's binder even though a same-named param
+        // encloses the with-handlers form.
+        AssertOccurrences(occurrences, src, "err", 2, 3);
+    }
+
+    [Fact]
+    public void LocalOccurrences_OuterParam_ExcludesHandlerClause()
+    {
+        var (state, src) = Analyze(Handlers);
+        var (line, col) = LspTestSession.Locate(src, "err", 1); // the parameter
+
+        var occurrences = ScopeAnalysis.LocalOccurrences(state.Ast!, line, col);
+
+        // The clause rebinds the name, so occurrence 3 belongs to the handler.
+        AssertOccurrences(occurrences, src, "err", 1, 4);
     }
 
     [Fact]

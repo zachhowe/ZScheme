@@ -58,7 +58,8 @@ public sealed class DocumentHighlightHandler(AnalysisService analysisService)
     /// <summary>
     ///     Test seam: occurrences of the symbol under the 1-based (line, col) cursor that
     ///     live in <paramref name="currentFilePath" />. Cross-file references are excluded
-    ///     because document highlight is single-file.
+    ///     because document highlight is single-file. A cursor on a type-annotation name
+    ///     highlights the declaration plus every type use in the file.
     /// </summary>
     public static IReadOnlyList<DocumentHighlight> ResolveHighlights(
         DocumentState state,
@@ -98,26 +99,35 @@ public sealed class DocumentHighlightHandler(AnalysisService analysisService)
             return highlights;
         }
 
-        var resolved = SymbolResolver.Resolve(state, index, line, col);
-        if (resolved is null)
+        // Type-annotation uses have no Name node: resolve them against the recorded type
+        // uses first. A type target's occurrences are the declaration plus every indexed
+        // use, where the cursor started notwithstanding.
+        ResolvedSymbol? maybeTarget = null;
+        if (state.Ast is not null)
+        {
+            if (TypeNavigation.Resolve(state, index, line, col) is { } typeTarget)
+                maybeTarget = typeTarget;
+            else
+                maybeTarget = SymbolResolver.Resolve(state, index, line, col);
+        }
+        if (maybeTarget is null)
             return [];
 
-        var target = resolved.Value;
-        var references = index.FindReferences(
-            target.QualifiedKey,
-            target.BareName,
-            target.DefinitionSpan.File
-        );
+        var target = maybeTarget.Value;
+        var spans = TypeNavigation.IsTypeTarget(state, index, target)
+            ? TypeNavigation.TypeReferenceSpans(index, target)
+            : index
+                .FindReferences(target.QualifiedKey, target.BareName, target.DefinitionSpan.File)
+                .Select(r => r.Span);
 
         // Occurrences bound by a shadowing local of the same name belong to that local.
-        var locallyBound =
-            state.Ast is null
-                ? (IReadOnlySet<SourceSpan>)new HashSet<SourceSpan>()
-                : ScopeAnalysis.OccurrencesBoundLocally(state.Ast, target.BareName);
+        var locallyBound = state.Ast is null
+            ? (IReadOnlySet<SourceSpan>)new HashSet<SourceSpan>()
+            : ScopeAnalysis.OccurrencesBoundLocally(state.Ast, target.BareName);
 
-        foreach (var reference in references)
-            if (!locallyBound.Contains(reference.Span))
-                Add(reference.Span);
+        foreach (var span in spans)
+            if (!locallyBound.Contains(span))
+                Add(span);
 
         // Declarations without a synthesized Name occurrence (records/unions/classes/
         // interfaces) still get highlighted when the definition is in this file.

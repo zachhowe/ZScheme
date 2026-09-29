@@ -75,9 +75,11 @@ public sealed class RenameTests
 
         Assert.NotNull(edit);
         var edits = Assert.Single(edit!.Changes!).Value.ToList();
-        // The declaration itself must be renamed even though it has no Name occurrence.
+        // The declaration itself must be renamed even though it has no Name occurrence,
+        // plus the constructor call and the return-type annotation.
         var declLine = LspTestSession.Locate(src, "Point").Line - 1;
         Assert.Contains(edits, e => e.Range.Start.Line == declLine);
+        Assert.Equal(3, edits.Count);
         Assert.All(edits, e => Assert.Equal("Coord", e.NewText));
     }
 
@@ -164,9 +166,8 @@ public sealed class RenameTests
 
         Assert.NotNull(edit);
         var edits = Assert.Single(edit!.Changes!).Value.ToList();
-        // Declaration + constructor call. Type-annotation positions (": Point") are not
-        // rewritten — type spans don't survive into ZType (known limitation).
-        Assert.Equal(2, edits.Count);
+        // Declaration + constructor call + the ": Point" return-type annotation.
+        Assert.Equal(3, edits.Count);
         // The declaration edit covers exactly the name, not the form head.
         var (declLine, declCol) = LspTestSession.Locate(src, "Point", 1);
         var declEdit = Assert.Single(
@@ -198,8 +199,8 @@ public sealed class RenameTests
             DocumentUri.Parse(uri)
         );
         Assert.NotNull(unionEdit);
-        // Just the declaration — the ": Shape" annotation is a type position (see above).
-        Assert.Single(Assert.Single(unionEdit!.Changes!).Value);
+        // The declaration + the ": Shape" return-type annotation.
+        Assert.Equal(2, Assert.Single(unionEdit!.Changes!).Value.Count());
 
         // From a case declaration name.
         var (cLine, cCol) = LspTestSession.Locate(src, "Circle", 1);
@@ -339,6 +340,87 @@ public sealed class RenameTests
         Assert.NotNull(edit);
         var edits = Assert.Single(edit!.Changes!).Value.ToList();
         Assert.Equal(2, edits.Count); // pattern binding + body use
+    }
+
+    [Fact]
+    public void Rename_UnionCase_RewritesConstructorAndPatternUses()
+    {
+        var src = """
+            (module test)
+            (define-union Shape (Circle [r : Int]) (Square [s : Int]))
+            (define (mk) : Shape (Circle 1))
+            (define (area [sh : Shape]) : Int
+              (match sh
+                [(Circle r) (* r r)]
+                [(Square s) (* s s)]))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        var (line, col) = LspTestSession.Locate(src, "Circle", 1); // the case declaration
+
+        var edit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            line,
+            col,
+            "Round",
+            DocumentUri.Parse(uri)
+        );
+
+        Assert.NotNull(edit);
+        var edits = Assert.Single(edit!.Changes!).Value.ToList();
+        // Case declaration + constructor call + the pattern use in 'area'.
+        Assert.Equal(3, edits.Count);
+        Assert.All(edits, e => Assert.Equal("Round", e.NewText));
+    }
+
+    [Fact]
+    public void Rename_HandlerVariable_ConfinedToItsClause()
+    {
+        var src = """
+            (module test)
+            (define (f [err : Int]) : Int
+              (with-handlers
+                ([System.Exception err] (raise err))
+                (+ err 1)))
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+
+        // From the clause's binding site — previously not renameable at all.
+        var (line, col) = LspTestSession.Locate(src, "err", 2);
+        var edit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            line,
+            col,
+            "exn",
+            DocumentUri.Parse(uri)
+        );
+
+        Assert.NotNull(edit);
+        var edits = Assert.Single(edit!.Changes!).Value.ToList();
+        // Clause binding + the rethrow use. The same-named parameter and the use in
+        // the protected body belong to the outer binder.
+        Assert.Equal(2, edits.Count);
+        Assert.All(edits, e => Assert.Equal("exn", e.NewText));
+
+        // The outer parameter rename leaves the clause's binding and use untouched.
+        var (pLine, pCol) = LspTestSession.Locate(src, "err", 1); // the parameter
+        var paramEdit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            pLine,
+            pCol,
+            "n",
+            DocumentUri.Parse(uri)
+        );
+
+        Assert.NotNull(paramEdit);
+        var paramEdits = Assert.Single(paramEdit!.Changes!).Value.ToList();
+        // Param binding + the use in the protected body.
+        Assert.Equal(2, paramEdits.Count);
+        Assert.All(paramEdits, e => Assert.Equal("n", e.NewText));
     }
 
     [Fact]

@@ -3,21 +3,31 @@ using ZScheme.Compiler.Ast;
 namespace ZScheme.LanguageServer.Analysis;
 
 /// <summary>
-///     Collects every <see cref="AstNode.Name" /> occurrence in a file's typed AST as
-///     an <see cref="IndexedReference" />, carrying the use-site's
+///     Collects every name occurrence in a file's typed AST as an
+///     <see cref="IndexedReference" />, carrying the use-site's
 ///     <c>ResolvedQualifiedName</c> when the type inferer resolved one (imported /
 ///     overloaded functions). Occurrences include the synthesized definition-name node,
 ///     so a symbol's declaration site appears among its references (the references
 ///     handler filters it out unless the client asks to include the declaration).
 ///     Each occurrence is tagged with the qualified key of its enclosing top-level
 ///     definition (for call-hierarchy derivation); module-scope occurrences get null.
+///     <para>
+///         Type names written in type positions (annotations, nested type applications,
+///         class/interface base lists, handler exception types) never become
+///         <see cref="AstNode.Name" /> nodes — the compiler records them on
+///         <see cref="AstNode.Program.TypeNameUses" /> instead — so they are emitted as
+///         <see cref="IndexedReference.IsTypeUse" /> entries with no qualified key, and
+///         cross-file matches for them go through
+///         <see cref="WorkspaceIndex.FindTypeReferences" />.
+///     </para>
 /// </summary>
 internal static class ReferenceCollector
 {
     public static List<IndexedReference> Collect(AstNode.Program program, string? primaryModule)
     {
+        var forms = TopLevelForms(program).ToList();
         var refs = new List<IndexedReference>();
-        foreach (var form in TopLevelForms(program))
+        foreach (var form in forms)
         {
             var container = ContainerKey(form, primaryModule);
             foreach (var name in AstNavigation.AllNames(form))
@@ -31,7 +41,46 @@ internal static class ReferenceCollector
                 );
         }
 
+        refs.AddRange(TypeUseReferences(forms, program.TypeNameUses, primaryModule));
         return refs;
+    }
+
+    /// <summary>
+    ///     The file's written type names as <see cref="IndexedReference" />s with
+    ///     <see cref="IndexedReference.IsTypeUse" /> set. Container attribution uses the
+    ///     enclosing top-level form, as for names: every type use sits inside exactly one
+    ///     form, and since top-level forms are disjoint and appear in source order, the
+    ///     enclosing form is simply the latest one whose start position lies at or before
+    ///     the use's.
+    /// </summary>
+    private static IEnumerable<IndexedReference> TypeUseReferences(
+        IReadOnlyList<AstNode> forms,
+        IReadOnlyList<TypeNameUse> uses,
+        string? primaryModule
+    )
+    {
+        var ordered = forms
+            .Select(form =>
+                (
+                    Start: (form.Span.Line, form.Span.Column),
+                    Container: ContainerKey(form, primaryModule)
+                )
+            )
+            .OrderBy(f => f.Start)
+            .ToList();
+
+        foreach (var use in uses)
+        {
+            if (use.Span.Length == 0)
+                continue;
+            var container = ordered
+                .LastOrDefault(f =>
+                    f.Start.Line < use.Span.Line
+                    || (f.Start.Line == use.Span.Line && f.Start.Column <= use.Span.Column)
+                )
+                .Container;
+            yield return new IndexedReference(use.Name, null, use.Span, container, IsTypeUse: true);
+        }
     }
 
     private static IEnumerable<AstNode> TopLevelForms(AstNode.Program program)
