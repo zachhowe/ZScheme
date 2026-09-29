@@ -1634,6 +1634,20 @@ public class CSharpEmitterTests
     }
 
     [Fact]
+    public void EmitUnion_CaseFieldAttribute_PropertyTarget()
+    {
+        // Union case fields carry attributes the same way record fields do; the C# backend
+        // must emit them with the property target so case metadata matches the IL backend.
+        var cs = Compile(
+            "(define-union Shape (Circle [(@ System.ObsoleteAttribute \"deprecated\") r : Int]) (Rect [w : Float] [h : Float]))"
+        );
+        Assert.Contains("[property: System.ObsoleteAttribute(\"deprecated\")] int R", cs);
+        Assert.Contains("public sealed record Circle", cs);
+        // A case without field attributes is unaffected.
+        Assert.Contains("public sealed record Rect(float W, float H) : Shape;", cs);
+    }
+
+    [Fact]
     public void EmitRecord_PreambleComesFirst()
     {
         var cs = Compile("(define-record Point [x : Int])");
@@ -1727,34 +1741,32 @@ public class CSharpEmitterTests
         // helper could be replaced by a subclass, which is exactly what TailCallLowering relies
         // on being impossible when it loops one. Driven through the IR because no source form
         // sets the flag.
-        var ir = new IrNode.Seq(
-            [
-                new IrNode.ClassDecl(
-                    "C",
-                    [],
-                    [],
-                    [],
-                    [
-                        new IrObjectMethod(
-                            "Visible",
-                            [],
-                            ZType.Int,
-                            new IrNode.IntConst(1) { Type = ZType.Int }
-                        ),
-                        new IrObjectMethod(
-                            "__letrec_0_go",
-                            [],
-                            ZType.Int,
-                            new IrNode.IntConst(2) { Type = ZType.Int }
-                        )
-                        {
-                            IsSynthesizedHelper = true,
-                        },
-                    ],
-                    IsOpen: true
-                ),
-            ]
-        )
+        var ir = new IrNode.Seq([
+            new IrNode.ClassDecl(
+                "C",
+                [],
+                [],
+                [],
+                [
+                    new IrObjectMethod(
+                        "Visible",
+                        [],
+                        ZType.Int,
+                        new IrNode.IntConst(1) { Type = ZType.Int }
+                    ),
+                    new IrObjectMethod(
+                        "__letrec_0_go",
+                        [],
+                        ZType.Int,
+                        new IrNode.IntConst(2) { Type = ZType.Int }
+                    )
+                    {
+                        IsSynthesizedHelper = true,
+                    },
+                ],
+                IsOpen: true
+            ),
+        ])
         {
             Type = ZType.Unit,
         };
@@ -5620,9 +5632,9 @@ public class CSharpEmitterTests
 
     private static IrNode MultiModuleMain()
     {
-        return new IrNode.Seq(
-            [new IrNode.FuncDef("main_fn", [], ZType.Int, new IrNode.IntConst(0), false)]
-        );
+        return new IrNode.Seq([
+            new IrNode.FuncDef("main_fn", [], ZType.Int, new IrNode.IntConst(0), false),
+        ]);
     }
 
     [Fact]
@@ -5639,7 +5651,10 @@ public class CSharpEmitterTests
     {
         var units = MakeMultiModuleEmitter().EmitUnits(MultiModuleMain());
 
-        Assert.Equal([null, "AlphaModule", "BetaModule"], units.Units.Select(u => u.ModuleClassName));
+        Assert.Equal(
+            [null, "AlphaModule", "BetaModule"],
+            units.Units.Select(u => u.ModuleClassName)
+        );
         Assert.Contains("public static class TestClass", units.Units[0].Body);
         Assert.Contains("AlphaTwo", units.Units[1].Body);
         Assert.DoesNotContain("BetaOne", units.Units[1].Body);
