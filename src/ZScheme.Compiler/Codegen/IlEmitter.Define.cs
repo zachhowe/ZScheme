@@ -86,7 +86,7 @@ public sealed partial class IlEmitter
             typeDef.Methods.Add(methodDef);
         }
 
-        EmitCustomAttributes(iface.Attributes, typeDef);
+        EmitCustomAttributes(iface.Attributes, typeDef, iface.Span);
 
         if (parentType is not null)
             parentType.NestedTypes.Add(typeDef);
@@ -126,7 +126,7 @@ public sealed partial class IlEmitter
         else
             _module.TopLevelTypes.Add(typeDef);
         RegisterUserType(record.Name, typeDef);
-        EmitCustomAttributes(record.Attributes, typeDef);
+        EmitCustomAttributes(record.Attributes, typeDef, record.Span);
 
         Dictionary<string, TypeSignature>? typeParamMap = null;
         if (record.TypeParams.Count > 0)
@@ -186,7 +186,7 @@ public sealed partial class IlEmitter
             typeDef.Methods.Add(initSetter);
             prop.Semantics.Add(new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter));
 
-            EmitCustomAttributes(field.Attributes, prop);
+            EmitCustomAttributes(field.Attributes, prop, record.Span);
 
             typeDef.Properties.Add(prop);
 
@@ -268,7 +268,7 @@ public sealed partial class IlEmitter
         else
             _module.TopLevelTypes.Add(typeDef);
         RegisterUserType(record.Name, typeDef);
-        EmitCustomAttributes(record.Attributes, typeDef);
+        EmitCustomAttributes(record.Attributes, typeDef, record.Span);
 
         Dictionary<string, TypeSignature>? typeParamMap = null;
         if (record.TypeParams.Count > 0)
@@ -323,7 +323,7 @@ public sealed partial class IlEmitter
             typeDef.Methods.Add(initSetter);
             prop.Semantics.Add(new MethodSemantics(initSetter, MethodSemanticsAttributes.Setter));
 
-            EmitCustomAttributes(field.Attributes, prop);
+            EmitCustomAttributes(field.Attributes, prop, record.Span);
 
             typeDef.Properties.Add(prop);
             fieldDefs.Add((fb, getter));
@@ -1130,7 +1130,7 @@ public sealed partial class IlEmitter
         baseCtorIl.Add(CilOpCodes.Ret);
 
         RegisterUserType(union.Name, baseType);
-        EmitCustomAttributes(union.Attributes, baseType);
+        EmitCustomAttributes(union.Attributes, baseType, union.Span);
 
         // Case types
         foreach (var @case in union.Cases)
@@ -1227,7 +1227,7 @@ public sealed partial class IlEmitter
                     );
                 }
 
-                EmitCustomAttributes(field.Attributes, prop);
+                EmitCustomAttributes(field.Attributes, prop, union.Span);
 
                 caseType.Properties.Add(prop);
 

@@ -5680,7 +5680,11 @@ public sealed partial class IlEmitter
         return null;
     }
 
-    private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, MethodDefinition target)
+    private void EmitCustomAttributes(
+        IReadOnlyList<IrAttribute>? attrs,
+        MethodDefinition target,
+        SourceSpan span = default
+    )
     {
         if (attrs is null)
             return;
@@ -5688,14 +5692,24 @@ public sealed partial class IlEmitter
         {
             var attrType = FindAttributeType(attr.Name);
             if (attrType is null)
+            {
+                diagnostics.Warning(
+                    $"Attribute '{attr.Name}' could not be resolved to a CLR attribute; it was not emitted",
+                    span
+                );
                 continue;
+            }
             var customAttr = BuildCustomAttribute(attrType, attr);
             if (customAttr is not null)
                 target.CustomAttributes.Add(customAttr);
         }
     }
 
-    private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, TypeDefinition target)
+    private void EmitCustomAttributes(
+        IReadOnlyList<IrAttribute>? attrs,
+        TypeDefinition target,
+        SourceSpan span = default
+    )
     {
         if (attrs is null)
             return;
@@ -5703,7 +5717,13 @@ public sealed partial class IlEmitter
         {
             var attrType = FindAttributeType(attr.Name);
             if (attrType is null)
+            {
+                diagnostics.Warning(
+                    $"Attribute '{attr.Name}' could not be resolved to a CLR attribute; it was not emitted",
+                    span
+                );
                 continue;
+            }
             var customAttr = BuildCustomAttribute(attrType, attr);
             if (customAttr is not null)
                 target.CustomAttributes.Add(customAttr);
@@ -5713,7 +5733,11 @@ public sealed partial class IlEmitter
     // Record fields land as properties, and attribute consumers (System.Text.Json's
     // JsonPropertyName, for one) read them off the property. The C# backend emits field
     // attributes with a [property:] target; mirror that on the emitted property.
-    private void EmitCustomAttributes(IReadOnlyList<IrAttribute>? attrs, PropertyDefinition target)
+    private void EmitCustomAttributes(
+        IReadOnlyList<IrAttribute>? attrs,
+        PropertyDefinition target,
+        SourceSpan span = default
+    )
     {
         if (attrs is null)
             return;
@@ -5721,7 +5745,13 @@ public sealed partial class IlEmitter
         {
             var attrType = FindAttributeType(attr.Name);
             if (attrType is null)
+            {
+                diagnostics.Warning(
+                    $"Attribute '{attr.Name}' could not be resolved to a CLR attribute; it was not emitted",
+                    span
+                );
                 continue;
+            }
             var customAttr = BuildCustomAttribute(attrType, attr);
             if (customAttr is not null)
                 target.CustomAttributes.Add(customAttr);
@@ -5922,7 +5952,7 @@ public sealed partial class IlEmitter
 
         classType.BaseType = baseTypeRef;
 
-        EmitCustomAttributes(classDecl.Attributes, classType);
+        EmitCustomAttributes(classDecl.Attributes, classType, classDecl.Span);
 
         // Add interface implementations and collect interface method names
         var interfaceMethodNames = new HashSet<string>();
@@ -6276,7 +6306,7 @@ public sealed partial class IlEmitter
                     new ParameterDefinition((ushort)(pi + 1), method.Params[pi].Name, 0)
                 );
             classType.Methods.Add(mb);
-            EmitCustomAttributes(method.Attributes, mb);
+            EmitCustomAttributes(method.Attributes, mb, classDecl.Span);
 
             methodShells.Add(mb);
             classMethodMap[method.Name] = mb;

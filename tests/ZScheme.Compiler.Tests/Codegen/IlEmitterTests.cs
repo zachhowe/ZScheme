@@ -656,6 +656,11 @@ public class IlEmitterTests
         Assembly.Load(new AssemblyName("System.Text.Json"));
         var bytes = emitter.Emit(new IrNode.Seq([record]) { Type = ZType.Unit });
         Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        // A resolvable attribute must not trip the unresolvable-attribute warning.
+        Assert.DoesNotContain(
+            diag.Diagnostics,
+            d => d.Severity == DiagnosticSeverity.Warning && d.Message.Contains("JsonPropertyName")
+        );
 
         var asm = Assembly.Load(bytes!);
         var pt = asm.GetTypes().First(t => t.Name == "Pt");
@@ -663,6 +668,30 @@ public class IlEmitterTests
         var data = Assert.Single(prop.GetCustomAttributesData());
         Assert.Equal("JsonPropertyNameAttribute", data.AttributeType.Name);
         Assert.Equal("x_coord", Assert.Single(data.ConstructorArguments).Value);
+    }
+
+    [Fact]
+    public void EmitRecordDecl_UnresolvableFieldAttribute_WarnsInsteadOfSilentDrop()
+    {
+        // An attribute name that resolves to no CLR type: the C# backend fails compilation
+        // on the same source, so the IL backend must not silently drop it — it must at
+        // least warn. The warning span points at the enclosing declaration because
+        // IrAttribute carries no span of its own.
+        var attr = new IrAttribute("NoSuchAttributeAnywhere", [], []);
+        var record = new IrNode.RecordDecl("Pt", [], [new IrField("x", ZType.Int, [attr])]);
+        var diag = new DiagnosticBag();
+        var emitter = new IlEmitter(
+            "RecAttrWarnProbe",
+            diag,
+            "TestClass",
+            typeAliases: BuildStdlibRegistry()
+        );
+        var bytes = emitter.Emit(new IrNode.Seq([record]) { Type = ZType.Unit });
+
+        Assert.False(diag.HasErrors, string.Join("\n", diag.Diagnostics));
+        Assert.NotNull(bytes);
+        var warning = diag.Diagnostics.Single(d => d.Severity == DiagnosticSeverity.Warning);
+        Assert.Contains("NoSuchAttributeAnywhere", warning.Message);
     }
 
     [Fact]
