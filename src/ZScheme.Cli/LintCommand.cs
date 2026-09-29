@@ -254,18 +254,13 @@ internal static class LintCommand
         // deprecation warnings, which lint is the bulk fixer for. Keep only the ones this
         // file owns: a module imported from source reports its deprecations with spans in
         // its own file, which is not the one being rewritten here.
-        var thisFile = Path.GetFullPath(file);
         var deprecations = compilation
             .GetDiagnostics()
             .Diagnostics.Where(d =>
                 d.Code
                     is DiagnosticCodes.DeprecatedAccessorSyntax
                         or DiagnosticCodes.DeprecatedKeyword
-                && string.Equals(
-                    Path.GetFullPath(d.Span.File),
-                    thisFile,
-                    StringComparison.OrdinalIgnoreCase
-                )
+                && SamePath(d.Span.File, file)
             );
 
         var found = new List<Diagnostic>(
@@ -330,6 +325,17 @@ internal static class LintCommand
     {
         var relative = Path.GetRelativePath(Directory.GetCurrentDirectory(), path);
         return relative.StartsWith("..", StringComparison.Ordinal) ? path : relative;
+    }
+
+    /// <summary>Whether two paths name the same file: case-insensitive where the filesystem
+    ///     is (Windows), ordinal everywhere else — a hint's span must never be attributed to
+    ///     (and rewritten against) a different file whose path merely differs in case.</summary>
+    private static bool SamePath(string a, string b)
+    {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), comparison);
     }
 
     private sealed record LintGroup(string? ManifestPath, IReadOnlyList<string> Files);
