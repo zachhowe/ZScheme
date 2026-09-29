@@ -42,8 +42,10 @@ internal static class LintCommand
                 case "--fix":
                     fix = true;
                     // Optional scope: `--fix ZS0006,ZS0007` applies only the listed codes.
-                    // The token after --fix is a scope only when it reads as a code list;
-                    // a path that merely starts with ZS is still a path.
+                    // The token after --fix is a scope only when the whole token reads as a
+                    // code list (comma-separated ZS+digits); a path that merely starts with
+                    // ZS is still a path. The flip side: a file named exactly a code list
+                    // cannot sit directly after --fix — put it before the flag.
                     if (
                         i + 1 < args.Length
                         && LooksLikeCodeList(args[i + 1])
