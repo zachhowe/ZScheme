@@ -156,3 +156,28 @@ In development since 2026-08-13.
   backends implement all methods inherited through an interface chain. Interface and class
   metadata also preserves the complete transitive inheritance information for downstream
   modules.
+
+- **`set!` mutates `#:mutable` record and struct fields through a receiver.**
+  `(set! rec field expr)` sets a `#:mutable` field of a record or struct value in place.
+  Records stay immutable by default — `set!` on a field not marked `#:mutable` is a compile
+  error, and `#:mutable` now means the same on a record or struct field as on a class field.
+  - The receiver must be a variable — a let-bound name, a parameter, or a class field. A
+    computed receiver of a value type would mutate a throwaway copy (and on C# the property-rvalue
+    form does not even compile — CS1612), so the inferer rejects it and both backends share one
+    well-defined storage slot.
+  - A struct record stored in a class field is mutated by read-modify-write through the field's
+    setter on the C# backend and by `ldflda` on IL; an init-only field has no setter to write
+    through, so both backends reject that shape with the same diagnostic —
+    they agree on what compiles.
+  - Every compiled module's metadata now carries a map of its records' `#:mutable` field names (an
+    empty entry marks a plain record), so the receiver form type-checks against imported modules.
+    The map is additive and the format version stays at 2 — the same policy as before.
+  - A record with a `#:mutable` field can no longer use C#'s positional-record form — its
+    synthesized properties are not settable from outside — so it emits as a non-positional record
+    with per-field accessors, an explicit constructor, and an explicit `Deconstruct` that match's
+    tuple-decomposition patterns need. A mutable field gets a settable property instead of `init`,
+    and a struct with any mutable field drops `readonly` (CS8341). `with` still copy-updates — a
+    mutable field is one that can also be set, not one that `with` rewrites in place.
+  - Tested differentially on both backends — parameter receivers, struct copies, class-field
+    receivers, `with` interplay, cross-module imports — and the fuzzer now generates the form
+    against about half of its structs and generic records.
