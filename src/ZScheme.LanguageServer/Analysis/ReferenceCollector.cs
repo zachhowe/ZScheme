@@ -49,8 +49,9 @@ internal static class ReferenceCollector
     ///     The file's written type names as <see cref="IndexedReference" />s with
     ///     <see cref="IndexedReference.IsTypeUse" /> set. Container attribution uses the
     ///     enclosing top-level form, as for names: every type use sits inside exactly one
-    ///     form, and since form spans are single-line that form is the latest one that
-    ///     starts at or before the use (a use cannot lie past the next form's start).
+    ///     form, and since top-level forms are disjoint and appear in source order, the
+    ///     enclosing form is simply the latest one whose start position lies at or before
+    ///     the use's.
     /// </summary>
     private static IEnumerable<IndexedReference> TypeUseReferences(
         IReadOnlyList<AstNode> forms,
