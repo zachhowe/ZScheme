@@ -8,8 +8,22 @@ public sealed record UserClassDecl(
     bool IsOpen,
     string? BaseName,
     IReadOnlyList<string> ImplementedInterfaces,
-    string Definition
-);
+    string Definition,
+    bool HasExplicitCtor = false,
+    IReadOnlyList<UserClassMethod>? BaseChainMethods = null
+)
+{
+    /// <summary>
+    ///     Every method callable on an instance: this class's declared methods plus,
+    ///     for a derived class, the base chain's effective set (distinct by name — an
+    ///     override reuses the inherited name, so the declared entry wins). Derived
+    ///     classes list the full set so override picking can reach a method the direct
+    ///     base never overrode (a two-level vtable insertion) and the instance-call
+    ///     alias emitter can target an inherited member, which the backends must
+    ///     resolve against its declaring type.
+    /// </summary>
+    public IReadOnlyList<UserClassMethod> EffectiveMethods => BaseChainMethods ?? Methods;
+}
 
 public sealed record UserClassField(string Name, bool IsMutable, ExprType Type = ExprType.Int);
 

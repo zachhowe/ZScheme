@@ -94,6 +94,21 @@ In development since 2026-08-13.
   occurrence; `--fix ZS0006,ZS0007` restricts the rewrite to the listed codes, and issues
   outside the scope are counted in the summary rather than treated as failures. A code with
   no fix is a usage error, and a file that does not type-check is still never rewritten.
+
+- **The fuzzer covers the new type-resolution and inheritance semantics.** Interface
+  inheritance chains, multi-level class chains, interfaces on `#:open` bases, the bare
+  constructor-call form on derived classes, interface-accessor dispatch, and
+  non-canonical type-name spellings (lower-case and hyphenated declarations, lower-case
+  nullary union constructors matched as bare atoms) are all generated now, alongside
+  the interface-`provide` and `set!`-receiver coverage from earlier. First contact
+  found four compiler divergences, documented under `issues/` with minimized repros:
+  the IL backend cannot resolve a super-call two hops up the chain, marks overrides
+  final so any further override fails IL type load, and the C# backend emits a
+  case-variant class's explicit-constructor calls with the source spelling; a
+  pre-existing with-handlers-inside-n-ary-`+`-inside-a-`set!`-RHS value divergence
+  also surfaced. Each of those shapes is gated to a reduced probability while it
+  diverges (see `docs/FUZZER.md` §4.4), and the fuzzer's `set!` read-back was fixed to
+  the modern `Type-member` accessor spelling it had never been updated to.
 ## Changed — language
 - **`export` is spelled `provide`, and type declarations dropped their `define-` prefix.**
   Both moves follow Racket: it spells the module-export form `provide`, and it treats

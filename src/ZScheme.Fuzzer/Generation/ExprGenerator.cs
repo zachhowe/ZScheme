@@ -434,6 +434,8 @@ public sealed class ExprGenerator
             weights.Add((1, () => _class.ConstructDiscardToInt(scope, depth)));
             if (_ctx.EnableClassInstanceCalls)
                 weights.Add((1, () => _class.ConstructAndCallToInt(scope, depth)));
+            if (_ctx.EnableInterfaceDispatch && _class.HasDispatchTarget())
+                weights.Add((1, () => _class.InterfaceDispatchToInt(scope, depth)));
         }
 
         if (_object is not null && _object.HasEligible())
@@ -1114,8 +1116,9 @@ public sealed class ExprGenerator
         };
     }
 
-    // Wraps a ground-typed expression so it reduces to Int.
-    private static string ReduceToInt(string expr, ExprType ground)
+    // Wraps a ground-typed expression so it reduces to Int. Internal so the
+    // class generator's interface-dispatch reducer shares it.
+    internal static string ReduceToInt(string expr, ExprType ground)
     {
         return ground switch
         {

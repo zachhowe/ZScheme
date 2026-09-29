@@ -27,8 +27,8 @@ public sealed class SetFieldExprGenerator
     }
 
     // True when any user record/struct has a #:mutable field to mutate.
-    public static bool HasEligible(GeneratorContext ctx)
-        => ctx.UserRecords.Any(r => r.Fields.Any(f => f.IsMutable));
+    public static bool HasEligible(GeneratorContext ctx) =>
+        ctx.UserRecords.Any(r => r.Fields.Any(f => f.IsMutable));
 
     public string SetFieldToInt(Scope scope, int depth)
     {
@@ -46,7 +46,11 @@ public sealed class SetFieldExprGenerator
             initialArgs.Add(_exprs.GenInt(scope, depth - 1));
         var newValue = _exprs.GenInt(scope, depth - 1);
 
+        // Modern `Type-member` accessor spelling — the deprecated `Type/member`
+        // form still resolves, but on a hyphenated type name the fallback's
+        // spelling conventions are exactly what member resolution had to stop
+        // guessing from, so the generator emits only the canonical form.
         return $"(let ([{binder} ({r.Name} {string.Join(" ", initialArgs)})])"
-            + $"  (begin (set! {binder} {field.Name} {newValue}) ({r.Name}/{field.Name} {binder})))";
+            + $"  (begin (set! {binder} {field.Name} {newValue}) ({r.Name}-{field.Name} {binder})))";
     }
 }

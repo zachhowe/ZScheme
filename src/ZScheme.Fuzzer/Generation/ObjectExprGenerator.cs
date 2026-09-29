@@ -26,11 +26,27 @@ public sealed class ObjectExprGenerator
     private readonly GeneratorContext _ctx;
     private readonly ExprGenerator _exprs;
 
+    // Wired by ProgramGenerator after construction: the interface-chain expansion
+    // (CollectChainMethods) lives on ClassExprGenerator so the class and object
+    // paths share one definition of "methods an implementer must supply".
+    private ClassExprGenerator? _class;
+
     public ObjectExprGenerator(GeneratorContext ctx, ExprGenerator exprs)
     {
         _ctx = ctx;
         _exprs = exprs;
     }
+
+    public void SetClass(ClassExprGenerator classGen)
+    {
+        _class = classGen;
+    }
+
+    private ClassExprGenerator ClassGen =>
+        _class
+        ?? throw new InvalidOperationException(
+            "ObjectExprGenerator used before SetClass was wired"
+        );
 
     public bool HasEligible()
     {
@@ -84,23 +100,46 @@ public sealed class ObjectExprGenerator
         var seenNames = new HashSet<string>();
         var methodTexts = new List<string>();
         foreach (var iface in picked)
-        foreach (var im in iface.Methods)
+        foreach (var im in ClassGen.CollectChainMethods(iface))
         {
             if (!seenNames.Add(im.Name))
                 continue;
             // Pass the enclosing scope so the method body can reference
             // captures (e.g., enclosing-class fields when this object is
             // emitted inside a class method — the path commit a221d41 fixed).
+            // The chain expansion supplies every inherited member too — an
+            // object implementing IChild : IBase must carry the base's methods
+            // exactly as a nominal class must.
             methodTexts.Add(BuildMethodText(im.Name, im.ParamTypes, im.RetType, depth, scope));
         }
 
         // Single interface: bare atom. Multi-interface: grouped list `(IFoo IBar)`
         // — the bare-atom form only takes one interface name (AstBuilder.cs:1110-1113).
+        // The grouped list is also where a base-named interface exercises the
+        // capitalization-independent grouped-list parse when its name is spelled
+        // in a non-canonical casing.
         var headerNames =
             picked.Count == 1
                 ? picked[0].Name
                 : $"({string.Join(" ", picked.Select(i => i.Name))})";
         var body = $"(object {headerNames}\n{string.Join("\n", methodTexts)})";
+
+        // ~35%: instead of discarding the object, call one of its interface methods
+        // through the accessor — interface dispatch against an anonymous type, and
+        // (when the picked interface extends another) through an inherited member's
+        // accessor. Only for the single-interface shape: the binding is annotated
+        // there, so the accessor's receiver type unifies directly.
+        if (picked.Count == 1 && _ctx.Rng.NextDouble() < 0.35)
+        {
+            var chain = ClassGen.CollectChainMethods(picked[0]);
+            var method = chain[_ctx.Rng.Next(chain.Count)];
+            var callArgs = new List<string> { bindName };
+            foreach (var pt in method.ParamTypes)
+                callArgs.Add(_exprs.GenTyped(pt, scope, depth - 1));
+            var call = $"({picked[0].Name}-{method.Name} {string.Join(" ", callArgs)})";
+            return $"(let ([{bindName} : {picked[0].Name} {body}])\n    {ExprGenerator.ReduceToInt(call, method.RetType)})";
+        }
+
         var tail = _exprs.GenInt(scope, depth - 1);
         // Type annotation only when the object's nominal type is namable: a
         // single interface name. Multi-interface forms produce a synthesized
@@ -125,10 +164,12 @@ public sealed class ObjectExprGenerator
 
         var superCall = superArgs.Count == 0 ? "(super)" : $"(super {string.Join(" ", superArgs)})";
 
-        // Override one base method (must match its signature). Pass the
-        // enclosing scope so captures (notably enclosing-class fields, per
-        // commit a221d41) are reachable in the method body.
-        var baseMethod = baseCls.Methods[_ctx.Rng.Next(baseCls.Methods.Count)];
+        // Override one base method (must match its signature). Picks from the
+        // base's effective set, so the override can land on a method the base
+        // merely inherited — the anonymous subclass's super-call then resolves
+        // two hops up. Pass the enclosing scope so captures (notably
+        // enclosing-class fields, per commit a221d41) are reachable in the body.
+        var baseMethod = baseCls.EffectiveMethods[_ctx.Rng.Next(baseCls.EffectiveMethods.Count)];
         var overrideText = BuildMethodText(
             baseMethod.Name,
             baseMethod.ParamTypes,

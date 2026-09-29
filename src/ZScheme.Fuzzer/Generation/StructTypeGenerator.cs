@@ -21,7 +21,7 @@ public sealed class StructTypeGenerator
 
     public UserRecordDecl GenerateStruct(int index)
     {
-        var name = $"SRec_{index}";
+        var name = _ctx.MangleTypeName($"SRec_{index}");
         var fieldCount = 2 + _ctx.Rng.Next(2); // 2 or 3 fields
 
         // ~Half the structs carry one #:mutable field so SetFieldExprGenerator has
