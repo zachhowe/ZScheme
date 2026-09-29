@@ -5020,15 +5020,17 @@ public sealed partial class IlEmitter
             return;
         }
 
-        var resultSigType = MapToClr(node.Type, ctx);
         // Unit-typed branch bodies push nothing onto the evaluation stack (the
         // emitter-wide convention: EmitNode for a Unit-typed node leaves the
         // stack unchanged), so there is no value to store — and stloc would
         // underflow the stack. Skip the result local entirely in that case.
         var resultIsUnit = node.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
-        var resultLocal = resultIsUnit ? null : new CilLocalVariable(resultSigType);
-        if (resultLocal is not null)
+        CilLocalVariable? resultLocal = null;
+        if (!resultIsUnit)
+        {
+            resultLocal = new CilLocalVariable(MapToClr(node.Type, ctx));
             il.Owner.LocalVariables.Add(resultLocal);
+        }
 
         var endLabel = new CilInstructionLabel();
 
@@ -5374,10 +5376,12 @@ public sealed partial class IlEmitter
         // See EmitWithHandlers: Unit-typed branch bodies push nothing, so there
         // is no value to store in a result local.
         var resultIsUnit = node.Type is ZType.ZPrimitiveType { Kind: PrimitiveKind.Unit };
-        var resultSigType = MapToClr(node.Type, ctx);
-        var resultLocal = resultIsUnit ? null : new CilLocalVariable(resultSigType);
-        if (resultLocal is not null)
+        CilLocalVariable? resultLocal = null;
+        if (!resultIsUnit)
+        {
+            resultLocal = new CilLocalVariable(MapToClr(node.Type, ctx));
             il.Owner.LocalVariables.Add(resultLocal);
+        }
 
         var tagLocal = new CilLocalVariable(_module.CorLibTypeFactory.Int32);
         il.Owner.LocalVariables.Add(tagLocal);
