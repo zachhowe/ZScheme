@@ -2501,7 +2501,7 @@ public sealed partial class CSharpEmitter
         {
             var fields =
                 c.Fields.Count > 0
-                    ? $"({string.Join(", ", c.Fields.Select(f => $"{TypeToCs(f.Type)} {Sanitize(f.Name)}"))})"
+                    ? $"({string.Join(", ", c.Fields.Select(f => $"{FormatFieldAttributes(f.Attributes)}{TypeToCs(f.Type)} {Sanitize(f.Name)}"))})"
                     : "()";
             sb.AppendLine(
                 $"public sealed record {SanitizeType(c.EmitName, c.Name)}{typeParams}{fields} : {unionName}{typeParams}{whereClause};"
