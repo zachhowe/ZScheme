@@ -3426,17 +3426,22 @@ public sealed class AstBuilder(
     /// <summary>
     ///     Records a type name written in a type position on <see cref="_typeNameUses" />.
     ///     Mirrors <c>TypeNameScanner.Record</c>'s exclusions: a trailing <c>?</c> is not
-    ///     part of the name, and <c>^</c>-prefixed type variables and <c>#:</c>-prefixed
-    ///     flags are the enclosing form's own syntax, not named types.
+    ///     part of the name — and neither is it part of the recorded span, so the span
+    ///     covers exactly the name — and <c>^</c>-prefixed type variables and
+    ///     <c>#:</c>-prefixed flags are the enclosing form's own syntax, not named types.
     /// </summary>
     private void RecordTypeNameUse(SExpr.Atom atom, int arity = 0)
     {
         var name = atom.Text;
+        var span = atom.Span;
         if (name.Length > 1 && name[^1] == '?' && name[0] != '^')
+        {
             name = name[..^1];
+            span = span with { Length = span.Length - 1 };
+        }
         if (name.Length == 0 || name[0] is '^' or '#')
             return;
-        _typeNameUses.Add(new TypeNameUse(name, atom.Span, arity));
+        _typeNameUses.Add(new TypeNameUse(name, span, arity));
     }
 
     private ZType ParseNamedTypeAtom(SExpr.Atom atom)
@@ -3451,8 +3456,14 @@ public sealed class AstBuilder(
         {
             SExpr.Atom a
                 when a.Text.EndsWith('?') && a.Text.Length > 1 && !a.Text.StartsWith('^') =>
+                // The synthesized name atom drops the '?', and its span drops it too, so the
+                // recursion records the name-only span (not one that ends at the suffix).
                 new ZType.ZNullableType(
-                    ParseTypeExpr(new SExpr.Atom(new Token(a.Kind, a.Text[..^1], a.Span)))
+                    ParseTypeExpr(
+                        new SExpr.Atom(
+                            new Token(a.Kind, a.Text[..^1], a.Span with { Length = a.Span.Length - 1 })
+                        )
+                    )
                 ),
             SExpr.Atom a when a.Text.StartsWith('^') && a.Text.Length > 1 => new ZType.ZNamedType(
                 a.Text,

@@ -363,6 +363,61 @@ public sealed class TypeNavigationTests
         Assert.Equal("Point".Length, range.End.Character - range.Start.Character);
     }
 
+    [Fact]
+    public void PrepareRename_OnNullableAnnotation_RangeExcludesTheNullableSuffix()
+    {
+        // The range is the identifier to rename: exactly the name, not `Point?` — a wider
+        // range would make the rename delete the nullable suffix.
+        var src = """
+            (module test)
+            (define-record Point [x : Int] [y : Int])
+            (define (f [p : Point?]) : Int 0)
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        var (line, col) = LspTestSession.Locate(src, "Point", 2); // [p : Point?]
+
+        var range = PrepareRenameHandler.ResolvePrepareRename(state, line, col);
+
+        Assert.NotNull(range);
+        Assert.Equal(line - 1, range!.Start.Line);
+        Assert.Equal(col - 1, range.Start.Character);
+        Assert.Equal("Point".Length, range.End.Character - range.Start.Character);
+    }
+
+    [Fact]
+    public void Rename_FromNullableAnnotation_RewritesNameButKeepsTheSuffix()
+    {
+        var src = """
+            (module test)
+            (define-record Point [x : Int] [y : Int])
+            (define (f [p : Point?]) : Int 0)
+            """;
+        var (svc, uri) = LspTestSession.Open(src);
+        var state = svc.GetDocument(uri)!;
+        var (line, col) = LspTestSession.Locate(src, "Point", 2); // [p : Point?]
+
+        var edit = RenameHandler.ResolveRename(
+            state,
+            svc.Index,
+            line,
+            col,
+            "Coord",
+            DocumentUri.Parse(uri)
+        );
+
+        Assert.NotNull(edit);
+        var edits = Assert.Single(edit!.Changes!).Value.ToList();
+        // The declaration plus the annotation use.
+        Assert.Equal(2, edits.Count);
+        Assert.All(edits, e => Assert.Equal("Coord", e.NewText));
+        // The annotation edit spans exactly the old name's length (not "Point?".Length),
+        // so applying it rewrites `[p : Point?]` to `[p : Coord?]` — the `?` survives.
+        var useEdit = Assert.Single(edits, e => e.Range.Start.Line == line - 1);
+        Assert.Equal(col - 1, useEdit.Range.Start.Character);
+        Assert.Equal("Point".Length, useEdit.Range.End.Character - useEdit.Range.Start.Character);
+    }
+
     // --- cross-file ---
 
     private const string Lib = """

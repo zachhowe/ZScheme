@@ -2464,6 +2464,24 @@ public class AstBuilderTests
     }
 
     [Fact]
+    public void TypeNameUses_NullableAnnotationSpan_ExcludesTheNullableSuffix()
+    {
+        // The span is turned into rename/edit ranges by the language server, so it must
+        // cover the name only — including the '?' would delete it on rename.
+        var prog = Build("(define (f [x : Point?]) : Int 0)");
+        var point = Assert.Single(prog.TypeNameUses, u => u.Name == "Point");
+        Assert.Equal("Point".Length, point.Span.Length);
+    }
+
+    [Fact]
+    public void TypeNameUses_NullablePrimitiveSpan_ExcludesTheNullableSuffix()
+    {
+        var prog = Build("(define (f [x : Int?]) x)");
+        var prim = Assert.Single(prog.TypeNameUses, u => u.Name == "Int");
+        Assert.Equal("Int".Length, prim.Span.Length);
+    }
+
+    [Fact]
     public void TypeNameUses_CollectsClassBaseList()
     {
         var prog = Build("(define-class Dog : Animal IPet [x : Int])");
