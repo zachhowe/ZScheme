@@ -26,6 +26,9 @@ internal static class NameConverter
             .Replace(">", "_gt")
             .Replace("<", "_lt")
             .Replace("|", "_pipe")
+            // `=` names Scheme-style equivalence predicates (=?). IL tolerates a raw '=' in
+            // an identifier, C# does not, so map it like the other punctuation above.
+            .Replace("=", "_eq")
             .Replace("^", "")
             .Replace("*", "_star")
             // '$' never reaches here from source (the lexer rejects it in symbols); it
