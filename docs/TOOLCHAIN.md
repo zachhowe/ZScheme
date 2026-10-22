@@ -210,6 +210,27 @@ would report the same compiler version as the released toolchain and write to th
 installation. The trade-off is that a linked toolchain builds the standard library once on first
 use.
 
+## Building zsup itself
+
+The release installers download a zsup binary; nothing else in the repository installs one built
+from this checkout, and `build-dev-toolchain.ps1` expects to find zsup already on PATH. That is
+what `install-zsup.ps1` is for — a bootstrap that does not go through a release:
+
+```sh
+pwsh ./install-zsup.ps1
+```
+
+It publishes the Native AOT binary for the machine it runs on (AOT cannot cross-compile; `-Rid`
+overrides for a machine you can build on the same way), installs it as `$ZSCHEME_HOME/bin/zsup`
+with the `zs` / `zs-lsp` shims beside it — hardlinks on Unix, copies on Windows, the same layout a
+release install produces — and puts bin on PATH unless `-NoModifyPath`. It installs no toolchain:
+`zsup list` right after is empty by design, and the usual next step is
+`pwsh ./build-dev-toolchain.ps1 -Use`.
+
+On a Homebrew Mac the native link needs OpenSSL and brotli, which macOS does not ship and Homebrew
+keeps keg-only, so the script puts their `lib/` directories on `LIBRARY_PATH` (clang's `-L`
+equivalent) for the build. Release runners need none of this.
+
 ## Editors
 
 Editors find the language server as bare `zs-lsp` on PATH, which is the shim — so an editor follows

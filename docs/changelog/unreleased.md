@@ -2,6 +2,19 @@
 
 In development since 2026-08-13.
 
+## Added — tooling
+
+- **`install-zsup.ps1` builds and installs zsup from source.** Every existing path to a zsup
+  binary went through a release: `install.ps1`/`install.sh` download one, and `publish-zsup.ps1`
+  stops at packaging an archive in `dist/` — so someone working on zsup itself had no bootstrap
+  short of hand-copying files into `~/.zscheme/bin`. The new script publishes the Native AOT
+  binary for the machine it runs on, lays down `$ZSCHEME_HOME/bin/zsup` plus the `zs` / `zs-lsp`
+  shims — hardlinks on Unix, copies on Windows, matching a release install — and puts bin on PATH
+  unless `-NoModifyPath`. It installs no toolchain, so `build-dev-toolchain.ps1 -Use` remains the
+  next step for compiler work. On a Homebrew Mac the script puts the keg-only `openssl@3` and
+  `brotli` lib directories on `LIBRARY_PATH` for the native link, which needs them and cannot find
+  them otherwise.
+
 ## Changed — packages
 
 - **A package references its dependencies instead of compiling them into itself.** Building a
